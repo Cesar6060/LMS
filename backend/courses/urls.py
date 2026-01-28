@@ -39,6 +39,7 @@ urlpatterns = [
     # Activity tracking
     path('courses/<str:course_code>/activity/', views.update_course_activity, name='update-activity'),
 
-    # Dashboard stats
+    # Dashboard (Phase 13)
     path('dashboard/stats/', views.dashboard_stats, name='dashboard-stats'),
+    path('dashboard/enhanced/', views.enhanced_dashboard, name='enhanced-dashboard'),
 ]

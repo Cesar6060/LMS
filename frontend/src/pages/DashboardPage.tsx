@@ -1,29 +1,18 @@
 import { useState, useEffect } from 'react';
 import { Link } from 'react-router';
 import { useAuth } from '@/contexts/AuthContext';
-import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { courseService, type InstructorCourse } from '@/services/courses';
-import type { Enrollment } from '@/types';
-import {
-  Gamepad2, BookOpen, GraduationCap, Users, Plus, ChevronRight
-} from 'lucide-react';
+import type { Enrollment, EnhancedDashboard } from '@/types';
+import { Plus, Play, BookOpen, Users, CheckCircle2 } from 'lucide-react';
 import { EnrollmentModal } from '@/components/course/EnrollmentModal';
-import { Skeleton, SkeletonStatCard, SkeletonCard } from '@/components/ui/Skeleton';
-
-interface DashboardStats {
-  pending_grades?: number;
-  total_students?: number;
-  lessons_completed?: number;
-  assignments_due?: number;
-  course_count: number;
-}
+import { Skeleton } from '@/components/ui/Skeleton';
 
 export function DashboardPage() {
   const { user } = useAuth();
   const [enrolledCourses, setEnrolledCourses] = useState<Enrollment[]>([]);
   const [instructorCourses, setInstructorCourses] = useState<InstructorCourse[]>([]);
-  const [stats, setStats] = useState<DashboardStats | null>(null);
+  const [enhancedData, setEnhancedData] = useState<EnhancedDashboard | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [showEnrollModal, setShowEnrollModal] = useState(false);
 
@@ -33,16 +22,15 @@ export function DashboardPage() {
 
   const loadData = async () => {
     if (!user) return;
-
     try {
       setIsLoading(true);
-      const [statsData] = await Promise.all([
-        courseService.getDashboardStats(),
+      const [enhanced] = await Promise.all([
+        courseService.getEnhancedDashboard(),
         user.is_instructor
           ? courseService.getInstructorCourses().then(setInstructorCourses)
           : courseService.getMyEnrollments().then(setEnrolledCourses)
       ]);
-      setStats(statsData);
+      setEnhancedData(enhanced);
     } catch (err) {
       console.error('Failed to load dashboard data:', err);
     } finally {
@@ -50,245 +38,239 @@ export function DashboardPage() {
     }
   };
 
-  const totalStudents = instructorCourses.reduce((sum, course) => sum + course.student_count, 0);
+  const isInstructor = user?.is_instructor;
+  const courses = isInstructor ? instructorCourses : enrolledCourses;
+  const hasCourses = courses.length > 0;
+
+  // Calculate stats for students from enhanced data
+  const courseProgress = enhancedData && !enhancedData.is_instructor
+    ? enhancedData.course_progress_overview
+    : [];
+  const totalLessons = courseProgress.reduce((sum, course) => sum + course.lessons.total, 0);
+  const completedLessons = courseProgress.reduce((sum, course) => sum + course.lessons.completed, 0);
+
+  // Get continue learning data from enhanced dashboard
+  const continueLearning = enhancedData && !enhancedData.is_instructor ? enhancedData.continue_learning : null;
 
   if (isLoading) {
     return (
-      <div className="container mx-auto px-4 py-8">
-        <div className="mb-8">
-          <Skeleton className="h-9 w-64 mb-2" />
-          <Skeleton className="h-5 w-80" />
+      <div className="container mx-auto px-4 py-8 max-w-6xl">
+        <Skeleton className="h-44 rounded-xl mb-6" />
+        <div className="grid grid-cols-3 gap-4 mb-8">
+          {[1, 2, 3].map((i) => (
+            <Skeleton key={i} className="h-24 rounded-lg" />
+          ))}
         </div>
-        <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3 mb-8">
-          <SkeletonStatCard />
-          <SkeletonStatCard />
-          <SkeletonStatCard />
-        </div>
-        <div className="space-y-4">
-          <div className="flex items-center justify-between">
-            <Skeleton className="h-7 w-32" />
-            <Skeleton className="h-10 w-36" />
-          </div>
-          <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-            <SkeletonCard />
-            <SkeletonCard />
-            <SkeletonCard />
-          </div>
+        <Skeleton className="h-6 w-32 mb-4" />
+        <div className="space-y-3">
+          {[1, 2].map((i) => (
+            <Skeleton key={i} className="h-20 rounded-lg" />
+          ))}
         </div>
       </div>
     );
   }
 
   return (
-    <div className="container mx-auto px-4 py-8">
-      <div className="mb-8">
-        <h1 className="text-3xl font-bold">
-          Welcome back, {user?.first_name || user?.email?.split('@')[0]}!
-        </h1>
-        <p className="text-muted-foreground mt-2">
-          {user?.is_instructor
-            ? 'Manage your courses and track student progress'
-            : 'Continue your learning journey'}
-        </p>
+    <div className="container mx-auto px-4 py-8 max-w-6xl">
+      {/* Hero: Continue Learning */}
+      {hasCourses && !isInstructor && (
+        <div className="bg-gradient-to-r from-primary/10 via-primary/5 to-transparent rounded-xl p-8 mb-6">
+          <p className="text-sm font-medium text-primary mb-3">Continue Learning</p>
+          {continueLearning ? (
+            <>
+              <h2 className="text-2xl font-semibold mb-2">{continueLearning.course_title}</h2>
+              <p className="text-muted-foreground mb-5">
+                {continueLearning.current_lesson
+                  ? `${continueLearning.current_lesson.unit_title} · ${continueLearning.current_lesson.title}`
+                  : 'Start your first lesson'}
+              </p>
+              <div className="flex items-center gap-4">
+                <Link to={`/courses/${continueLearning.course_code}/learn`}>
+                  <Button size="lg">
+                    <Play className="h-4 w-4 mr-2" />
+                    Continue
+                  </Button>
+                </Link>
+                <span className="text-muted-foreground">
+                  {continueLearning.progress_percentage}% complete
+                </span>
+              </div>
+            </>
+          ) : (
+            <>
+              <h2 className="text-2xl font-semibold mb-2">Pick up where you left off</h2>
+              <p className="text-muted-foreground mb-5">
+                Select a course below to start learning
+              </p>
+            </>
+          )}
+        </div>
+      )}
+
+      {/* Instructor Hero */}
+      {hasCourses && isInstructor && (
+        <div className="bg-gradient-to-r from-primary/10 via-primary/5 to-transparent rounded-xl p-8 mb-6">
+          <p className="text-sm font-medium text-primary mb-3">Welcome back</p>
+          <h2 className="text-2xl font-semibold mb-2">Manage your courses</h2>
+          <p className="text-muted-foreground mb-5">
+            {instructorCourses.length} active course{instructorCourses.length !== 1 ? 's' : ''}
+          </p>
+          <Link to="/instructor/courses/new">
+            <Button size="lg">
+              <Plus className="h-4 w-4 mr-2" />
+              Create Course
+            </Button>
+          </Link>
+        </div>
+      )}
+
+      {/* Quick Stats */}
+      {hasCourses && (
+        <div className="grid grid-cols-3 gap-5 mb-8">
+          <div className="bg-card border rounded-xl p-5">
+            <div className="flex items-center gap-2 text-muted-foreground mb-2">
+              <BookOpen className="h-5 w-5" />
+              <span className="text-sm font-medium">Courses</span>
+            </div>
+            <p className="text-3xl font-semibold">{courses.length}</p>
+          </div>
+          {isInstructor ? (
+            <>
+              <div className="bg-card border rounded-xl p-5">
+                <div className="flex items-center gap-2 text-muted-foreground mb-2">
+                  <Users className="h-5 w-5" />
+                  <span className="text-sm font-medium">Students</span>
+                </div>
+                <p className="text-3xl font-semibold">
+                  {instructorCourses.reduce((sum, c) => sum + c.student_count, 0)}
+                </p>
+              </div>
+              <div className="bg-card border rounded-xl p-5">
+                <div className="flex items-center gap-2 text-muted-foreground mb-2">
+                  <CheckCircle2 className="h-5 w-5" />
+                  <span className="text-sm font-medium">Active</span>
+                </div>
+                <p className="text-3xl font-semibold">
+                  {instructorCourses.filter((c) => c.student_count > 0).length}
+                </p>
+              </div>
+            </>
+          ) : (
+            <>
+              <div className="bg-card border rounded-xl p-5">
+                <div className="flex items-center gap-2 text-muted-foreground mb-2">
+                  <CheckCircle2 className="h-5 w-5" />
+                  <span className="text-sm font-medium">Completed</span>
+                </div>
+                <p className="text-3xl font-semibold">{completedLessons}</p>
+              </div>
+              <div className="bg-card border rounded-xl p-5">
+                <div className="flex items-center gap-2 text-muted-foreground mb-2">
+                  <BookOpen className="h-5 w-5" />
+                  <span className="text-sm font-medium">Lessons</span>
+                </div>
+                <p className="text-3xl font-semibold">{totalLessons}</p>
+              </div>
+            </>
+          )}
+        </div>
+      )}
+
+      {/* Course List Header */}
+      <div className="flex items-center justify-between mb-5">
+        <h2 className="text-xl font-semibold">
+          {isInstructor ? 'Your Courses' : 'Enrolled Courses'}
+        </h2>
+        {hasCourses && (
+          isInstructor ? (
+            <Link to="/instructor/courses/new">
+              <Button variant="outline">
+                <Plus className="h-4 w-4 mr-2" />
+                New Course
+              </Button>
+            </Link>
+          ) : (
+            <Button variant="outline" onClick={() => setShowEnrollModal(true)}>
+              <Plus className="h-4 w-4 mr-2" />
+              Join Course
+            </Button>
+          )
+        )}
       </div>
 
-      {user?.is_instructor ? (
-        // Instructor Dashboard
-        <>
-          <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3 mb-8">
-            <Card>
-              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                <CardTitle className="text-sm font-medium">My Courses</CardTitle>
-                <BookOpen className="h-4 w-4 text-muted-foreground" />
-              </CardHeader>
-              <CardContent>
-                <div className="text-2xl font-bold">{instructorCourses.length}</div>
-                <p className="text-xs text-muted-foreground">
-                  Courses you're teaching
-                </p>
-              </CardContent>
-            </Card>
-            <Card>
-              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                <CardTitle className="text-sm font-medium">Total Students</CardTitle>
-                <Users className="h-4 w-4 text-muted-foreground" />
-              </CardHeader>
-              <CardContent>
-                <div className="text-2xl font-bold">{totalStudents}</div>
-                <p className="text-xs text-muted-foreground">
-                  Across all your courses
-                </p>
-              </CardContent>
-            </Card>
-            <Card>
-              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                <CardTitle className="text-sm font-medium">Pending Grades</CardTitle>
-                <GraduationCap className="h-4 w-4 text-muted-foreground" />
-              </CardHeader>
-              <CardContent>
-                <div className="text-2xl font-bold">{stats?.pending_grades ?? 0}</div>
-                <p className="text-xs text-muted-foreground">
-                  Submissions to review
-                </p>
-              </CardContent>
-            </Card>
-          </div>
-
-          {/* My Courses Section */}
-          <div className="space-y-4">
-            <div className="flex items-center justify-between">
-              <h2 className="text-xl font-semibold">My Courses</h2>
-              <Link to="/instructor/courses/new">
-                <Button>
-                  <Plus className="h-4 w-4 mr-2" />
-                  Create Course
-                </Button>
-              </Link>
-            </div>
-
-            {instructorCourses.length === 0 ? (
-              <Card>
-                <CardContent className="flex flex-col items-center justify-center py-12">
-                  <BookOpen className="h-12 w-12 text-muted-foreground mb-4" />
-                  <h3 className="text-lg font-semibold mb-2">No courses yet</h3>
-                  <p className="text-muted-foreground text-center mb-4">
-                    Create your first course to get started
-                  </p>
-                  <Link to="/instructor/courses/new">
-                    <Button>
-                      <Plus className="h-4 w-4 mr-2" />
-                      Create Course
-                    </Button>
-                  </Link>
-                </CardContent>
-              </Card>
-            ) : (
-              <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-                {instructorCourses.map((course) => (
-                  <Link key={course.id} to={`/courses/${course.code}`}>
-                    <Card className="h-full hover:shadow-lg transition-shadow cursor-pointer">
-                      <CardHeader>
-                        <span className="text-sm font-mono text-muted-foreground">
-                          {course.code}
-                        </span>
-                        <CardTitle className="line-clamp-2">{course.title}</CardTitle>
-                      </CardHeader>
-                      <CardContent className="flex items-center justify-between text-sm text-muted-foreground">
-                        <div className="flex items-center gap-1">
-                          <Users className="h-4 w-4" />
-                          {course.student_count} students
-                        </div>
-                        <ChevronRight className="h-4 w-4" />
-                      </CardContent>
-                    </Card>
-                  </Link>
-                ))}
-              </div>
-            )}
-          </div>
-        </>
-      ) : (
-        // Student Dashboard
-        <>
-          <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3 mb-8">
-            <Card>
-              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                <CardTitle className="text-sm font-medium">Enrolled Courses</CardTitle>
-                <BookOpen className="h-4 w-4 text-muted-foreground" />
-              </CardHeader>
-              <CardContent>
-                <div className="text-2xl font-bold">{enrolledCourses.length}</div>
-                <p className="text-xs text-muted-foreground">
-                  Active enrollments
-                </p>
-              </CardContent>
-            </Card>
-            <Card>
-              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                <CardTitle className="text-sm font-medium">Lessons Completed</CardTitle>
-                <GraduationCap className="h-4 w-4 text-muted-foreground" />
-              </CardHeader>
-              <CardContent>
-                <div className="text-2xl font-bold">{stats?.lessons_completed ?? 0}</div>
-                <p className="text-xs text-muted-foreground">
-                  Keep up the great work!
-                </p>
-              </CardContent>
-            </Card>
-            <Card>
-              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                <CardTitle className="text-sm font-medium">Assignments Due</CardTitle>
-                <Gamepad2 className="h-4 w-4 text-muted-foreground" />
-              </CardHeader>
-              <CardContent>
-                <div className="text-2xl font-bold">{stats?.assignments_due ?? 0}</div>
-                <p className="text-xs text-muted-foreground">
-                  In the next 7 days
-                </p>
-              </CardContent>
-            </Card>
-          </div>
-
-          {/* My Courses Section */}
-          <div className="space-y-4">
-            <div className="flex items-center justify-between">
-              <h2 className="text-xl font-semibold">My Courses</h2>
-              <Button onClick={() => setShowEnrollModal(true)}>
+      {/* Course List */}
+      {!hasCourses ? (
+        <div className="text-center py-20 border rounded-xl bg-muted/20">
+          <BookOpen className="h-16 w-16 text-muted-foreground/30 mx-auto mb-4" />
+          <p className="text-lg text-muted-foreground mb-5">
+            {isInstructor ? 'No courses yet' : 'No courses enrolled'}
+          </p>
+          {isInstructor ? (
+            <Link to="/instructor/courses/new">
+              <Button size="lg">
                 <Plus className="h-4 w-4 mr-2" />
-                Enroll with Code
+                Create Your First Course
               </Button>
-            </div>
-
-            {enrolledCourses.length === 0 ? (
-              <Card>
-                <CardContent className="flex flex-col items-center justify-center py-12">
-                  <BookOpen className="h-12 w-12 text-muted-foreground mb-4" />
-                  <h3 className="text-lg font-semibold mb-2">No courses yet</h3>
-                  <p className="text-muted-foreground text-center mb-4">
-                    Enroll in a course to begin learning
-                  </p>
-                  <Button onClick={() => setShowEnrollModal(true)}>
-                    <Plus className="h-4 w-4 mr-2" />
-                    Enroll with Code
+            </Link>
+          ) : (
+            <Button size="lg" onClick={() => setShowEnrollModal(true)}>
+              <Plus className="h-4 w-4 mr-2" />
+              Join Your First Course
+            </Button>
+          )}
+        </div>
+      ) : (
+        <div className="space-y-4">
+          {isInstructor
+            ? instructorCourses.map((course) => (
+                <Link
+                  key={course.id}
+                  to={`/courses/${course.code}`}
+                  className="flex items-center justify-between p-5 bg-card border rounded-xl hover:border-primary/50 transition-colors"
+                >
+                  <div>
+                    <h3 className="text-lg font-medium">{course.title}</h3>
+                    <p className="text-muted-foreground">
+                      {course.code} · {course.student_count} student{course.student_count !== 1 ? 's' : ''}
+                    </p>
+                  </div>
+                  <Button variant="outline">
+                    Manage
                   </Button>
-                </CardContent>
-              </Card>
-            ) : (
-              <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-                {enrolledCourses.map((enrollment) => (
-                  <Link key={enrollment.id} to={`/courses/${enrollment.course.code}`}>
-                    <Card className="h-full hover:shadow-lg transition-shadow cursor-pointer">
-                      <CardHeader>
-                        <span className="text-sm font-mono text-muted-foreground">
-                          {enrollment.course.code}
-                        </span>
-                        <CardTitle className="line-clamp-2">{enrollment.course.title}</CardTitle>
-                        <CardDescription className="line-clamp-2">
-                          {enrollment.course.description || 'No description'}
-                        </CardDescription>
-                      </CardHeader>
-                      <CardContent className="flex items-center justify-between text-sm text-muted-foreground">
-                        <span>
-                          {enrollment.course.instructor.first_name} {enrollment.course.instructor.last_name}
-                        </span>
-                        <ChevronRight className="h-4 w-4" />
-                      </CardContent>
-                    </Card>
-                  </Link>
-                ))}
-              </div>
-            )}
-          </div>
+                </Link>
+              ))
+            : enrolledCourses.map((enrollment) => (
+                <Link
+                  key={enrollment.id}
+                  to={`/courses/${enrollment.course.code}`}
+                  className="flex items-center justify-between p-5 bg-card border rounded-xl hover:border-primary/50 transition-colors"
+                >
+                  <div>
+                    <h3 className="text-lg font-medium">{enrollment.course.title}</h3>
+                    <p className="text-muted-foreground">
+                      {enrollment.course.code} · {enrollment.course.instructor.first_name} {enrollment.course.instructor.last_name}
+                    </p>
+                  </div>
+                  <Button variant="outline">
+                    <Play className="h-4 w-4 mr-2" />
+                    Learn
+                  </Button>
+                </Link>
+              ))}
+        </div>
+      )}
 
-          <EnrollmentModal
-            open={showEnrollModal}
-            onOpenChange={setShowEnrollModal}
-            onSuccess={() => {
-              setShowEnrollModal(false);
-              loadData();
-            }}
-          />
-        </>
+      {/* Enrollment Modal */}
+      {!isInstructor && (
+        <EnrollmentModal
+          open={showEnrollModal}
+          onOpenChange={setShowEnrollModal}
+          onSuccess={() => {
+            setShowEnrollModal(false);
+            loadData();
+          }}
+        />
       )}
     </div>
   );

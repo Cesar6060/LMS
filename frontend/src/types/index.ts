@@ -321,6 +321,86 @@ export interface GradeSummary {
   grade_items?: StudentGradeDetailItem[];
 }
 
+// Phase 13: Enhanced Dashboard types
+export interface ContinueLearning {
+  course_code: string;
+  course_title: string;
+  current_lesson: {
+    id: number;
+    title: string;
+    unit_title: string;
+  } | null;
+  progress_percentage: number;
+  completed_lessons: number;
+  total_lessons: number;
+  last_activity_at: string | null;
+}
+
+export interface UpcomingDeadline {
+  id: number;
+  type: 'assignment' | 'quiz';
+  title: string;
+  course_code: string;
+  course_title: string;
+  due_date: string;
+  max_points: number;
+  has_draft?: boolean;
+}
+
+export interface CourseProgressItem {
+  course_code: string;
+  course_title: string;
+  overall_percentage: number;
+  lessons: {
+    completed: number;
+    total: number;
+    percentage: number;
+  };
+  assignments: {
+    completed: number;
+    total: number;
+    percentage: number;
+  };
+  quizzes: {
+    passed: number;
+    total: number;
+    percentage: number;
+  };
+}
+
+export interface RecentSubmission {
+  id: number;
+  student_name: string;
+  student_email: string;
+  assignment_title: string;
+  course_code: string;
+  course_title: string;
+  submitted_at: string | null;
+  is_late: boolean;
+}
+
+export interface InstructorCourseProgress {
+  course_code: string;
+  course_title: string;
+  student_count: number;
+  pending_submissions: number;
+}
+
+export interface EnhancedDashboardStudent {
+  continue_learning: ContinueLearning | null;
+  upcoming_deadlines: UpcomingDeadline[];
+  course_progress_overview: CourseProgressItem[];
+  is_instructor: false;
+}
+
+export interface EnhancedDashboardInstructor {
+  recent_submissions: RecentSubmission[];
+  course_progress_overview: InstructorCourseProgress[];
+  is_instructor: true;
+}
+
+export type EnhancedDashboard = EnhancedDashboardStudent | EnhancedDashboardInstructor;
+
 // API Error response
 export interface APIError {
   detail?: string;

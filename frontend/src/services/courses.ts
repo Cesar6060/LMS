@@ -1,5 +1,5 @@
 import api from './api';
-import type { Course, Unit, Lesson, Enrollment, LessonProgress, GradingConfig, GradeSummary } from '../types';
+import type { Course, Unit, Lesson, Enrollment, LessonProgress, GradingConfig, GradeSummary, EnhancedDashboard } from '../types';
 
 // Re-export types for convenience
 export type { Unit, Lesson } from '../types';
@@ -288,6 +288,12 @@ export const courseService = {
     course_count: number;
   }> {
     const response = await api.get('/courses/dashboard/stats/');
+    return response.data;
+  },
+
+  // Enhanced Dashboard (Phase 13)
+  async getEnhancedDashboard(): Promise<EnhancedDashboard> {
+    const response = await api.get<EnhancedDashboard>('/courses/dashboard/enhanced/');
     return response.data;
   },
 
