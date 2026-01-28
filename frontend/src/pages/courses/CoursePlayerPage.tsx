@@ -243,10 +243,20 @@ export function CoursePlayerPage() {
           }))
         });
       }
+
+      // Auto-advance to next lesson
+      if (updated.completed) {
+        const allLessons = course?.units.flatMap(u => u.lessons) || [];
+        const currentIndex = allLessons.findIndex(l => l.id === currentLesson.id);
+        const nextLesson = currentIndex < allLessons.length - 1 ? allLessons[currentIndex + 1] : null;
+        if (nextLesson) {
+          setTimeout(() => navigate(`/courses/${code}/learn/${nextLesson.id}`), 500);
+        }
+      }
     } catch (err) {
       console.error('Failed to mark lesson complete:', err);
     }
-  }, [currentLesson, progress?.completed, course]);
+  }, [currentLesson, progress?.completed, course, code, navigate]);
 
   const getPreviousLesson = () => {
     if (!course || !currentLesson) return null;
@@ -394,7 +404,7 @@ export function CoursePlayerPage() {
                     </Button>
                   </div>
 
-                  {/* Video */}
+                  {/* Video - currently only YouTube is supported */}
                   {currentLesson.video_type === 'youtube' && currentLesson.video_id && (
                     <div className="mb-8">
                       <VideoPlayer

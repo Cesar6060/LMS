@@ -394,19 +394,20 @@ export const courseService = {
     // Get course details
     const courseData = await this.getCourse(courseCode);
 
-    // Get all lesson progress for this course
+    // Get all lesson progress for this course (in parallel for performance)
     const lessonProgressMap = new Map<number, boolean>();
+    const allLessons = courseData.units.flatMap(unit => unit.lessons);
 
-    // Fetch progress for each lesson
-    for (const unit of courseData.units) {
-      for (const lesson of unit.lessons) {
-        try {
-          const progress = await this.getLessonProgress(lesson.id);
-          lessonProgressMap.set(lesson.id, progress.completed);
-        } catch {
-          lessonProgressMap.set(lesson.id, false);
-        }
-      }
+    const progressResults = await Promise.all(
+      allLessons.map(lesson =>
+        this.getLessonProgress(lesson.id)
+          .then(progress => ({ id: lesson.id, completed: progress.completed }))
+          .catch(() => ({ id: lesson.id, completed: false }))
+      )
+    );
+
+    for (const { id, completed } of progressResults) {
+      lessonProgressMap.set(id, completed);
     }
 
     // Merge progress into course data
