@@ -80,21 +80,18 @@ export function CoursePlayerPage() {
     localStorage.setItem('coursePlayerSidebarCollapsed', isSidebarCollapsed.toString());
   }, [isSidebarCollapsed]);
 
-  // Load course data
-  useEffect(() => {
-    if (code) {
-      loadCourse();
+  const findFirstIncompleteLesson = useCallback((courseData: CourseWithProgress) => {
+    for (const unit of courseData.units) {
+      for (const lesson of unit.lessons) {
+        if (!lesson.is_completed) {
+          return lesson;
+        }
+      }
     }
-  }, [code]);
+    return null;
+  }, []);
 
-  // Load specific lesson when lessonId changes
-  useEffect(() => {
-    if (lessonId && course) {
-      loadLesson(parseInt(lessonId));
-    }
-  }, [lessonId, course?.id]);
-
-  const loadCourse = async () => {
+  const loadCourse = useCallback(async () => {
     if (!code) return;
 
     try {
@@ -123,20 +120,9 @@ export function CoursePlayerPage() {
     } finally {
       setIsLoading(false);
     }
-  };
+  }, [code, lessonId, navigate, findFirstIncompleteLesson]);
 
-  const findFirstIncompleteLesson = (courseData: CourseWithProgress) => {
-    for (const unit of courseData.units) {
-      for (const lesson of unit.lessons) {
-        if (!lesson.is_completed) {
-          return lesson;
-        }
-      }
-    }
-    return null;
-  };
-
-  const loadLesson = async (id: number) => {
+  const loadLesson = useCallback(async (id: number) => {
     try {
       setIsLessonLoading(true);
       const [lessonData, progressData] = await Promise.all([
@@ -156,11 +142,25 @@ export function CoursePlayerPage() {
     } finally {
       setIsLessonLoading(false);
     }
-  };
+  }, [code]);
 
-  const handleLessonSelect = (id: number) => {
+  // Load course data
+  useEffect(() => {
+    if (code) {
+      loadCourse();
+    }
+  }, [code, loadCourse]);
+
+  // Load specific lesson when lessonId changes
+  useEffect(() => {
+    if (lessonId && course) {
+      loadLesson(parseInt(lessonId));
+    }
+  }, [lessonId, course?.id, loadLesson]);
+
+  const handleLessonSelect = useCallback((id: number) => {
     navigate(`/courses/${code}/learn/${id}`);
-  };
+  }, [navigate, code]);
 
   const handleMarkComplete = async () => {
     if (!currentLesson || !progress) return;
@@ -305,7 +305,7 @@ export function CoursePlayerPage() {
 
     window.addEventListener('keydown', handleKeyPress);
     return () => window.removeEventListener('keydown', handleKeyPress);
-  }, [previousLesson, nextLesson]);
+  }, [previousLesson, nextLesson, handleLessonSelect]);
 
   if (isLoading) {
     return (
