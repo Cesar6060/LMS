@@ -10,6 +10,7 @@ import { DashboardPage } from '@/pages/DashboardPage';
 import { CoursesPage } from '@/pages/courses/CoursesPage';
 import { CourseDetailPage } from '@/pages/courses/CourseDetailPage';
 import { LessonPage } from '@/pages/courses/LessonPage';
+import { CoursePlayerPage } from '@/pages/courses/CoursePlayerPage';
 import { CreateCoursePage } from '@/pages/instructor/CreateCoursePage';
 import { ManageCoursePage } from '@/pages/instructor/ManageCoursePage';
 import { AssignmentDetailPage } from '@/pages/assignments/AssignmentDetailPage';
@@ -162,6 +163,22 @@ function App() {
             element={
               <ProtectedRoute>
                 <LessonPage />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/courses/:code/learn"
+            element={
+              <ProtectedRoute>
+                <CoursePlayerPage />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/courses/:code/learn/:lessonId"
+            element={
+              <ProtectedRoute>
+                <CoursePlayerPage />
               </ProtectedRoute>
             }
           />

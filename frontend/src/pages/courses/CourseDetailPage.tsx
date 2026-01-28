@@ -191,9 +191,15 @@ export function CourseDetailPage() {
 
         {isEnrolled && !isInstructor && (
           <div className="mt-4 flex items-center gap-4">
+            <Link to={`/courses/${course.code}/learn`}>
+              <Button>
+                <Play className="h-4 w-4 mr-2" />
+                {progress && progress.completed_lessons > 0 ? 'Continue Learning' : 'Start Learning'}
+              </Button>
+            </Link>
             <div className="flex items-center gap-2 text-green-600">
               <CheckCircle className="h-4 w-4" />
-              <span className="text-sm font-medium">You are enrolled in this course</span>
+              <span className="text-sm font-medium">Enrolled</span>
             </div>
             {progress && progress.total_lessons > 0 && (
               <div className="flex items-center gap-2">

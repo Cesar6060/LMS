@@ -22,7 +22,7 @@ export interface LessonListItem {
   order: number;
   video_type: 'none' | 'youtube' | 'vimeo';
   content?: string;
-  video_id?: string;
+  video_id: string | null;
 }
 
 export interface UnitWithLessons {
@@ -383,6 +383,43 @@ export const courseService = {
   async getMyGradeSummary(courseCode: string): Promise<GradeSummary> {
     const response = await api.get<GradeSummary>(`/courses/courses/${courseCode}/my-grades/`);
     return response.data;
+  },
+
+  // Course with progress (for course player)
+  async getCourseWithProgress(courseCode: string): Promise<CourseDetail & {
+    units: Array<UnitWithLessons & {
+      lessons: Array<LessonListItem & { is_completed?: boolean }>;
+    }>;
+  }> {
+    // Get course details
+    const courseData = await this.getCourse(courseCode);
+
+    // Get all lesson progress for this course
+    const lessonProgressMap = new Map<number, boolean>();
+
+    // Fetch progress for each lesson
+    for (const unit of courseData.units) {
+      for (const lesson of unit.lessons) {
+        try {
+          const progress = await this.getLessonProgress(lesson.id);
+          lessonProgressMap.set(lesson.id, progress.completed);
+        } catch {
+          lessonProgressMap.set(lesson.id, false);
+        }
+      }
+    }
+
+    // Merge progress into course data
+    return {
+      ...courseData,
+      units: courseData.units.map(unit => ({
+        ...unit,
+        lessons: unit.lessons.map(lesson => ({
+          ...lesson,
+          is_completed: lessonProgressMap.get(lesson.id) || false
+        }))
+      }))
+    };
   },
 };
 
