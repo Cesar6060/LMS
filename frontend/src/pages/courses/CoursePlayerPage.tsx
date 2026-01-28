@@ -10,7 +10,7 @@ import { courseService } from '@/services/courses';
 import type { LessonProgress } from '@/types';
 import {
   Loader2, ChevronLeft, ChevronRight, CheckCircle, Circle,
-  ArrowLeft
+  X, Gamepad2
 } from 'lucide-react';
 
 interface LessonDetail {
@@ -331,30 +331,42 @@ export function CoursePlayerPage() {
   }
 
   return (
-    <div className="h-screen flex flex-col bg-background">
-      {/* Top bar */}
-      <div className="h-14 border-b bg-card flex items-center px-4 gap-4">
-        <Link
-          to={`/courses/${code}`}
-          className="flex items-center gap-2 text-muted-foreground hover:text-foreground transition-colors"
-        >
-          <ArrowLeft className="h-4 w-4" />
-          <span className="hidden sm:inline">Exit</span>
-        </Link>
-
-        <div className="flex-1 min-w-0">
-          <h1 className="font-semibold truncate">{course.title}</h1>
+    <div className="h-screen flex flex-col bg-background animate-in fade-in duration-300">
+      {/* Learning Mode Header */}
+      <div className="h-14 border-b bg-card/95 backdrop-blur supports-[backdrop-filter]:bg-card/80 flex items-center px-4 gap-4">
+        {/* Logo & Exit */}
+        <div className="flex items-center gap-3">
+          <Link to="/" className="flex items-center text-muted-foreground hover:text-foreground">
+            <Gamepad2 className="h-5 w-5" />
+          </Link>
+          <div className="h-6 w-px bg-border" />
+          <Link
+            to={`/courses/${code}`}
+            className="flex items-center gap-2 text-muted-foreground hover:text-foreground transition-colors group"
+          >
+            <X className="h-4 w-4" />
+            <span className="text-sm hidden sm:inline group-hover:text-primary">Exit Learning Mode</span>
+          </Link>
         </div>
 
-        <div className="flex items-center gap-2 text-sm text-muted-foreground">
-          <span className="hidden sm:inline">
-            {completedCount}/{totalCount} complete
-          </span>
-          <div className="w-24 h-2 bg-muted rounded-full overflow-hidden">
-            <div
-              className="h-full bg-primary transition-all"
-              style={{ width: `${progressPercentage}%` }}
-            />
+        {/* Course Title */}
+        <div className="flex-1 min-w-0 text-center">
+          <h1 className="font-semibold truncate text-sm sm:text-base">{course.title}</h1>
+        </div>
+
+        {/* Progress */}
+        <div className="flex items-center gap-3">
+          <div className="flex items-center gap-2 text-sm">
+            <span className="text-muted-foreground hidden sm:inline">
+              {completedCount}/{totalCount}
+            </span>
+            <div className="w-20 sm:w-28 h-2 bg-muted rounded-full overflow-hidden">
+              <div
+                className="h-full bg-primary transition-all duration-300"
+                style={{ width: `${progressPercentage}%` }}
+              />
+            </div>
+            <span className="text-xs font-medium text-primary">{Math.round(progressPercentage)}%</span>
           </div>
         </div>
       </div>

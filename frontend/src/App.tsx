@@ -1,4 +1,4 @@
-import { Routes, Route, Navigate } from 'react-router';
+import { Routes, Route, Navigate, useLocation } from 'react-router';
 import { useAuth } from '@/contexts/AuthContext';
 import { Header } from '@/components/layout/Header';
 import { LoginPage } from '@/pages/auth/LoginPage';
@@ -88,9 +88,14 @@ function InstructorRoute({ children }: { children: React.ReactNode }) {
 }
 
 function App() {
+  const location = useLocation();
+
+  // Hide header in learning mode (CoursePlayerPage has its own header)
+  const isLearningMode = location.pathname.match(/\/courses\/[^/]+\/learn/);
+
   return (
     <div className="min-h-screen bg-background">
-      <Header />
+      {!isLearningMode && <Header />}
       <main>
         <Routes>
           {/* Public routes */}

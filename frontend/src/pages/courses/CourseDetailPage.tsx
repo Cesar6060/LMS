@@ -22,6 +22,22 @@ interface CourseProgress {
   progress_percentage: number;
 }
 
+interface NextLessonInfo {
+  lessonId: number;
+  lessonTitle: string;
+  unitTitle: string;
+  unitNumber: number;
+  lessonNumber: number;
+}
+
+interface UnitProgress {
+  unitId: number;
+  unitTitle: string;
+  totalLessons: number;
+  completedLessons: number;
+  isComplete: boolean;
+}
+
 export function CourseDetailPage() {
   const { code } = useParams<{ code: string }>();
   const { user } = useAuth();
@@ -34,10 +50,86 @@ export function CourseDetailPage() {
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState('');
   const [showEnrollModal, setShowEnrollModal] = useState(false);
+  const [descriptionExpanded, setDescriptionExpanded] = useState(false);
 
   const isInstructor = user?.id === course?.instructor.id;
   const isEnrolled = course?.is_enrolled || false;
   const canAccessContent = isInstructor || isEnrolled;
+
+  // Compute next lesson for enrolled students
+  const getNextLesson = (): NextLessonInfo | null => {
+    if (!course || !isEnrolled || isInstructor) return null;
+
+    // For now, we'll compute this from the course structure
+    // The first incomplete lesson or the first lesson if none completed
+    for (let unitIdx = 0; unitIdx < course.units.length; unitIdx++) {
+      const unit = course.units[unitIdx];
+      for (let lessonIdx = 0; lessonIdx < unit.lessons.length; lessonIdx++) {
+        const lesson = unit.lessons[lessonIdx];
+        // Check if this lesson is completed (would need progress data per lesson)
+        // For now, use overall progress to estimate
+        const estimatedCompleted = progress && progress.total_lessons > 0
+          ? Math.floor((progress.completed_lessons / progress.total_lessons) * course.units.reduce((sum, u) => sum + u.lessons.length, 0))
+          : 0;
+        const currentLessonIndex = course.units.slice(0, unitIdx).reduce((sum, u) => sum + u.lessons.length, 0) + lessonIdx;
+
+        if (currentLessonIndex >= estimatedCompleted) {
+          return {
+            lessonId: lesson.id,
+            lessonTitle: lesson.title,
+            unitTitle: unit.title,
+            unitNumber: unitIdx + 1,
+            lessonNumber: lessonIdx + 1,
+          };
+        }
+      }
+    }
+
+    // All completed, return first lesson
+    if (course.units.length > 0 && course.units[0].lessons.length > 0) {
+      return {
+        lessonId: course.units[0].lessons[0].id,
+        lessonTitle: course.units[0].lessons[0].title,
+        unitTitle: course.units[0].title,
+        unitNumber: 1,
+        lessonNumber: 1,
+      };
+    }
+
+    return null;
+  };
+
+  // Compute unit progress for timeline
+  const getUnitProgress = (): UnitProgress[] => {
+    if (!course || !progress) return [];
+
+    const totalLessons = course.units.reduce((sum, u) => sum + u.lessons.length, 0);
+    if (totalLessons === 0) return [];
+
+    let completedSoFar = 0;
+    const lessonsPerUnit = course.units.map(u => u.lessons.length);
+
+    return course.units.map((unit, idx) => {
+      const unitLessons = unit.lessons.length;
+      // Estimate completion based on overall progress
+      const estimatedUnitCompleted = Math.min(
+        unitLessons,
+        Math.max(0, progress.completed_lessons - completedSoFar)
+      );
+      completedSoFar += lessonsPerUnit[idx];
+
+      return {
+        unitId: unit.id,
+        unitTitle: unit.title,
+        totalLessons: unitLessons,
+        completedLessons: estimatedUnitCompleted,
+        isComplete: estimatedUnitCompleted >= unitLessons,
+      };
+    });
+  };
+
+  const nextLesson = getNextLesson();
+  const unitProgress = getUnitProgress();
 
   useEffect(() => {
     if (code) {
@@ -155,7 +247,28 @@ export function CourseDetailPage() {
           <div>
             <p className="text-sm font-mono text-muted-foreground mb-1">{course.code}</p>
             <h1 className="text-3xl font-bold mb-2">{course.title}</h1>
-            <p className="text-muted-foreground max-w-2xl">{course.description}</p>
+            {course.description && (() => {
+              const cleanDesc = course.description
+                .replace(/#{1,6}\s?/g, '')
+                .replace(/\*\*/g, '')
+                .replace(/[-•]\s/g, '')
+                .replace(/\n+/g, ' ')
+                .trim();
+              const isLong = cleanDesc.length > 150;
+              return (
+                <p className="text-muted-foreground max-w-2xl">
+                  {!isLong || descriptionExpanded ? cleanDesc : cleanDesc.slice(0, 150) + '... '}
+                  {isLong && (
+                    <button
+                      onClick={() => setDescriptionExpanded(!descriptionExpanded)}
+                      className="text-primary hover:underline"
+                    >
+                      {descriptionExpanded ? 'Show less' : 'Read more'}
+                    </button>
+                  )}
+                </p>
+              );
+            })()}
           </div>
           {isInstructor && (
             <Link to={`/instructor/courses/${course.code}/manage`}>
@@ -190,59 +303,125 @@ export function CourseDetailPage() {
         )}
 
         {isEnrolled && !isInstructor && (
-          <div className="mt-4 flex items-center gap-4">
-            <Link to={`/courses/${course.code}/learn`}>
-              <Button>
-                <Play className="h-4 w-4 mr-2" />
-                {progress && progress.completed_lessons > 0 ? 'Continue Learning' : 'Start Learning'}
-              </Button>
-            </Link>
-            <div className="flex items-center gap-2 text-green-600">
-              <CheckCircle className="h-4 w-4" />
-              <span className="text-sm font-medium">Enrolled</span>
-            </div>
-            {progress && progress.total_lessons > 0 && (
-              <div className="flex items-center gap-2">
-                <div className="w-32 h-2 bg-muted rounded-full overflow-hidden">
-                  <div
-                    className="h-full bg-primary transition-all duration-300"
-                    style={{ width: `${progress.progress_percentage}%` }}
-                  />
-                </div>
-                <span className="text-sm text-muted-foreground">
-                  {progress.progress_percentage}% complete
-                </span>
-              </div>
-            )}
+          <div className="mt-4 flex items-center gap-2 text-green-600">
+            <CheckCircle className="h-4 w-4" />
+            <span className="text-sm font-medium">Enrolled</span>
           </div>
         )}
       </div>
 
-      {/* Progress Summary Card (for enrolled users) */}
-      {canAccessContent && progress && progress.total_lessons > 0 && (
-        <Card className="mb-6">
-          <CardContent className="py-4">
-            <div className="flex items-center justify-between">
-              <div>
-                <h3 className="font-semibold">Your Progress</h3>
-                <p className="text-sm text-muted-foreground">
-                  {progress.completed_lessons} of {progress.total_lessons} lessons completed
+      {/* Hero Learning CTA (for enrolled students) */}
+      {isEnrolled && !isInstructor && course.units.length > 0 && (
+        <div className="mb-8 rounded-2xl bg-gradient-to-br from-primary/10 via-primary/5 to-transparent border border-primary/20 p-8">
+          <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-6">
+            <div className="flex-1">
+              <p className="text-sm font-medium text-primary mb-2">
+                {progress && progress.completed_lessons > 0 ? 'Continue Learning' : 'Start Learning'}
+              </p>
+              <h2 className="text-2xl font-bold mb-2">
+                {nextLesson
+                  ? `Unit ${nextLesson.unitNumber}: ${nextLesson.unitTitle}`
+                  : 'Begin Your Journey'}
+              </h2>
+              {nextLesson && (
+                <p className="text-muted-foreground mb-4">
+                  Next up: {nextLesson.lessonNumber}. {nextLesson.lessonTitle}
+                </p>
+              )}
+              <Link to={`/courses/${course.code}/learn`}>
+                <Button size="lg" className="gap-2">
+                  <Play className="h-5 w-5" />
+                  Learning Mode
+                </Button>
+              </Link>
+            </div>
+
+            {/* Progress circle */}
+            {progress && progress.total_lessons > 0 && (
+              <div className="flex flex-col items-center">
+                <div className="relative w-32 h-32">
+                  <svg className="w-full h-full -rotate-90" viewBox="0 0 100 100">
+                    <circle
+                      cx="50"
+                      cy="50"
+                      r="40"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="8"
+                      className="text-muted"
+                    />
+                    <circle
+                      cx="50"
+                      cy="50"
+                      r="40"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="8"
+                      strokeLinecap="round"
+                      strokeDasharray={`${progress.progress_percentage * 2.51} 251`}
+                      className="text-primary transition-all duration-500"
+                    />
+                  </svg>
+                  <div className="absolute inset-0 flex flex-col items-center justify-center">
+                    <span className="text-3xl font-bold">{progress.progress_percentage}%</span>
+                    <span className="text-xs text-muted-foreground">complete</span>
+                  </div>
+                </div>
+                <p className="text-sm text-muted-foreground mt-2">
+                  {progress.completed_lessons} of {progress.total_lessons} lessons
                 </p>
               </div>
-              <div className="text-right">
-                <div className="text-2xl font-bold text-primary">
-                  {progress.progress_percentage}%
-                </div>
-                <div className="w-40 h-2 bg-muted rounded-full overflow-hidden mt-1">
-                  <div
-                    className="h-full bg-primary transition-all duration-300"
-                    style={{ width: `${progress.progress_percentage}%` }}
-                  />
-                </div>
+            )}
+          </div>
+
+          {/* Unit Progress Timeline */}
+          {unitProgress.length > 1 && (
+            <div className="mt-8 pt-6 border-t border-primary/10">
+              <p className="text-sm font-medium text-muted-foreground mb-4">Course Progress</p>
+              <div className="flex items-center gap-2">
+                {unitProgress.map((unit, idx) => (
+                  <div key={unit.unitId} className="flex items-center flex-1">
+                    {/* Unit milestone */}
+                    <Link
+                      to={`/courses/${course.code}/learn`}
+                      className="flex flex-col items-center group"
+                    >
+                      <div
+                        className={`w-8 h-8 rounded-full flex items-center justify-center text-sm font-medium transition-all ${
+                          unit.isComplete
+                            ? 'bg-primary text-primary-foreground'
+                            : unit.completedLessons > 0
+                            ? 'bg-primary/20 text-primary border-2 border-primary'
+                            : 'bg-muted text-muted-foreground'
+                        } group-hover:scale-110`}
+                      >
+                        {unit.isComplete ? (
+                          <CheckCircle className="h-4 w-4" />
+                        ) : (
+                          idx + 1
+                        )}
+                      </div>
+                      <span className="text-xs text-muted-foreground mt-1 max-w-16 truncate text-center hidden sm:block">
+                        {unit.unitTitle}
+                      </span>
+                    </Link>
+                    {/* Connector line */}
+                    {idx < unitProgress.length - 1 && (
+                      <div className="flex-1 h-1 mx-2 rounded-full bg-muted overflow-hidden">
+                        <div
+                          className="h-full bg-primary transition-all duration-500"
+                          style={{
+                            width: unit.isComplete ? '100%' : `${(unit.completedLessons / unit.totalLessons) * 100}%`,
+                          }}
+                        />
+                      </div>
+                    )}
+                  </div>
+                ))}
               </div>
             </div>
-          </CardContent>
-        </Card>
+          )}
+        </div>
       )}
 
       {/* Show grade summary for enrolled students */}
