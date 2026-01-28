@@ -1,0 +1,17 @@
+# .coderabbit.yaml
+language: en
+reviews:
+  auto_review:
+    enabled: true
+    drafts: false
+  path_filters:
+    - "!**/*.md"           # Don't review markdown
+    - "!**/migrations/**"  # Skip Django migrations
+  path_instructions:
+    - path: "frontend/**"
+      instructions: "Focus on React best practices and TypeScript types"
+    - path: "backend/**"
+      instructions: "Check Django security and DRF patterns"
+
+chat:
+  auto_reply: true
