@@ -1,6 +1,6 @@
-# Video Game Course Platform v2
+# Dev Learning Platform
 
-Educational platform for video game development courses at Prosper ISD.
+A modern educational platform for video game development courses.
 
 ## Tech Stack
 
@@ -210,4 +210,4 @@ See `.env.example` for all available configuration options.
 
 ## License
 
-Private - Prosper ISD
+MIT License
