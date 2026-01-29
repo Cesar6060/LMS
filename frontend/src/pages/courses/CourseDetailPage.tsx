@@ -329,7 +329,7 @@ export function CourseDetailPage() {
                 </p>
               )}
               <Link to={`/courses/${course.code}/learn`}>
-                <Button size="lg" className="gap-2">
+                <Button size="lg" className="gap-2 bg-green-600 text-white hover:bg-green-700">
                   <Play className="h-5 w-5" />
                   Learning Mode
                 </Button>
@@ -348,7 +348,7 @@ export function CourseDetailPage() {
                       fill="none"
                       stroke="currentColor"
                       strokeWidth="8"
-                      className="text-muted"
+                      className="text-muted-foreground/20"
                     />
                     <circle
                       cx="50"
@@ -359,11 +359,11 @@ export function CourseDetailPage() {
                       strokeWidth="8"
                       strokeLinecap="round"
                       strokeDasharray={`${progress.progress_percentage * 2.51} 251`}
-                      className="text-primary transition-all duration-500"
+                      className="text-green-500 transition-all duration-500"
                     />
                   </svg>
                   <div className="absolute inset-0 flex flex-col items-center justify-center">
-                    <span className="text-3xl font-bold">{progress.progress_percentage}%</span>
+                    <span className="text-3xl font-bold text-green-500">{progress.progress_percentage}%</span>
                     <span className="text-xs text-muted-foreground">complete</span>
                   </div>
                 </div>
@@ -389,9 +389,9 @@ export function CourseDetailPage() {
                       <div
                         className={`w-8 h-8 rounded-full flex items-center justify-center text-sm font-medium transition-all ${
                           unit.isComplete
-                            ? 'bg-primary text-primary-foreground'
+                            ? 'bg-green-600 text-white'
                             : unit.completedLessons > 0
-                            ? 'bg-primary/20 text-primary border-2 border-primary'
+                            ? 'bg-green-600/20 text-green-500 border-2 border-green-600'
                             : 'bg-muted text-muted-foreground'
                         } group-hover:scale-110`}
                       >
@@ -407,9 +407,9 @@ export function CourseDetailPage() {
                     </Link>
                     {/* Connector line */}
                     {idx < unitProgress.length - 1 && (
-                      <div className="flex-1 h-1 mx-2 rounded-full bg-muted overflow-hidden">
+                      <div className="flex-1 h-1 mx-2 rounded-full bg-muted-foreground/20 overflow-hidden">
                         <div
-                          className="h-full bg-primary transition-all duration-500"
+                          className="h-full bg-green-600 transition-all duration-500"
                           style={{
                             width: unit.isComplete ? '100%' : `${(unit.completedLessons / unit.totalLessons) * 100}%`,
                           }}
@@ -572,7 +572,7 @@ export function CourseDetailPage() {
                 {assignments.map((assignment) => (
                   <li key={assignment.id}>
                     <Link
-                      to={`/assignments/${assignment.id}`}
+                      to={`/courses/${code}/assignments/${assignment.id}`}
                       className="flex items-center justify-between py-3 hover:bg-muted/50 -mx-6 px-6 transition-colors"
                     >
                       <div className="flex items-center gap-3">
@@ -631,7 +631,7 @@ export function CourseDetailPage() {
                 {quizzes.map((quiz) => (
                   <li key={quiz.id}>
                     <Link
-                      to={`/quizzes/${quiz.id}`}
+                      to={`/courses/${code}/quizzes/${quiz.id}`}
                       className="flex items-center justify-between py-3 hover:bg-muted/50 -mx-6 px-6 transition-colors"
                     >
                       <div className="flex items-center gap-3">

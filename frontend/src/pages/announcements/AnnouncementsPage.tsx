@@ -189,7 +189,7 @@ export function AnnouncementsPage() {
           className="inline-flex items-center text-sm text-muted-foreground hover:text-foreground mb-4"
         >
           <ChevronLeft className="h-4 w-4 mr-1" />
-          Back to {course.title}
+          Back to Course
         </Link>
 
         <div className="flex items-start justify-between">

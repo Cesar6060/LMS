@@ -13,7 +13,7 @@ import {
 } from 'lucide-react';
 
 export function AssignmentDetailPage() {
-  const { assignmentId } = useParams<{ assignmentId: string }>();
+  const { code, assignmentId } = useParams<{ code: string; assignmentId: string }>();
 
   const [assignment, setAssignment] = useState<Assignment | null>(null);
   const [submission, setSubmission] = useState<Submission | null>(null);
@@ -296,7 +296,7 @@ export function AssignmentDetailPage() {
     <div className="container mx-auto px-4 py-8 max-w-4xl">
       {/* Navigation */}
       <div className="mb-6">
-        <Link to={`/courses/${assignment.course_code}`}>
+        <Link to={`/courses/${code}`}>
           <Button variant="ghost" size="sm">
             <ChevronLeft className="h-4 w-4 mr-1" />
             Back to Course

@@ -169,7 +169,7 @@ export function LessonPage() {
                 <>
                   <FileQuestion className="h-4 w-4" />
                   <Link
-                    to={`/quizzes/${progress.required_quiz_info.id}`}
+                    to={`/courses/${code}/quizzes/${progress.required_quiz_info.id}`}
                     className="hover:underline"
                   >
                     Complete quiz "{progress.required_quiz_info.title}" to finish this lesson

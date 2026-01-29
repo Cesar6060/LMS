@@ -11,7 +11,7 @@ import {
 } from 'lucide-react';
 
 export function QuizDetailPage() {
-  const { quizId } = useParams<{ quizId: string }>();
+  const { code, quizId } = useParams<{ code: string; quizId: string }>();
   const { user } = useAuth();
 
   const [quiz, setQuiz] = useState<Quiz | null>(null);
@@ -107,7 +107,7 @@ export function QuizDetailPage() {
     return (
       <div className="container mx-auto px-4 py-8 max-w-4xl">
         <Link
-          to={`/courses/${quiz.course_code}`}
+          to={`/courses/${code}`}
           className="inline-flex items-center gap-2 text-muted-foreground hover:text-foreground mb-6"
         >
           <ChevronLeft className="h-4 w-4" />
@@ -212,7 +212,7 @@ export function QuizDetailPage() {
     return (
       <div className="container mx-auto px-4 py-8 max-w-4xl">
         <Link
-          to={`/courses/${quiz.course_code}`}
+          to={`/courses/${code}`}
           className="inline-flex items-center gap-2 text-muted-foreground hover:text-foreground mb-6"
         >
           <ChevronLeft className="h-4 w-4" />
