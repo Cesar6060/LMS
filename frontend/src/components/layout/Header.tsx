@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import { Link, useNavigate, useLocation } from 'react-router';
-import { LogOut, User, Gamepad2, Settings, GraduationCap, ChevronDown, ChevronRight } from 'lucide-react';
+import { LogOut, User, Gamepad2, Settings, ChevronDown, ChevronRight } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
 import { Button } from '@/components/ui/Button';
 import { NotificationBell } from '@/components/notifications/NotificationBell';
@@ -12,10 +12,10 @@ export function Header() {
   const navigate = useNavigate();
   const location = useLocation();
   const [enrolledCourses, setEnrolledCourses] = useState<Enrollment[]>([]);
-  const [gradesOpen, setGradesOpen] = useState(false);
-  const gradesRef = useRef<HTMLDivElement>(null);
+  const [userMenuOpen, setUserMenuOpen] = useState(false);
+  const userMenuRef = useRef<HTMLDivElement>(null);
 
-  // Load enrolled courses for grades dropdown (students only)
+  // Load enrolled courses for grades in user menu (students only)
   useEffect(() => {
     if (isAuthenticated && user && !user.is_instructor) {
       courseService.getMyEnrollments().then(setEnrolledCourses).catch(console.error);
@@ -27,8 +27,8 @@ export function Header() {
   // Close dropdown when clicking outside
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
-      if (gradesRef.current && !gradesRef.current.contains(event.target as Node)) {
-        setGradesOpen(false);
+      if (userMenuRef.current && !userMenuRef.current.contains(event.target as Node)) {
+        setUserMenuOpen(false);
       }
     };
     document.addEventListener('mousedown', handleClickOutside);
@@ -36,142 +36,211 @@ export function Header() {
   }, []);
 
   const handleLogout = async () => {
+    setUserMenuOpen(false);
     await logout();
     navigate('/login');
   };
 
-  // Generate breadcrumbs based on current path
-  const getBreadcrumbs = () => {
+  // Get breadcrumb info based on current path
+  const getBreadcrumbInfo = () => {
     const path = location.pathname;
-    const breadcrumbs: { label: string; href?: string }[] = [];
+    const parts: { label: string; href?: string }[] = [];
 
-    // Match course-related routes
+    // Course-related routes
     const courseMatch = path.match(/\/courses\/([^/]+)/);
     if (courseMatch) {
-      const courseCode = courseMatch[1];
-      breadcrumbs.push({ label: 'Dashboard', href: '/dashboard' });
-      breadcrumbs.push({ label: 'Courses', href: '/courses' });
-      breadcrumbs.push({ label: courseCode.toUpperCase(), href: `/courses/${courseCode}` });
+      const courseCode = courseMatch[1].toUpperCase();
+      parts.push({ label: courseCode, href: `/courses/${courseMatch[1]}` });
 
-      // Add sub-page context
+      // Add sub-page if we're deeper
       if (path.includes('/grades')) {
-        breadcrumbs.push({ label: 'Grades' });
+        parts.push({ label: 'Grades' });
       } else if (path.includes('/assignments')) {
-        breadcrumbs.push({ label: 'Assignments' });
+        parts.push({ label: 'Assignments' });
       } else if (path.includes('/quizzes')) {
-        breadcrumbs.push({ label: 'Quizzes' });
+        parts.push({ label: 'Quizzes' });
       } else if (path.includes('/learn')) {
-        breadcrumbs.push({ label: 'Learning' });
+        parts.push({ label: 'Learning' });
+      } else if (path.includes('/announcements')) {
+        parts.push({ label: 'Announcements' });
+      } else if (path.includes('/manage')) {
+        parts.push({ label: 'Manage' });
+      } else if (path.includes('/roster')) {
+        parts.push({ label: 'Roster' });
+      } else if (path.includes('/gradebook')) {
+        parts.push({ label: 'Gradebook' });
       }
+      return parts;
     }
 
-    return breadcrumbs;
+    // Instructor grading route
+    if (path.includes('/instructor/assignments/')) {
+      parts.push({ label: 'Grading' });
+      return parts;
+    }
+
+    return parts.length > 0 ? parts : null;
   };
 
-  const breadcrumbs = getBreadcrumbs();
+  const breadcrumbs = getBreadcrumbInfo();
 
   return (
     <header className="sticky top-0 z-50 w-full border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
       <div className="container mx-auto flex h-14 items-center px-4">
+        {/* Logo */}
         <Link to="/" className="flex items-center space-x-2">
           <Gamepad2 className="h-6 w-6" />
-          <span className="font-bold">GameDev Platform</span>
+          <span className="font-bold hidden sm:inline">GameDev</span>
         </Link>
 
-        {/* Breadcrumbs */}
-        {breadcrumbs.length > 0 && (
-          <nav className="hidden md:flex items-center ml-6 text-sm">
-            {breadcrumbs.map((crumb, index) => (
-              <span key={index} className="flex items-center">
-                {index > 0 && <ChevronRight className="h-4 w-4 mx-1 text-muted-foreground" />}
-                {crumb.href ? (
-                  <Link to={crumb.href} className="text-muted-foreground hover:text-foreground transition-colors">
-                    {crumb.label}
-                  </Link>
-                ) : (
-                  <span className="text-foreground font-medium">{crumb.label}</span>
-                )}
-              </span>
-            ))}
+        {/* Main Navigation */}
+        {isAuthenticated && (
+          <nav className="flex items-center ml-8 space-x-1">
+            <Link
+              to="/dashboard"
+              className={`px-3 py-2 text-sm font-medium rounded-md transition-colors ${
+                location.pathname === '/dashboard'
+                  ? 'bg-muted text-foreground'
+                  : 'text-muted-foreground hover:text-foreground hover:bg-muted/50'
+              }`}
+            >
+              Dashboard
+            </Link>
+            <Link
+              to="/courses"
+              className={`px-3 py-2 text-sm font-medium rounded-md transition-colors ${
+                location.pathname === '/courses' || location.pathname.startsWith('/courses/')
+                  ? 'bg-muted text-foreground'
+                  : 'text-muted-foreground hover:text-foreground hover:bg-muted/50'
+              }`}
+            >
+              Courses
+            </Link>
+            {/* Contextual breadcrumbs */}
+            {breadcrumbs && breadcrumbs.length > 0 && (
+              <nav className="hidden md:flex items-center text-sm text-muted-foreground">
+                {breadcrumbs.map((crumb, index) => (
+                  <span key={index} className="flex items-center">
+                    <ChevronRight className="h-4 w-4 mx-1" />
+                    {crumb.href ? (
+                      <Link
+                        to={crumb.href}
+                        className="hover:text-foreground transition-colors"
+                      >
+                        {crumb.label}
+                      </Link>
+                    ) : (
+                      <span className="text-foreground">{crumb.label}</span>
+                    )}
+                  </span>
+                ))}
+              </nav>
+            )}
           </nav>
         )}
 
-        <nav className="ml-auto flex items-center space-x-4">
+        {/* Right Side */}
+        <div className="ml-auto flex items-center space-x-2">
           {isAuthenticated ? (
             <>
-              <Link to="/dashboard">
-                <Button variant="ghost" size="sm">
-                  Dashboard
-                </Button>
-              </Link>
-              <Link to="/courses">
-                <Button variant="ghost" size="sm">
-                  Courses
-                </Button>
-              </Link>
-              {/* Grades Dropdown (Students only) */}
-              {!user?.is_instructor && enrolledCourses.length > 0 && (
-                <div className="relative" ref={gradesRef}>
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    onClick={() => setGradesOpen(!gradesOpen)}
-                    className="flex items-center gap-1"
-                  >
-                    <GraduationCap className="h-4 w-4" />
-                    Grades
-                    <ChevronDown className={`h-3 w-3 transition-transform ${gradesOpen ? 'rotate-180' : ''}`} />
-                  </Button>
-                  {gradesOpen && (
-                    <div className="absolute top-full right-0 mt-1 w-64 bg-popover border rounded-lg shadow-lg py-1 z-50">
-                      <div className="px-3 py-2 text-xs font-medium text-muted-foreground border-b">
-                        View grades by course
-                      </div>
-                      {enrolledCourses.map((enrollment) => (
-                        <Link
-                          key={enrollment.id}
-                          to={`/courses/${enrollment.course.code}/grades`}
-                          onClick={() => setGradesOpen(false)}
-                          className="flex items-center justify-between px-3 py-2 hover:bg-muted transition-colors"
-                        >
-                          <div className="min-w-0">
-                            <div className="font-medium truncate">{enrollment.course.title}</div>
-                            <div className="text-xs text-muted-foreground">{enrollment.course.code}</div>
-                          </div>
-                          <ChevronRight className="h-4 w-4 text-muted-foreground shrink-0" />
-                        </Link>
-                      ))}
+              <NotificationBell />
+
+              {/* User Menu Dropdown */}
+              <div className="relative" ref={userMenuRef}>
+                <button
+                  onClick={() => setUserMenuOpen(!userMenuOpen)}
+                  className="flex items-center space-x-2 px-2 py-1.5 rounded-md hover:bg-muted transition-colors"
+                >
+                  {user?.preferences?.avatar_url ? (
+                    <img
+                      src={user.preferences.avatar_url}
+                      alt="Avatar"
+                      className="h-7 w-7 rounded-full object-cover"
+                    />
+                  ) : (
+                    <div className="h-7 w-7 rounded-full bg-muted flex items-center justify-center">
+                      <User className="h-4 w-4 text-muted-foreground" />
                     </div>
                   )}
-                </div>
-              )}
-              <NotificationBell />
-              <div className="flex items-center space-x-2 text-sm text-muted-foreground">
-                {user?.preferences?.avatar_url ? (
-                  <img
-                    src={user.preferences.avatar_url}
-                    alt="Avatar"
-                    className="h-6 w-6 rounded-full object-cover"
-                  />
-                ) : (
-                  <User className="h-4 w-4" />
-                )}
-                <span>{user?.first_name || user?.email}</span>
-                {user?.is_instructor && (
-                  <span className="rounded-full bg-primary px-2 py-0.5 text-xs text-primary-foreground">
-                    Instructor
+                  <span className="hidden sm:inline text-sm font-medium">
+                    {user?.first_name || 'Account'}
                   </span>
+                  <ChevronDown className={`h-4 w-4 text-muted-foreground transition-transform ${userMenuOpen ? 'rotate-180' : ''}`} />
+                </button>
+
+                {userMenuOpen && (
+                  <div className="absolute top-full right-0 mt-1 w-56 bg-background border rounded-lg shadow-lg py-1 z-50">
+                    {/* User Info */}
+                    <div className="px-3 py-2 border-b">
+                      <div className="font-medium">{user?.first_name} {user?.last_name}</div>
+                      <div className="text-xs text-muted-foreground">{user?.email}</div>
+                      {user?.is_instructor && (
+                        <span className="inline-block mt-1 rounded-full bg-primary px-2 py-0.5 text-xs text-primary-foreground">
+                          Instructor
+                        </span>
+                      )}
+                    </div>
+
+                    {/* Instructor Quick Actions */}
+                    {user?.is_instructor && (
+                      <>
+                        <Link
+                          to="/instructor/courses/new"
+                          onClick={() => setUserMenuOpen(false)}
+                          className="flex items-center gap-2 px-3 py-2 text-sm hover:bg-muted transition-colors"
+                        >
+                          <span className="text-green-600">+</span>
+                          Create Course
+                        </Link>
+                        <div className="border-t my-1" />
+                      </>
+                    )}
+
+                    {/* Grades Section (Students only) */}
+                    {!user?.is_instructor && enrolledCourses.length > 0 && (
+                      <>
+                        <div className="px-3 py-2 text-xs font-medium text-muted-foreground">
+                          My Grades
+                        </div>
+                        {enrolledCourses.slice(0, 3).map((enrollment) => (
+                          <Link
+                            key={enrollment.id}
+                            to={`/courses/${enrollment.course.code}/grades`}
+                            onClick={() => setUserMenuOpen(false)}
+                            className="flex items-center justify-between px-3 py-2 text-sm hover:bg-muted transition-colors"
+                          >
+                            <span className="truncate">{enrollment.course.code}</span>
+                            <ChevronRight className="h-4 w-4 text-muted-foreground" />
+                          </Link>
+                        ))}
+                        {enrolledCourses.length > 3 && (
+                          <div className="px-3 py-1 text-xs text-muted-foreground">
+                            +{enrolledCourses.length - 3} more courses
+                          </div>
+                        )}
+                        <div className="border-t my-1" />
+                      </>
+                    )}
+
+                    {/* Menu Items */}
+                    <Link
+                      to="/settings"
+                      onClick={() => setUserMenuOpen(false)}
+                      className="flex items-center gap-2 px-3 py-2 text-sm hover:bg-muted transition-colors"
+                    >
+                      <Settings className="h-4 w-4" />
+                      Settings
+                    </Link>
+                    <button
+                      onClick={handleLogout}
+                      className="flex items-center gap-2 px-3 py-2 text-sm hover:bg-muted transition-colors w-full text-left text-red-600 dark:text-red-400"
+                    >
+                      <LogOut className="h-4 w-4" />
+                      Logout
+                    </button>
+                  </div>
                 )}
               </div>
-              <Link to="/settings">
-                <Button variant="ghost" size="sm" title="Settings">
-                  <Settings className="h-4 w-4" />
-                </Button>
-              </Link>
-              <Button variant="ghost" size="sm" onClick={handleLogout}>
-                <LogOut className="h-4 w-4 mr-2" />
-                Logout
-              </Button>
             </>
           ) : (
             <>
@@ -185,7 +254,7 @@ export function Header() {
               </Link>
             </>
           )}
-        </nav>
+        </div>
       </div>
     </header>
   );

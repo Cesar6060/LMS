@@ -212,12 +212,22 @@ function App() {
             }
           />
 
-          {/* Assignment routes */}
+          {/* Assignment routes - nested under course */}
           <Route
-            path="/assignments/:assignmentId"
+            path="/courses/:code/assignments/:assignmentId"
             element={
               <ProtectedRoute>
                 <AssignmentDetailPage />
+              </ProtectedRoute>
+            }
+          />
+
+          {/* Quiz routes - nested under course */}
+          <Route
+            path="/courses/:code/quizzes/:quizId"
+            element={
+              <ProtectedRoute>
+                <QuizDetailPage />
               </ProtectedRoute>
             }
           />
@@ -228,16 +238,6 @@ function App() {
             element={
               <ProtectedRoute>
                 <SettingsPage />
-              </ProtectedRoute>
-            }
-          />
-
-          {/* Quiz route */}
-          <Route
-            path="/quizzes/:quizId"
-            element={
-              <ProtectedRoute>
-                <QuizDetailPage />
               </ProtectedRoute>
             }
           />

@@ -420,7 +420,7 @@ export function CoursePlayerPage() {
                               Complete quiz "{progress.required_quiz_info.title}" to finish this lesson
                             </span>
                             <Link
-                              to={`/quizzes/${progress.required_quiz_info.id}`}
+                              to={`/courses/${code}/quizzes/${progress.required_quiz_info.id}`}
                               className="text-sm underline hover:no-underline ml-1"
                             >
                               Take Quiz →
