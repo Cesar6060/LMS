@@ -867,13 +867,21 @@ class CourseAnnouncementsView(generics.ListCreateAPIView):
         self._notify_enrolled_students(announcement)
 
     def _notify_enrolled_students(self, announcement):
-        """Create notifications for all enrolled students."""
+        """Create notifications and optionally send emails to enrolled students."""
         from notifications.models import Notification
+        from accounts.models import UserPreferences
+        from core.email import send_announcement_email, send_emails_async
+        from django.conf import settings
 
-        enrollments = Enrollment.objects.filter(course=announcement.course, is_active=True)
+        # Prefetch user preferences to avoid N+1 queries
+        enrollments = Enrollment.objects.filter(
+            course=announcement.course, is_active=True
+        ).select_related('user').prefetch_related('user__userpreferences')
         notifications = []
+        email_tasks = []
 
         for enrollment in enrollments:
+            # Create in-app notification
             notifications.append(Notification(
                 recipient=enrollment.user,
                 type='announcement',
@@ -882,8 +890,37 @@ class CourseAnnouncementsView(generics.ListCreateAPIView):
                 related_url=f"/courses/{announcement.course.code}/announcements/{announcement.id}"
             ))
 
+            # Queue email if announcement has send_email=True and user has opted in
+            if announcement.send_email:
+                # Check preferences (already prefetched)
+                should_send = True
+                try:
+                    prefs = enrollment.user.userpreferences
+                    should_send = prefs.email_announcements
+                except UserPreferences.DoesNotExist:
+                    pass
+
+                if should_send:
+                    email_tasks.append((
+                        send_announcement_email,
+                        (),
+                        {
+                            'recipient_email': enrollment.user.email,
+                            'course_title': announcement.course.title,
+                            'announcement_title': announcement.title,
+                            'announcement_content': announcement.content,
+                            'announcement_url': f"{settings.FRONTEND_URL}/courses/{announcement.course.code}/announcements/{announcement.id}",
+                            'instructor_name': announcement.author.get_full_name() or announcement.author.email,
+                            'posted_date': announcement.created_at.strftime('%B %d, %Y'),
+                        }
+                    ))
+
         if notifications:
             Notification.objects.bulk_create(notifications)
+
+        # Send emails asynchronously to avoid blocking
+        if email_tasks:
+            send_emails_async(email_tasks)
 
 
 def calculate_letter_grade(percentage):
@@ -1333,8 +1370,6 @@ def send_course_invite(request, course_code):
     """
     Send course invitation email to a student.
     """
-    from django.core.mail import send_mail
-    from django.conf import settings
     from django.core.validators import validate_email
     from django.core.exceptions import ValidationError
 
@@ -1372,38 +1407,21 @@ def send_course_invite(request, course_code):
                 status=status.HTTP_400_BAD_REQUEST
             )
 
-    # Build invitation email
+    # Send invitation email using template
+    from core.email import send_course_invitation_email
+
     instructor_name = course.instructor.get_full_name() or course.instructor.email
-    frontend_url = settings.FRONTEND_URL if hasattr(settings, 'FRONTEND_URL') else 'http://localhost:5173'
 
-    subject = f"You're invited to join {course.title}"
-    message = f"""Hello,
+    success = send_course_invitation_email(
+        recipient_email=email,
+        course_title=course.title,
+        instructor_name=instructor_name,
+        enrollment_code=course.enrollment_code
+    )
 
-{instructor_name} has invited you to join their course "{course.title}" on GameDev Platform.
-
-To enroll in this course:
-1. Go to {frontend_url}/courses
-2. Click "Enroll in Course"
-3. Enter this enrollment code: {course.enrollment_code}
-
-If you don't have an account yet, you'll need to register first at {frontend_url}/register
-
-See you in class!
-
-- The GameDev Platform Team
-"""
-
-    try:
-        send_mail(
-            subject=subject,
-            message=message,
-            from_email=settings.DEFAULT_FROM_EMAIL,
-            recipient_list=[email],
-            fail_silently=False,
-        )
-    except Exception as e:
+    if not success:
         return Response(
-            {'error': f'Failed to send email: {str(e)}'},
+            {'error': 'Failed to send email. Please try again later.'},
             status=status.HTTP_500_INTERNAL_SERVER_ERROR
         )
 

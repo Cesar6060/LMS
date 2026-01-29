@@ -1,0 +1,36 @@
+{% extends "emails/base.html" %}
+
+{% block title %}You're Invited to {{ course_title }}{% endblock %}
+
+{% block content %}
+<h2>You're Invited! 🎮</h2>
+
+<p>Hi there!</p>
+
+<p><strong>{{ instructor_name }}</strong> has invited you to join their course:</p>
+
+<h3 style="color: #7c3aed;">{{ course_title }}</h3>
+
+<p>To enroll, use this enrollment code:</p>
+
+<div class="code-box">
+    <span class="code">{{ enrollment_code }}</span>
+</div>
+
+<p>Here's how to join:</p>
+<ol>
+    <li>Go to the GameDev Platform</li>
+    <li>Log in or create an account</li>
+    <li>Click "Enroll in Course"</li>
+    <li>Enter the code above</li>
+</ol>
+
+<p style="text-align: center;">
+    <a href="{{ frontend_url }}/courses" class="button">Go to Courses</a>
+</p>
+
+<p class="muted">
+    Don't have an account yet? 
+    <a href="{{ frontend_url }}/register">Register here</a> first.
+</p>
+{% endblock %}

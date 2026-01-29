@@ -1,0 +1,41 @@
+{% extends "emails/base.html" %}
+
+{% block title %}Your Assignment Has Been Graded{% endblock %}
+
+{% block content %}
+<h2>📝 Assignment Graded</h2>
+
+<p>Your assignment has been graded in <strong>{{ course_title }}</strong>:</p>
+
+<div style="background-color: #f9fafb; border-radius: 8px; padding: 20px; margin: 16px 0;">
+    <h3 style="margin-top: 0; color: #111827;">{{ assignment_title }}</h3>
+    
+    <table width="100%" cellpadding="0" cellspacing="0" style="margin: 16px 0;">
+        <tr>
+            <td width="50%" style="vertical-align: top;">
+                <span style="font-size: 14px; color: #6b7280;">Your Score</span>
+                <div style="font-size: 32px; font-weight: bold; color: #7c3aed;">
+                    {{ points_earned }}/{{ points_possible }}
+                </div>
+            </td>
+            <td width="50%" style="text-align: right; vertical-align: top;">
+                <span style="font-size: 14px; color: #6b7280;">Percentage</span>
+                <div style="font-size: 24px; font-weight: bold; color: {% if percentage >= 70 %}#10b981{% elif percentage >= 60 %}#f59e0b{% else %}#ef4444{% endif %};">
+                    {{ percentage }}%
+                </div>
+            </td>
+        </tr>
+    </table>
+    
+    {% if feedback %}
+    <div style="border-top: 1px solid #e5e7eb; padding-top: 16px; margin-top: 16px;">
+        <span style="font-size: 14px; color: #6b7280;">Instructor Feedback</span>
+        <p style="margin-top: 8px; color: #374151;">{{ feedback }}</p>
+    </div>
+    {% endif %}
+</div>
+
+<p style="text-align: center;">
+    <a href="{{ assignment_url }}" class="button">View Assignment</a>
+</p>
+{% endblock %}

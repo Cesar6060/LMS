@@ -365,6 +365,10 @@ class GradeSubmissionView(generics.CreateAPIView, generics.UpdateAPIView):
         submission.status = 'graded'
         submission.save()
 
+        # Send grade notification email
+        from core.email import notify_student_of_grade
+        notify_student_of_grade(submission, grade, is_update=False)
+
         return Response(
             SubmissionSerializer(submission).data,
             status=status.HTTP_201_CREATED
@@ -377,9 +381,16 @@ class GradeSubmissionView(generics.CreateAPIView, generics.UpdateAPIView):
             return self.create(request, *args, **kwargs)
 
         grade = submission.grade
+        original_points = grade.points  # Track for change detection
+
         serializer = self.get_serializer(grade, data=request.data, partial=True)
         serializer.is_valid(raise_exception=True)
         serializer.save(grader=request.user)
+
+        # Send grade notification email only if points changed
+        if grade.points != original_points:
+            from core.email import notify_student_of_grade
+            notify_student_of_grade(submission, grade, is_update=True)
 
         return Response(SubmissionSerializer(submission).data)
 
@@ -458,12 +469,14 @@ def quick_grade(request, assignment_id, student_id):
         submission.save()
 
     # Create or update grade
+    is_new_grade = not (hasattr(submission, 'grade') and submission.grade)
     if hasattr(submission, 'grade') and submission.grade:
         submission.grade.points = points
         submission.grade.grader = request.user
         submission.grade.save()
+        grade = submission.grade
     else:
-        Grade.objects.create(
+        grade = Grade.objects.create(
             submission=submission,
             grader=request.user,
             points=points,
@@ -472,6 +485,11 @@ def quick_grade(request, assignment_id, student_id):
 
     submission.status = 'graded'
     submission.save()
+
+    # Send grade notification email for new grades only
+    if is_new_grade:
+        from core.email import notify_student_of_grade
+        notify_student_of_grade(submission, grade, is_update=False)
 
     return Response({
         'success': True,

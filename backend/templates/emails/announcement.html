@@ -1,0 +1,24 @@
+{% extends "emails/base.html" %}
+
+{% block title %}New Announcement: {{ announcement_title }}{% endblock %}
+
+{% block content %}
+<h2>📢 New Announcement</h2>
+
+<p>A new announcement has been posted in <strong>{{ course_title }}</strong>:</p>
+
+<div style="background-color: #f9fafb; border-left: 4px solid #7c3aed; padding: 16px; margin: 16px 0;">
+    <h3 style="margin-top: 0; color: #111827;">{{ announcement_title }}</h3>
+    <div style="color: #374151;">
+        {{ announcement_content|linebreaks }}
+    </div>
+</div>
+
+<p style="text-align: center;">
+    <a href="{{ announcement_url }}" class="button">View Announcement</a>
+</p>
+
+<p class="muted">
+    Posted by {{ instructor_name }} on {{ posted_date }}
+</p>
+{% endblock %}
