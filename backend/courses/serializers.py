@@ -1,9 +1,25 @@
 from rest_framework import serializers
 from .models import (
     Course, Unit, Lesson, Enrollment, LessonProgress, Announcement, CourseGradingConfig,
-    LessonQuestion, LessonQuestionChoice, LessonQuestionAnswer, LessonQuizAttempt
+    LessonQuestion, LessonQuestionChoice, LessonQuestionAnswer, LessonQuizAttempt,
+    LessonAttachment
 )
 from accounts.serializers import UserSerializer
+
+
+class LessonAttachmentSerializer(serializers.ModelSerializer):
+    """Serializer for lesson attachments."""
+    url = serializers.SerializerMethodField()
+
+    class Meta:
+        model = LessonAttachment
+        fields = ['id', 'filename', 'file_type', 'file_size', 'url', 'uploaded_at']
+
+    def get_url(self, obj):
+        request = self.context.get('request')
+        if obj.file and request:
+            return request.build_absolute_uri(obj.file.url)
+        return obj.file.url if obj.file else None
 
 
 class RequiredQuizSerializer(serializers.Serializer):
@@ -17,13 +33,14 @@ class LessonSerializer(serializers.ModelSerializer):
     """Serializer for Lesson model."""
     required_quiz_info = serializers.SerializerMethodField()
     question_count = serializers.SerializerMethodField()
+    attachments = LessonAttachmentSerializer(many=True, read_only=True)
 
     class Meta:
         model = Lesson
         fields = [
             'id', 'unit', 'title', 'content', 'order',
             'video_type', 'video_id', 'required_quiz', 'required_quiz_info',
-            'max_quiz_attempts', 'question_count',
+            'max_quiz_attempts', 'question_count', 'attachments',
             'created_at', 'updated_at'
         ]
         read_only_fields = ['id', 'created_at', 'updated_at']
@@ -54,13 +71,18 @@ class LessonListSerializer(serializers.ModelSerializer):
     """Serializer for lesson lists (includes content and video_id for editing)."""
     required_quiz_info = serializers.SerializerMethodField()
     question_count = serializers.SerializerMethodField()
+    attachment_count = serializers.SerializerMethodField()
 
     class Meta:
         model = Lesson
         fields = [
             'id', 'title', 'order', 'video_type', 'video_id', 'content',
-            'required_quiz', 'required_quiz_info', 'max_quiz_attempts', 'question_count'
+            'required_quiz', 'required_quiz_info', 'max_quiz_attempts', 'question_count',
+            'attachment_count'
         ]
+
+    def get_attachment_count(self, obj):
+        return obj.attachments.count()
 
     def get_required_quiz_info(self, obj):
         if obj.required_quiz:

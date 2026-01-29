@@ -7,10 +7,11 @@ import { Input } from '@/components/ui/Input';
 import { courseService, type CourseDetail, type UnitWithLessons, type LessonListItem } from '@/services/courses';
 import { assignmentService } from '@/services/assignments';
 import { LessonQuestionsManager } from '@/components/lesson/LessonQuestionsManager';
+import { AttachmentUploader } from '@/components/lesson/AttachmentUploader';
 import type { AssignmentListItem } from '@/types';
 import {
   Loader2, ChevronLeft, Plus, Trash2, Play, FileText,
-  Copy, CheckCircle, Settings, BookOpen, ClipboardList, Table, Megaphone, Eye, Users, FileQuestion, HelpCircle
+  Copy, CheckCircle, Settings, BookOpen, ClipboardList, Table, Megaphone, Eye, Users, FileQuestion, HelpCircle, Paperclip
 } from 'lucide-react';
 import {
   Dialog,
@@ -110,6 +111,10 @@ export function ManageCoursePage() {
   // Lesson questions manager state
   const [showQuestionsManager, setShowQuestionsManager] = useState(false);
   const [selectedLessonForQuestions, setSelectedLessonForQuestions] = useState<{ id: number; title: string } | null>(null);
+
+  // Lesson attachments manager state
+  const [showAttachmentUploader, setShowAttachmentUploader] = useState(false);
+  const [selectedLessonForAttachments, setSelectedLessonForAttachments] = useState<{ id: number; title: string } | null>(null);
 
   useEffect(() => {
     if (code) {
@@ -858,6 +863,33 @@ export function ManageCoursePage() {
                   </div>
                 </div>
               )}
+
+              {/* Attachments */}
+              {editingLesson?.id && (
+                <div className="space-y-2 p-4 bg-muted/50 rounded-lg">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <label className="text-sm font-medium">File Attachments</label>
+                      <p className="text-xs text-muted-foreground">
+                        Upload PDFs, images, or other files for students to download.
+                      </p>
+                    </div>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      onClick={() => {
+                        setShowLessonModal(false);
+                        setSelectedLessonForAttachments({ id: editingLesson.id!, title: editingLesson.title });
+                        setShowAttachmentUploader(true);
+                      }}
+                    >
+                      <Paperclip className="h-4 w-4 mr-2" />
+                      Manage Attachments
+                    </Button>
+                  </div>
+                </div>
+              )}
             </div>
             <DialogFooter>
               <Button
@@ -1137,6 +1169,21 @@ export function ManageCoursePage() {
             setShowQuestionsManager(open);
             if (!open) {
               setSelectedLessonForQuestions(null);
+            }
+          }}
+        />
+      )}
+
+      {/* Lesson Attachments Uploader */}
+      {selectedLessonForAttachments && (
+        <AttachmentUploader
+          lessonId={selectedLessonForAttachments.id}
+          lessonTitle={selectedLessonForAttachments.title}
+          open={showAttachmentUploader}
+          onOpenChange={(open) => {
+            setShowAttachmentUploader(open);
+            if (!open) {
+              setSelectedLessonForAttachments(null);
             }
           }}
         />

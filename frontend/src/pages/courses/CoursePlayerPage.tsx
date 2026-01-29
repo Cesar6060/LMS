@@ -7,8 +7,9 @@ import { Card, CardContent } from '@/components/ui/Card';
 import { CourseSidebar } from '@/components/course/CourseSidebar';
 import { VideoPlayer } from '@/components/video/VideoPlayer';
 import { LessonQuestions } from '@/components/lesson/LessonQuestions';
+import { LessonAttachmentsList } from '@/components/lesson/LessonAttachmentsList';
 import { courseService } from '@/services/courses';
-import type { LessonProgress, LessonQuestionsStatus } from '@/types';
+import type { LessonProgress, LessonQuestionsStatus, LessonAttachment } from '@/types';
 import {
   Loader2, ChevronLeft, ChevronRight, CheckCircle, Circle, FileQuestion
 } from 'lucide-react';
@@ -21,6 +22,7 @@ interface LessonDetail {
   video_id: string | null;
   order: number;
   unit: number;
+  attachments?: LessonAttachment[];
 }
 
 interface LessonWithProgress {
@@ -512,6 +514,9 @@ export function CoursePlayerPage() {
                       </CardContent>
                     </Card>
                   )}
+
+                  {/* Attachments */}
+                  <LessonAttachmentsList attachments={currentLesson.attachments || []} />
 
                   {/* Lesson Questions (Comprehension Check) */}
                   <LessonQuestions

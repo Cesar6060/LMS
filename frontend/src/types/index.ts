@@ -63,6 +63,15 @@ export interface RequiredQuizInfo {
   passing_score: number;
 }
 
+export interface LessonAttachment {
+  id: number;
+  filename: string;
+  file_type: string;
+  file_size: number;
+  url: string;
+  uploaded_at: string;
+}
+
 export interface Lesson {
   id: number;
   unit: number;
@@ -75,6 +84,8 @@ export interface Lesson {
   required_quiz_info?: RequiredQuizInfo | null;
   max_quiz_attempts?: number | null;
   question_count?: number;
+  attachments?: LessonAttachment[];
+  attachment_count?: number;
 }
 
 export interface Enrollment {

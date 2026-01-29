@@ -1,5 +1,5 @@
 import api from './api';
-import type { Course, Unit, Lesson, Enrollment, LessonProgress, GradingConfig, GradeSummary, EnhancedDashboard, LessonQuestion, LessonQuestionsStatus, AnswerQuestionResult, QuizSubmissionResult } from '../types';
+import type { Course, Unit, Lesson, Enrollment, LessonProgress, GradingConfig, GradeSummary, EnhancedDashboard, LessonQuestion, LessonQuestionsStatus, AnswerQuestionResult, QuizSubmissionResult, LessonAttachment } from '../types';
 
 // Re-export types for convenience
 export type { Unit, Lesson } from '../types';
@@ -29,6 +29,8 @@ export interface LessonListItem {
     title: string;
     passing_score: number;
   } | null;
+  question_count?: number;
+  attachment_count?: number;
 }
 
 export interface UnitWithLessons {
@@ -481,6 +483,33 @@ export const courseService = {
       answers,
     });
     return response.data;
+  },
+  // Lesson Attachments (Phase 16)
+  async getLessonAttachments(lessonId: number): Promise<LessonAttachment[]> {
+    const response = await api.get<LessonAttachment[]>(`/courses/lessons/${lessonId}/attachments/`);
+    return response.data;
+  },
+
+  async uploadLessonAttachments(lessonId: number, files: File[]): Promise<LessonAttachment[]> {
+    const formData = new FormData();
+    files.forEach(file => {
+      formData.append('files', file);
+    });
+
+    const response = await api.post<LessonAttachment[]>(
+      `/courses/lessons/${lessonId}/attachments/`,
+      formData,
+      {
+        headers: {
+          'Content-Type': 'multipart/form-data',
+        },
+      }
+    );
+    return response.data;
+  },
+
+  async deleteLessonAttachment(lessonId: number, attachmentId: number): Promise<void> {
+    await api.delete(`/courses/lessons/${lessonId}/attachments/${attachmentId}/`);
   },
 };
 

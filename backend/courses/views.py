@@ -10,7 +10,7 @@ from django.http import HttpResponse
 from django.utils import timezone
 from datetime import timedelta
 
-from .models import Course, Unit, Lesson, Enrollment, LessonProgress, Announcement, LessonQuestion, LessonQuestionChoice, LessonQuestionAnswer, LessonQuizAttempt
+from .models import Course, Unit, Lesson, Enrollment, LessonProgress, Announcement, LessonQuestion, LessonQuestionChoice, LessonQuestionAnswer, LessonQuizAttempt, LessonAttachment
 from .serializers import (
     CourseSerializer, CourseListSerializer, CourseCreateSerializer,
     InstructorCourseSerializer, UnitSerializer, UnitCreateSerializer,
@@ -19,7 +19,7 @@ from .serializers import (
     LessonProgressUpdateSerializer, AnnouncementSerializer,
     AnnouncementListSerializer, AnnouncementCreateSerializer,
     StudentRosterSerializer, LessonQuestionSerializer, LessonQuestionStudentSerializer,
-    LessonQuestionCreateSerializer, AnswerQuestionSerializer
+    LessonQuestionCreateSerializer, AnswerQuestionSerializer, LessonAttachmentSerializer
 )
 from .permissions import (
     IsInstructor, IsInstructorOrReadOnly, IsCourseInstructor,
@@ -2163,3 +2163,131 @@ def submit_lesson_quiz(request, lesson_id):
         'attempts_remaining': attempts_remaining,
         'can_complete_lesson': passed,
     })
+
+
+# ============================================
+# Lesson Attachments
+# ============================================
+
+@api_view(['GET', 'POST'])
+@perm_classes([IsAuthenticated])
+def lesson_attachments(request, lesson_id):
+    """
+    GET: List attachments for a lesson (students and instructors)
+    POST: Upload attachment to a lesson (instructor only)
+    """
+    lesson = get_object_or_404(Lesson, pk=lesson_id)
+    course = lesson.unit.course
+
+    # Check access - must be instructor or enrolled student
+    is_instructor = request.user == course.instructor
+    is_enrolled = Enrollment.objects.filter(
+        user=request.user, course=course, is_active=True
+    ).exists()
+
+    if not is_instructor and not is_enrolled:
+        return Response(
+            {'error': 'Access denied'},
+            status=status.HTTP_403_FORBIDDEN
+        )
+
+    if request.method == 'GET':
+        attachments = lesson.attachments.all()
+        serializer = LessonAttachmentSerializer(
+            attachments, many=True, context={'request': request}
+        )
+        return Response(serializer.data)
+
+    elif request.method == 'POST':
+        # Only instructor can upload
+        if not is_instructor:
+            return Response(
+                {'error': 'Only instructors can upload attachments'},
+                status=status.HTTP_403_FORBIDDEN
+            )
+
+        files = request.FILES.getlist('files')
+        if not files:
+            return Response(
+                {'error': 'No files provided'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        # Check file limit (max 10 per lesson)
+        current_count = lesson.attachments.count()
+        if current_count + len(files) > 10:
+            remaining = 10 - current_count
+            return Response(
+                {'error': f'Maximum 10 attachments per lesson. You have {current_count}, can add {remaining} more.'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        # Allowed file extensions (whitelist)
+        ALLOWED_EXTENSIONS = {
+            'pdf', 'doc', 'docx', 'ppt', 'pptx', 'xls', 'xlsx',
+            'txt', 'md', 'csv',
+            'png', 'jpg', 'jpeg', 'gif', 'webp', 'svg',
+            'zip', 'rar', '7z',
+            'mp3', 'wav', 'mp4', 'webm', 'mov',
+            'py', 'js', 'html', 'css', 'json'  # code files
+        }
+
+        # Validate file sizes (max 10MB each) and file types
+        max_size = 10 * 1024 * 1024  # 10MB
+        for f in files:
+            if f.size > max_size:
+                return Response(
+                    {'error': f'File "{f.name}" exceeds 10MB limit'},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+
+            # Validate file extension
+            file_ext = f.name.rsplit('.', 1)[-1].lower() if '.' in f.name else ''
+            if not file_ext or file_ext not in ALLOWED_EXTENSIONS:
+                return Response(
+                    {'error': f'File type ".{file_ext}" is not allowed. Allowed types: {", ".join(sorted(ALLOWED_EXTENSIONS))}'},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+
+        # Create attachments
+        created = []
+        for f in files:
+            # Get file extension
+            file_type = f.name.rsplit('.', 1)[-1].lower() if '.' in f.name else ''
+            attachment = LessonAttachment.objects.create(
+                lesson=lesson,
+                file=f,
+                filename=f.name,
+                file_type=file_type,
+                file_size=f.size
+            )
+            created.append(attachment)
+
+        serializer = LessonAttachmentSerializer(
+            created, many=True, context={'request': request}
+        )
+        return Response(serializer.data, status=status.HTTP_201_CREATED)
+
+
+@api_view(['DELETE'])
+@perm_classes([IsAuthenticated])
+def lesson_attachment_detail(request, lesson_id, attachment_id):
+    """Delete an attachment (instructor only)."""
+    lesson = get_object_or_404(Lesson, pk=lesson_id)
+    course = lesson.unit.course
+
+    # Only instructor can delete
+    if request.user != course.instructor:
+        return Response(
+            {'error': 'Only instructors can delete attachments'},
+            status=status.HTTP_403_FORBIDDEN
+        )
+
+    attachment = get_object_or_404(LessonAttachment, pk=attachment_id, lesson=lesson)
+
+    # Delete the file from storage
+    if attachment.file:
+        attachment.file.delete(save=False)
+
+    attachment.delete()
+    return Response(status=status.HTTP_204_NO_CONTENT)

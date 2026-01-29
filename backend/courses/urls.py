@@ -49,4 +49,8 @@ urlpatterns = [
     path('lessons/<int:lesson_id>/answer-question/', views.answer_lesson_question, name='answer-lesson-question'),
     path('lessons/<int:lesson_id>/questions-status/', views.lesson_questions_status, name='lesson-questions-status'),
     path('lessons/<int:lesson_id>/submit-quiz/', views.submit_lesson_quiz, name='submit-lesson-quiz'),
+
+    # Lesson Attachments (Phase 16)
+    path('lessons/<int:lesson_id>/attachments/', views.lesson_attachments, name='lesson-attachments'),
+    path('lessons/<int:lesson_id>/attachments/<int:attachment_id>/', views.lesson_attachment_detail, name='lesson-attachment-detail'),
 ]

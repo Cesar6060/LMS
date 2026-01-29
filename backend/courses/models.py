@@ -402,3 +402,37 @@ class LessonQuizAttempt(models.Model):
         if self.total_questions == 0:
             return 0
         return round((self.score / self.total_questions) * 100)
+
+
+class LessonAttachment(models.Model):
+    """
+    A file attachment for a lesson (PDFs, images, documents).
+    Instructors can upload supplementary materials for students.
+    """
+    lesson = models.ForeignKey(
+        Lesson,
+        on_delete=models.CASCADE,
+        related_name='attachments'
+    )
+    file = models.FileField(upload_to='lesson_attachments/%Y/%m/')
+    filename = models.CharField(max_length=255)
+    file_type = models.CharField(max_length=50, help_text='File type/extension')
+    file_size = models.PositiveIntegerField(help_text='File size in bytes')
+    uploaded_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        db_table = 'courses_lessonattachment'
+        ordering = ['uploaded_at']
+
+    def __str__(self):
+        return f"{self.lesson.title} - {self.filename}"
+
+    def save(self, *args, **kwargs):
+        if self.file and not self.filename:
+            self.filename = self.file.name.split('/')[-1]
+        if self.file and not self.file_size:
+            self.file_size = self.file.size
+        if self.filename and not self.file_type:
+            ext = self.filename.rsplit('.', 1)[-1].lower() if '.' in self.filename else ''
+            self.file_type = ext
+        super().save(*args, **kwargs)
