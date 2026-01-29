@@ -1,5 +1,5 @@
 import api from './api';
-import type { Course, Unit, Lesson, Enrollment, LessonProgress, GradingConfig, GradeSummary, EnhancedDashboard } from '../types';
+import type { Course, Unit, Lesson, Enrollment, LessonProgress, GradingConfig, GradeSummary, EnhancedDashboard, LessonQuestion, LessonQuestionsStatus, AnswerQuestionResult, QuizSubmissionResult } from '../types';
 
 // Re-export types for convenience
 export type { Unit, Lesson } from '../types';
@@ -23,6 +23,12 @@ export interface LessonListItem {
   video_type: 'none' | 'youtube' | 'vimeo';
   content?: string;
   video_id: string | null;
+  required_quiz?: number | null;
+  required_quiz_info?: {
+    id: number;
+    title: string;
+    passing_score: number;
+  } | null;
 }
 
 export interface UnitWithLessons {
@@ -427,6 +433,54 @@ export const courseService = {
         }))
       }))
     };
+  },
+
+  // Lesson Questions (Mini Comprehension Quizzes)
+  async getLessonQuestions(lessonId: number): Promise<LessonQuestion[]> {
+    const response = await api.get<LessonQuestion[]>(`/courses/lessons/${lessonId}/questions/`);
+    return response.data;
+  },
+
+  async createLessonQuestion(lessonId: number, data: {
+    text: string;
+    order?: number;
+    choices: Array<{ text: string; is_correct: boolean; order?: number }>;
+  }): Promise<LessonQuestion> {
+    const response = await api.post<LessonQuestion>(`/courses/lessons/${lessonId}/questions/`, data);
+    return response.data;
+  },
+
+  async updateLessonQuestion(lessonId: number, questionId: number, data: {
+    text: string;
+    order?: number;
+    choices: Array<{ text: string; is_correct: boolean; order?: number }>;
+  }): Promise<LessonQuestion> {
+    const response = await api.put<LessonQuestion>(`/courses/lessons/${lessonId}/questions/${questionId}/`, data);
+    return response.data;
+  },
+
+  async deleteLessonQuestion(lessonId: number, questionId: number): Promise<void> {
+    await api.delete(`/courses/lessons/${lessonId}/questions/${questionId}/`);
+  },
+
+  async answerLessonQuestion(lessonId: number, questionId: number, choiceId: number): Promise<AnswerQuestionResult> {
+    const response = await api.post<AnswerQuestionResult>(`/courses/lessons/${lessonId}/answer-question/`, {
+      question_id: questionId,
+      choice_id: choiceId,
+    });
+    return response.data;
+  },
+
+  async getLessonQuestionsStatus(lessonId: number): Promise<LessonQuestionsStatus> {
+    const response = await api.get<LessonQuestionsStatus>(`/courses/lessons/${lessonId}/questions-status/`);
+    return response.data;
+  },
+
+  async submitLessonQuiz(lessonId: number, answers: Record<string, number>): Promise<QuizSubmissionResult> {
+    const response = await api.post<QuizSubmissionResult>(`/courses/lessons/${lessonId}/submit-quiz/`, {
+      answers,
+    });
+    return response.data;
   },
 };
 

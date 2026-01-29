@@ -42,4 +42,11 @@ urlpatterns = [
     # Dashboard (Phase 13)
     path('dashboard/stats/', views.dashboard_stats, name='dashboard-stats'),
     path('dashboard/enhanced/', views.enhanced_dashboard, name='enhanced-dashboard'),
+
+    # Lesson Questions (Comprehension Checks - Phase 15)
+    path('lessons/<int:lesson_id>/questions/', views.lesson_questions, name='lesson-questions'),
+    path('lessons/<int:lesson_id>/questions/<int:question_id>/', views.lesson_question_detail, name='lesson-question-detail'),
+    path('lessons/<int:lesson_id>/answer-question/', views.answer_lesson_question, name='answer-lesson-question'),
+    path('lessons/<int:lesson_id>/questions-status/', views.lesson_questions_status, name='lesson-questions-status'),
+    path('lessons/<int:lesson_id>/submit-quiz/', views.submit_lesson_quiz, name='submit-lesson-quiz'),
 ]

@@ -6,11 +6,11 @@ import { Button } from '@/components/ui/Button';
 import { Card, CardContent } from '@/components/ui/Card';
 import { CourseSidebar } from '@/components/course/CourseSidebar';
 import { VideoPlayer } from '@/components/video/VideoPlayer';
+import { LessonQuestions } from '@/components/lesson/LessonQuestions';
 import { courseService } from '@/services/courses';
-import type { LessonProgress } from '@/types';
+import type { LessonProgress, LessonQuestionsStatus } from '@/types';
 import {
-  Loader2, ChevronLeft, ChevronRight, CheckCircle, Circle,
-  X, Gamepad2
+  Loader2, ChevronLeft, ChevronRight, CheckCircle, Circle, FileQuestion
 } from 'lucide-react';
 
 interface LessonDetail {
@@ -70,6 +70,7 @@ export function CoursePlayerPage() {
     return localStorage.getItem('coursePlayerSidebarCollapsed') === 'true';
   });
   const [isMarkingComplete, setIsMarkingComplete] = useState(false);
+  const [questionsStatus, setQuestionsStatus] = useState<LessonQuestionsStatus | null>(null);
 
   // Track last saved position to avoid unnecessary API calls
   const lastSavedPositionRef = useRef<number>(0);
@@ -125,6 +126,7 @@ export function CoursePlayerPage() {
   const loadLesson = useCallback(async (id: number) => {
     try {
       setIsLessonLoading(true);
+      setQuestionsStatus(null); // Reset questions status when loading new lesson
       const [lessonData, progressData] = await Promise.all([
         courseService.getLesson(id),
         courseService.getLessonProgress(id)
@@ -334,20 +336,17 @@ export function CoursePlayerPage() {
     <div className="h-screen flex flex-col bg-background animate-in fade-in duration-300">
       {/* Learning Mode Header */}
       <div className="h-14 border-b bg-card/95 backdrop-blur supports-[backdrop-filter]:bg-card/80 flex items-center px-4 gap-4">
-        {/* Logo & Exit */}
-        <div className="flex items-center gap-3">
-          <Link to="/" className="flex items-center text-muted-foreground hover:text-foreground">
-            <Gamepad2 className="h-5 w-5" />
-          </Link>
-          <div className="h-6 w-px bg-border" />
-          <Link
-            to={`/courses/${code}`}
-            className="flex items-center gap-2 text-muted-foreground hover:text-foreground transition-colors group"
+        {/* Exit Learning Mode */}
+        <Link to={`/courses/${code}`}>
+          <Button
+            variant="outline"
+            size="sm"
+            className="gap-2 border-primary/50 text-primary hover:bg-primary hover:text-primary-foreground transition-colors"
           >
-            <X className="h-4 w-4" />
-            <span className="text-sm hidden sm:inline group-hover:text-primary">Exit Learning Mode</span>
-          </Link>
-        </div>
+            <ChevronLeft className="h-4 w-4" />
+            <span className="hidden sm:inline">Exit</span>
+          </Button>
+        </Link>
 
         {/* Course Title */}
         <div className="flex-1 min-w-0 text-center">
@@ -399,21 +398,87 @@ export function CoursePlayerPage() {
                   {/* Lesson header */}
                   <div className="mb-6">
                     <h2 className="text-2xl font-bold mb-2">{currentLesson.title}</h2>
-                    <Button
-                      variant={progress?.completed ? 'default' : 'outline'}
-                      size="sm"
-                      onClick={handleMarkComplete}
-                      disabled={isMarkingComplete}
-                    >
-                      {isMarkingComplete ? (
-                        <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                      ) : progress?.completed ? (
-                        <CheckCircle className="h-4 w-4 mr-2" />
-                      ) : (
-                        <Circle className="h-4 w-4 mr-2" />
-                      )}
-                      {progress?.completed ? 'Completed' : 'Mark Complete'}
-                    </Button>
+
+                    {/* Quiz requirement badge */}
+                    {progress?.required_quiz_info && !progress?.completed && (
+                      <div className={`inline-flex items-center gap-2 px-3 py-1.5 rounded-lg mb-3 ${
+                        progress?.required_quiz_passed
+                          ? 'bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400'
+                          : 'bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-400'
+                      }`}>
+                        {progress?.required_quiz_passed ? (
+                          <>
+                            <CheckCircle className="h-4 w-4" />
+                            <span className="text-sm font-medium">Quiz passed - Ready to complete</span>
+                          </>
+                        ) : (
+                          <>
+                            <FileQuestion className="h-4 w-4" />
+                            <span className="text-sm font-medium">
+                              Complete quiz "{progress.required_quiz_info.title}" to finish this lesson
+                            </span>
+                            <Link
+                              to={`/quizzes/${progress.required_quiz_info.id}`}
+                              className="text-sm underline hover:no-underline ml-1"
+                            >
+                              Take Quiz →
+                            </Link>
+                          </>
+                        )}
+                      </div>
+                    )}
+
+                    {/* Lesson questions requirement badge */}
+                    {questionsStatus && questionsStatus.total_questions > 0 && !progress?.completed && (
+                      <div className={`inline-flex items-center gap-2 px-3 py-1.5 rounded-lg mb-3 ${
+                        questionsStatus.can_complete_lesson
+                          ? 'bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400'
+                          : 'bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-400'
+                      }`}>
+                        {questionsStatus.can_complete_lesson ? (
+                          <>
+                            <CheckCircle className="h-4 w-4" />
+                            <span className="text-sm font-medium">Quiz passed - Ready to mark complete</span>
+                          </>
+                        ) : (
+                          <>
+                            <FileQuestion className="h-4 w-4" />
+                            <span className="text-sm font-medium">
+                              Complete the comprehension quiz to finish this lesson
+                            </span>
+                          </>
+                        )}
+                      </div>
+                    )}
+
+                    {/* Only show Mark Complete button if there's no quiz requirement */}
+                    {!progress?.required_quiz_info && (!questionsStatus || questionsStatus.total_questions === 0) && (
+                      <div className="flex items-center gap-3">
+                        <Button
+                          variant={progress?.completed ? 'default' : 'outline'}
+                          size="sm"
+                          onClick={handleMarkComplete}
+                          disabled={isMarkingComplete}
+                        >
+                          {isMarkingComplete ? (
+                            <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                          ) : progress?.completed ? (
+                            <CheckCircle className="h-4 w-4 mr-2" />
+                          ) : (
+                            <Circle className="h-4 w-4 mr-2" />
+                          )}
+                          {progress?.completed ? 'Completed' : 'Mark Complete'}
+                        </Button>
+                      </div>
+                    )}
+
+                    {/* Show completion status when there IS a quiz requirement */}
+                    {(progress?.required_quiz_info || (questionsStatus && questionsStatus.total_questions > 0)) && progress?.completed && (
+                      <div className="flex items-center gap-2 text-green-600 dark:text-green-400">
+                        <CheckCircle className="h-5 w-5" />
+                        <span className="font-medium">Lesson Completed</span>
+                      </div>
+                    )}
                   </div>
 
                   {/* Video - currently only YouTube is supported */}
@@ -447,6 +512,12 @@ export function CoursePlayerPage() {
                       </CardContent>
                     </Card>
                   )}
+
+                  {/* Lesson Questions (Comprehension Check) */}
+                  <LessonQuestions
+                    lessonId={currentLesson.id}
+                    onStatusChange={setQuestionsStatus}
+                  />
                 </div>
               </div>
 

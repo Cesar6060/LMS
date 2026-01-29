@@ -10,7 +10,7 @@ from django.http import HttpResponse
 from django.utils import timezone
 from datetime import timedelta
 
-from .models import Course, Unit, Lesson, Enrollment, LessonProgress, Announcement
+from .models import Course, Unit, Lesson, Enrollment, LessonProgress, Announcement, LessonQuestion, LessonQuestionChoice, LessonQuestionAnswer, LessonQuizAttempt
 from .serializers import (
     CourseSerializer, CourseListSerializer, CourseCreateSerializer,
     InstructorCourseSerializer, UnitSerializer, UnitCreateSerializer,
@@ -18,7 +18,8 @@ from .serializers import (
     EnrollmentSerializer, EnrollmentCreateSerializer, LessonProgressSerializer,
     LessonProgressUpdateSerializer, AnnouncementSerializer,
     AnnouncementListSerializer, AnnouncementCreateSerializer,
-    StudentRosterSerializer
+    StudentRosterSerializer, LessonQuestionSerializer, LessonQuestionStudentSerializer,
+    LessonQuestionCreateSerializer, AnswerQuestionSerializer
 )
 from .permissions import (
     IsInstructor, IsInstructorOrReadOnly, IsCourseInstructor,
@@ -1724,4 +1725,441 @@ def student_grade_summary(request, course_code):
         },
         'is_weighted': config is not None,
         'grade_items': grade_items,
+    })
+
+
+# ============================================
+# Lesson Questions (Mini Comprehension Quizzes)
+# ============================================
+
+@api_view(['GET', 'POST'])
+@perm_classes([IsAuthenticated])
+def lesson_questions(request, lesson_id):
+    """
+    GET: Get questions for a lesson.
+        - Instructors see correct answers
+        - Students see questions without correct answer indicators
+    POST: Create a new question (instructor only).
+    """
+    lesson = get_object_or_404(Lesson, pk=lesson_id)
+    course = lesson.unit.course
+
+    # Check access
+    is_instructor = request.user == course.instructor
+    is_enrolled = Enrollment.objects.filter(
+        user=request.user, course=course, is_active=True
+    ).exists()
+
+    if not is_instructor and not is_enrolled:
+        return Response(
+            {'error': 'You must be enrolled in this course.'},
+            status=status.HTTP_403_FORBIDDEN
+        )
+
+    if request.method == 'GET':
+        questions = lesson.questions.prefetch_related('choices').all()
+
+        if is_instructor:
+            serializer = LessonQuestionSerializer(questions, many=True)
+        else:
+            serializer = LessonQuestionStudentSerializer(questions, many=True)
+
+        return Response(serializer.data)
+
+    elif request.method == 'POST':
+        if not is_instructor:
+            return Response(
+                {'error': 'Only the instructor can create questions.'},
+                status=status.HTTP_403_FORBIDDEN
+            )
+
+        serializer = LessonQuestionCreateSerializer(data=request.data)
+        if not serializer.is_valid():
+            return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+        data = serializer.validated_data
+
+        # Determine order
+        max_order = lesson.questions.aggregate(max_order=Max('order'))['max_order'] or 0
+
+        # Create the question
+        question = LessonQuestion.objects.create(
+            lesson=lesson,
+            text=data['text'],
+            order=data.get('order', max_order + 1)
+        )
+
+        # Create choices
+        for i, choice_data in enumerate(data['choices']):
+            LessonQuestionChoice.objects.create(
+                question=question,
+                text=choice_data['text'],
+                is_correct=choice_data.get('is_correct', False),
+                order=choice_data.get('order', i)
+            )
+
+        # Invalidate lesson completions - students need to answer the new question
+        # Reset completed status for all students who completed this lesson
+        LessonProgress.objects.filter(lesson=lesson, completed=True).update(
+            completed=False,
+            completed_at=None
+        )
+
+        # Return the created question with choices
+        question.refresh_from_db()
+        return Response(
+            LessonQuestionSerializer(question).data,
+            status=status.HTTP_201_CREATED
+        )
+
+
+@api_view(['GET', 'PUT', 'DELETE'])
+@perm_classes([IsAuthenticated])
+def lesson_question_detail(request, lesson_id, question_id):
+    """
+    GET: Get a single question.
+    PUT: Update a question (instructor only).
+    DELETE: Delete a question (instructor only).
+    """
+    lesson = get_object_or_404(Lesson, pk=lesson_id)
+    question = get_object_or_404(LessonQuestion, pk=question_id, lesson=lesson)
+    course = lesson.unit.course
+
+    # Check access
+    is_instructor = request.user == course.instructor
+    is_enrolled = Enrollment.objects.filter(
+        user=request.user, course=course, is_active=True
+    ).exists()
+
+    if not is_instructor and not is_enrolled:
+        return Response(
+            {'error': 'You must be enrolled in this course.'},
+            status=status.HTTP_403_FORBIDDEN
+        )
+
+    if request.method == 'GET':
+        if is_instructor:
+            serializer = LessonQuestionSerializer(question)
+        else:
+            serializer = LessonQuestionStudentSerializer(question)
+        return Response(serializer.data)
+
+    elif request.method == 'PUT':
+        if not is_instructor:
+            return Response(
+                {'error': 'Only the instructor can update questions.'},
+                status=status.HTTP_403_FORBIDDEN
+            )
+
+        serializer = LessonQuestionCreateSerializer(data=request.data)
+        if not serializer.is_valid():
+            return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+        data = serializer.validated_data
+
+        # Update question text and order
+        question.text = data['text']
+        if 'order' in data:
+            question.order = data['order']
+        question.save()
+
+        # Delete existing student answers since question is being modified
+        # Students will need to re-answer the updated question
+        question.answers.all().delete()
+
+        # Clear all quiz attempts for this lesson since questions changed
+        # Students will need to retake the quiz
+        LessonQuizAttempt.objects.filter(lesson=lesson).delete()
+
+        # Invalidate lesson completions since quiz content changed
+        LessonProgress.objects.filter(lesson=lesson, completed=True).update(
+            completed=False,
+            completed_at=None
+        )
+
+        # Delete existing choices and recreate
+        question.choices.all().delete()
+        for i, choice_data in enumerate(data['choices']):
+            LessonQuestionChoice.objects.create(
+                question=question,
+                text=choice_data['text'],
+                is_correct=choice_data.get('is_correct', False),
+                order=choice_data.get('order', i)
+            )
+
+        question.refresh_from_db()
+        return Response(LessonQuestionSerializer(question).data)
+
+    elif request.method == 'DELETE':
+        if not is_instructor:
+            return Response(
+                {'error': 'Only the instructor can delete questions.'},
+                status=status.HTTP_403_FORBIDDEN
+            )
+
+        # Clear all quiz attempts for this lesson since questions changed
+        LessonQuizAttempt.objects.filter(lesson=lesson).delete()
+
+        # Clear all answers for this lesson
+        LessonQuestionAnswer.objects.filter(question__lesson=lesson).delete()
+
+        # Invalidate lesson completions since quiz content changed
+        LessonProgress.objects.filter(lesson=lesson, completed=True).update(
+            completed=False,
+            completed_at=None
+        )
+
+        question.delete()
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
+
+@api_view(['POST'])
+@perm_classes([IsAuthenticated])
+def answer_lesson_question(request, lesson_id):
+    """
+    Submit an answer to a lesson question.
+    Returns whether the answer was correct and the correct answer.
+    """
+    lesson = get_object_or_404(Lesson, pk=lesson_id)
+    course = lesson.unit.course
+
+    # Check enrollment
+    is_enrolled = Enrollment.objects.filter(
+        user=request.user, course=course, is_active=True
+    ).exists()
+    is_instructor = request.user == course.instructor
+
+    if not is_enrolled and not is_instructor:
+        return Response(
+            {'error': 'You must be enrolled in this course.'},
+            status=status.HTTP_403_FORBIDDEN
+        )
+
+    serializer = AnswerQuestionSerializer(data=request.data)
+    if not serializer.is_valid():
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+    question = serializer.validated_data['question']
+    choice = serializer.validated_data['choice']
+
+    # Verify question belongs to this lesson
+    if question.lesson_id != lesson.id:
+        return Response(
+            {'error': 'Question does not belong to this lesson.'},
+            status=status.HTTP_400_BAD_REQUEST
+        )
+
+    # Create or update the answer
+    answer, created = LessonQuestionAnswer.objects.update_or_create(
+        user=request.user,
+        question=question,
+        defaults={'selected_choice': choice}
+    )
+
+    # Find the correct choice to return in response
+    correct_choice = question.choices.filter(is_correct=True).first()
+
+    return Response({
+        'is_correct': answer.is_correct,
+        'correct_choice_id': correct_choice.id if correct_choice else None,
+        'correct_choice_text': correct_choice.text if correct_choice else None,
+    })
+
+
+@api_view(['GET'])
+@perm_classes([IsAuthenticated])
+def lesson_questions_status(request, lesson_id):
+    """
+    Get the status of a student's progress on lesson questions.
+    Returns total questions, answered count, correct count, and whether they can complete the lesson.
+    """
+    lesson = get_object_or_404(Lesson, pk=lesson_id)
+    course = lesson.unit.course
+
+    # Check enrollment
+    is_enrolled = Enrollment.objects.filter(
+        user=request.user, course=course, is_active=True
+    ).exists()
+    is_instructor = request.user == course.instructor
+
+    if not is_enrolled and not is_instructor:
+        return Response(
+            {'error': 'You must be enrolled in this course.'},
+            status=status.HTTP_403_FORBIDDEN
+        )
+
+    total_questions = lesson.questions.count()
+
+    if total_questions == 0:
+        return Response({
+            'total_questions': 0,
+            'answered_questions': 0,
+            'correct_answers': 0,
+            'all_correct': True,
+            'can_complete_lesson': True,
+        })
+
+    answers = LessonQuestionAnswer.objects.filter(
+        user=request.user,
+        question__lesson=lesson
+    )
+
+    answered_count = answers.count()
+    correct_count = answers.filter(is_correct=True).count()
+    all_correct = correct_count == total_questions
+
+    # Get attempt info
+    attempts = LessonQuizAttempt.objects.filter(
+        user=request.user,
+        lesson=lesson
+    )
+    attempt_count = attempts.count()
+    best_attempt = attempts.filter(passed=True).first()
+    max_attempts = lesson.max_quiz_attempts  # 0 = unlimited
+
+    # Check if can attempt
+    can_attempt = max_attempts == 0 or attempt_count < max_attempts
+    attempts_remaining = None if max_attempts == 0 else max(0, max_attempts - attempt_count)
+
+    has_passed = best_attempt is not None
+
+    return Response({
+        'total_questions': total_questions,
+        'answered_questions': answered_count,
+        'correct_answers': correct_count,
+        'all_correct': all_correct,
+        'can_complete_lesson': has_passed or all_correct,
+        'attempt_count': attempt_count,
+        'max_attempts': max_attempts if max_attempts > 0 else None,
+        'attempts_remaining': attempts_remaining,
+        'can_attempt': can_attempt,
+        'has_passed': has_passed,
+    })
+
+
+@api_view(['POST'])
+@perm_classes([IsAuthenticated])
+def submit_lesson_quiz(request, lesson_id):
+    """
+    Submit all answers for a lesson quiz at once.
+    Creates an attempt record and stores all answers.
+    """
+    lesson = get_object_or_404(Lesson, pk=lesson_id)
+    course = lesson.unit.course
+
+    # Check enrollment
+    is_enrolled = Enrollment.objects.filter(
+        user=request.user, course=course, is_active=True
+    ).exists()
+    is_instructor = request.user == course.instructor
+
+    if not is_enrolled and not is_instructor:
+        return Response(
+            {'error': 'You must be enrolled in this course.'},
+            status=status.HTTP_403_FORBIDDEN
+        )
+
+    # Check if quiz has questions
+    questions = lesson.questions.prefetch_related('choices').all()
+    total_questions = questions.count()
+
+    if total_questions == 0:
+        return Response(
+            {'error': 'This lesson has no quiz questions.'},
+            status=status.HTTP_400_BAD_REQUEST
+        )
+
+    # Check attempt limits
+    max_attempts = lesson.max_quiz_attempts
+    current_attempts = LessonQuizAttempt.objects.filter(
+        user=request.user,
+        lesson=lesson
+    ).count()
+
+    if max_attempts > 0 and current_attempts >= max_attempts:
+        return Response(
+            {'error': f'You have reached the maximum number of attempts ({max_attempts}).'},
+            status=status.HTTP_400_BAD_REQUEST
+        )
+
+    # Validate answers format
+    answers = request.data.get('answers', {})
+    if not isinstance(answers, dict):
+        return Response(
+            {'error': 'Answers must be a dictionary of question_id: choice_id'},
+            status=status.HTTP_400_BAD_REQUEST
+        )
+
+    # Process answers
+    correct_count = 0
+    results = []
+
+    for question in questions:
+        choice_id = answers.get(str(question.id))
+
+        if choice_id is None:
+            results.append({
+                'question_id': question.id,
+                'is_correct': False,
+                'selected_choice_id': None,
+                'correct_choice_id': question.choices.filter(is_correct=True).first().id if question.choices.filter(is_correct=True).exists() else None,
+            })
+            continue
+
+        try:
+            choice = question.choices.get(id=choice_id)
+        except LessonQuestionChoice.DoesNotExist:
+            results.append({
+                'question_id': question.id,
+                'is_correct': False,
+                'selected_choice_id': choice_id,
+                'correct_choice_id': question.choices.filter(is_correct=True).first().id if question.choices.filter(is_correct=True).exists() else None,
+            })
+            continue
+
+        is_correct = choice.is_correct
+        if is_correct:
+            correct_count += 1
+
+        # Save the answer
+        LessonQuestionAnswer.objects.update_or_create(
+            user=request.user,
+            question=question,
+            defaults={'selected_choice': choice}
+        )
+
+        correct_choice = question.choices.filter(is_correct=True).first()
+        results.append({
+            'question_id': question.id,
+            'is_correct': is_correct,
+            'selected_choice_id': choice.id,
+            'correct_choice_id': correct_choice.id if correct_choice else None,
+        })
+
+    # Create attempt record
+    passed = correct_count == total_questions
+    attempt = LessonQuizAttempt.objects.create(
+        user=request.user,
+        lesson=lesson,
+        attempt_number=current_attempts + 1,
+        score=correct_count,
+        total_questions=total_questions,
+        passed=passed,
+        completed_at=timezone.now()
+    )
+
+    # Calculate remaining attempts
+    attempts_remaining = None
+    if max_attempts > 0:
+        attempts_remaining = max(0, max_attempts - (current_attempts + 1))
+
+    return Response({
+        'attempt_number': attempt.attempt_number,
+        'score': correct_count,
+        'total_questions': total_questions,
+        'percentage': attempt.percentage,
+        'passed': passed,
+        'results': results,
+        'attempts_remaining': attempts_remaining,
+        'can_complete_lesson': passed,
     })

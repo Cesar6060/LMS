@@ -6,10 +6,11 @@ import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { courseService, type CourseDetail, type UnitWithLessons, type LessonListItem } from '@/services/courses';
 import { assignmentService } from '@/services/assignments';
+import { LessonQuestionsManager } from '@/components/lesson/LessonQuestionsManager';
 import type { AssignmentListItem } from '@/types';
 import {
   Loader2, ChevronLeft, Plus, Trash2, Play, FileText,
-  Copy, CheckCircle, Settings, BookOpen, ClipboardList, Table, Megaphone, Eye, Users, FileQuestion
+  Copy, CheckCircle, Settings, BookOpen, ClipboardList, Table, Megaphone, Eye, Users, FileQuestion, HelpCircle
 } from 'lucide-react';
 import {
   Dialog,
@@ -58,6 +59,7 @@ type EditingLesson = {
   video_type: 'none' | 'youtube';
   video_id: string;
   order: number;
+  required_quiz?: number | null;
 };
 type EditingAssignment = {
   id?: number;
@@ -104,6 +106,10 @@ export function ManageCoursePage() {
 
   // Enrollment code copy state
   const [copied, setCopied] = useState(false);
+
+  // Lesson questions manager state
+  const [showQuestionsManager, setShowQuestionsManager] = useState(false);
+  const [selectedLessonForQuestions, setSelectedLessonForQuestions] = useState<{ id: number; title: string } | null>(null);
 
   useEffect(() => {
     if (code) {
@@ -195,7 +201,7 @@ export function ManageCoursePage() {
   };
 
   // Lesson handlers
-  const openAddLessonModal = (unitId: number) => {
+  const openAddLessonModal = async (unitId: number) => {
     const unit = course?.units.find(u => u.id === unitId);
     const nextOrder = unit && unit.lessons.length > 0
       ? Math.max(...unit.lessons.map(l => l.order)) + 1
@@ -209,11 +215,12 @@ export function ManageCoursePage() {
       video_type: 'none',
       video_id: '',
       order: nextOrder,
+      required_quiz: null,
     });
     setShowLessonModal(true);
   };
 
-  const openEditLessonModal = (lesson: LessonListItem, unitId: number) => {
+  const openEditLessonModal = async (lesson: LessonListItem, unitId: number) => {
     setSelectedUnitId(unitId);
     // Only support 'youtube' or 'none' - treat any other type as 'none'
     const videoType = lesson.video_type === 'youtube' ? 'youtube' : 'none';
@@ -224,6 +231,7 @@ export function ManageCoursePage() {
       video_type: videoType,
       video_id: lesson.video_id || '',
       order: lesson.order,
+      required_quiz: lesson.required_quiz || null,
     });
     setShowLessonModal(true);
   };
@@ -246,6 +254,7 @@ export function ManageCoursePage() {
         video_type: editingLesson.video_type,
         video_id: videoId,
         order: editingLesson.order,
+        required_quiz: editingLesson.required_quiz || null,
       };
 
       if (editingLesson.id) {
@@ -575,6 +584,17 @@ export function ManageCoursePage() {
                           <Button
                             variant="ghost"
                             size="sm"
+                            onClick={() => {
+                              setSelectedLessonForQuestions({ id: lesson.id, title: lesson.title });
+                              setShowQuestionsManager(true);
+                            }}
+                            title="Manage comprehension questions"
+                          >
+                            <HelpCircle className="h-4 w-4" />
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="sm"
                             onClick={() => openEditLessonModal(lesson, unit.id)}
                           >
                             Edit
@@ -811,6 +831,33 @@ export function ManageCoursePage() {
                   Supports GitHub Flavored Markdown (headers, lists, code blocks, links, etc.)
                 </p>
               </div>
+
+              {/* Comprehension Questions */}
+              {editingLesson?.id && (
+                <div className="space-y-2 p-4 bg-muted/50 rounded-lg">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <label className="text-sm font-medium">Comprehension Questions</label>
+                      <p className="text-xs text-muted-foreground">
+                        Add questions students must answer correctly to complete this lesson.
+                      </p>
+                    </div>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      onClick={() => {
+                        setShowLessonModal(false);
+                        setSelectedLessonForQuestions({ id: editingLesson.id!, title: editingLesson.title });
+                        setShowQuestionsManager(true);
+                      }}
+                    >
+                      <HelpCircle className="h-4 w-4 mr-2" />
+                      Manage Questions
+                    </Button>
+                  </div>
+                </div>
+              )}
             </div>
             <DialogFooter>
               <Button
@@ -1079,6 +1126,21 @@ export function ManageCoursePage() {
           </form>
         </DialogContent>
       </Dialog>
+
+      {/* Lesson Questions Manager */}
+      {selectedLessonForQuestions && (
+        <LessonQuestionsManager
+          lessonId={selectedLessonForQuestions.id}
+          lessonTitle={selectedLessonForQuestions.title}
+          open={showQuestionsManager}
+          onOpenChange={(open) => {
+            setShowQuestionsManager(open);
+            if (!open) {
+              setSelectedLessonForQuestions(null);
+            }
+          }}
+        />
+      )}
     </div>
   );
 }

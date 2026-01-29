@@ -1,6 +1,12 @@
 import { useState, useEffect } from 'react';
-import { ChevronDown, ChevronRight, CheckCircle, Circle, PlayCircle, FileText } from 'lucide-react';
+import { ChevronDown, ChevronRight, CheckCircle, Circle, PlayCircle, FileText, FileQuestion } from 'lucide-react';
 import { cn } from '@/lib/utils';
+
+interface RequiredQuizInfo {
+  id: number;
+  title: string;
+  passing_score: number;
+}
 
 interface Lesson {
   id: number;
@@ -8,6 +14,8 @@ interface Lesson {
   video_type: 'none' | 'youtube' | 'vimeo';
   video_id: string | null;
   order: number;
+  required_quiz?: number | null;
+  required_quiz_info?: RequiredQuizInfo | null;
 }
 
 interface LessonWithProgress extends Lesson {
@@ -200,6 +208,13 @@ export function CourseSidebar({
                         >
                           {lesson.title}
                         </span>
+
+                        {/* Quiz requirement indicator */}
+                        {lesson.required_quiz_info && !lesson.is_completed && (
+                          <span title={`Quiz required: ${lesson.required_quiz_info.title}`}>
+                            <FileQuestion className="h-4 w-4 text-amber-500 flex-shrink-0" />
+                          </span>
+                        )}
                       </button>
                     );
                   })}

@@ -57,6 +57,12 @@ export interface Unit {
   lessons?: Lesson[];
 }
 
+export interface RequiredQuizInfo {
+  id: number;
+  title: string;
+  passing_score: number;
+}
+
 export interface Lesson {
   id: number;
   unit: number;
@@ -65,6 +71,10 @@ export interface Lesson {
   order: number;
   video_type: 'none' | 'youtube' | 'vimeo';
   video_id: string | null;
+  required_quiz?: number | null;
+  required_quiz_info?: RequiredQuizInfo | null;
+  max_quiz_attempts?: number | null;
+  question_count?: number;
 }
 
 export interface Enrollment {
@@ -82,6 +92,9 @@ export interface LessonProgress {
   completed: boolean;
   completed_at: string | null;
   video_position: number;
+  required_quiz_passed?: boolean | null;
+  required_quiz_info?: RequiredQuizInfo | null;
+  lesson_questions_status?: LessonQuestionsStatus | null;
 }
 
 // Phase 4: Assignment types
@@ -406,4 +419,57 @@ export interface APIError {
   detail?: string;
   non_field_errors?: string[];
   [key: string]: string | string[] | undefined;
+}
+
+// Phase 15: Lesson Questions (Mini Comprehension Quizzes)
+export interface LessonQuestionChoice {
+  id: number;
+  text: string;
+  is_correct?: boolean; // Only visible to instructors
+  order: number;
+}
+
+export interface LessonQuestion {
+  id: number;
+  lesson?: number;
+  text: string;
+  order: number;
+  choices: LessonQuestionChoice[];
+  created_at?: string;
+  updated_at?: string;
+}
+
+export interface LessonQuestionsStatus {
+  total_questions: number;
+  answered_questions: number;
+  correct_answers: number;
+  all_correct: boolean;
+  can_complete_lesson: boolean;
+  attempt_count: number;
+  max_attempts: number | null;
+  attempts_remaining: number | null;
+  can_attempt: boolean;
+  has_passed: boolean;
+}
+
+export interface QuizSubmissionResult {
+  attempt_number: number;
+  score: number;
+  total_questions: number;
+  percentage: number;
+  passed: boolean;
+  results: Array<{
+    question_id: number;
+    is_correct: boolean;
+    selected_choice_id: number | null;
+    correct_choice_id: number | null;
+  }>;
+  attempts_remaining: number | null;
+  can_complete_lesson: boolean;
+}
+
+export interface AnswerQuestionResult {
+  is_correct: boolean;
+  correct_choice_id: number | null;
+  correct_choice_text: string | null;
 }
