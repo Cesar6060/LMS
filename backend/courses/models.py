@@ -221,6 +221,10 @@ class LessonProgress(models.Model):
         default=0,
         help_text='Video position in seconds'
     )
+    current_section = models.PositiveIntegerField(
+        default=0,
+        help_text='Index of the current section the user is viewing'
+    )
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
@@ -436,3 +440,53 @@ class LessonAttachment(models.Model):
             ext = self.filename.rsplit('.', 1)[-1].lower() if '.' in self.filename else ''
             self.file_type = ext
         super().save(*args, **kwargs)
+
+
+class LessonSection(models.Model):
+    """
+    A section/slide within a lesson.
+    Lessons can have multiple sections for paginated content delivery.
+    """
+    VIDEO_TYPE_CHOICES = [
+        ('none', 'No Video'),
+        ('youtube', 'YouTube'),
+        ('vimeo', 'Vimeo'),
+    ]
+
+    lesson = models.ForeignKey(
+        Lesson,
+        on_delete=models.CASCADE,
+        related_name='sections'
+    )
+    title = models.CharField(
+        max_length=200,
+        blank=True,
+        help_text='Optional section title'
+    )
+    content = models.TextField(
+        blank=True,
+        help_text='Section content in Markdown format'
+    )
+    video_type = models.CharField(
+        max_length=20,
+        choices=VIDEO_TYPE_CHOICES,
+        default='none',
+        blank=True
+    )
+    video_id = models.CharField(
+        max_length=100,
+        blank=True,
+        help_text='YouTube or Vimeo video ID'
+    )
+    order = models.PositiveIntegerField(default=0)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = 'courses_lessonsection'
+        ordering = ['order']
+        unique_together = ['lesson', 'order']
+
+    def __str__(self):
+        title = self.title or f"Section {self.order + 1}"
+        return f"{self.lesson.title} - {title}"

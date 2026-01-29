@@ -181,21 +181,6 @@ export function Header() {
                       )}
                     </div>
 
-                    {/* Instructor Quick Actions */}
-                    {user?.is_instructor && (
-                      <>
-                        <Link
-                          to="/instructor/courses/new"
-                          onClick={() => setUserMenuOpen(false)}
-                          className="flex items-center gap-2 px-3 py-2 text-sm hover:bg-muted transition-colors"
-                        >
-                          <span className="text-green-600">+</span>
-                          Create Course
-                        </Link>
-                        <div className="border-t my-1" />
-                      </>
-                    )}
-
                     {/* Grades Section (Students only) */}
                     {!user?.is_instructor && enrolledCourses.length > 0 && (
                       <>

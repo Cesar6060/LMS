@@ -10,7 +10,7 @@ from django.http import HttpResponse
 from django.utils import timezone
 from datetime import timedelta
 
-from .models import Course, Unit, Lesson, Enrollment, LessonProgress, Announcement, LessonQuestion, LessonQuestionChoice, LessonQuestionAnswer, LessonQuizAttempt, LessonAttachment
+from .models import Course, Unit, Lesson, Enrollment, LessonProgress, Announcement, LessonQuestion, LessonQuestionChoice, LessonQuestionAnswer, LessonQuizAttempt, LessonAttachment, LessonSection
 from .serializers import (
     CourseSerializer, CourseListSerializer, CourseCreateSerializer,
     InstructorCourseSerializer, UnitSerializer, UnitCreateSerializer,
@@ -19,7 +19,8 @@ from .serializers import (
     LessonProgressUpdateSerializer, AnnouncementSerializer,
     AnnouncementListSerializer, AnnouncementCreateSerializer,
     StudentRosterSerializer, LessonQuestionSerializer, LessonQuestionStudentSerializer,
-    LessonQuestionCreateSerializer, AnswerQuestionSerializer, LessonAttachmentSerializer
+    LessonQuestionCreateSerializer, AnswerQuestionSerializer, LessonAttachmentSerializer,
+    LessonSectionSerializer, LessonSectionCreateSerializer
 )
 from .permissions import (
     IsInstructor, IsInstructorOrReadOnly, IsCourseInstructor,
@@ -2309,3 +2310,218 @@ def lesson_attachment_detail(request, lesson_id, attachment_id):
 
     attachment.delete()
     return Response(status=status.HTTP_204_NO_CONTENT)
+
+
+# ==============================================
+# Lesson Sections (Phase 17: Lesson Pagination)
+# ==============================================
+
+@api_view(['GET', 'POST'])
+@perm_classes([IsAuthenticated])
+def lesson_sections(request, lesson_id):
+    """
+    GET: List sections for a lesson (students and instructors)
+    POST: Create a new section (instructor only)
+    """
+    lesson = get_object_or_404(Lesson, pk=lesson_id)
+    course = lesson.unit.course
+
+    # Check access - must be instructor or enrolled student
+    is_instructor = request.user == course.instructor
+    is_enrolled = Enrollment.objects.filter(
+        user=request.user, course=course, is_active=True
+    ).exists()
+
+    if not is_instructor and not is_enrolled:
+        return Response(
+            {'error': 'Access denied'},
+            status=status.HTTP_403_FORBIDDEN
+        )
+
+    if request.method == 'GET':
+        sections = lesson.sections.all().order_by('order')
+        serializer = LessonSectionSerializer(sections, many=True)
+        return Response(serializer.data)
+
+    elif request.method == 'POST':
+        # Only instructor can create sections
+        if not is_instructor:
+            return Response(
+                {'error': 'Only instructors can create sections'},
+                status=status.HTTP_403_FORBIDDEN
+            )
+
+        serializer = LessonSectionCreateSerializer(data=request.data)
+        if serializer.is_valid():
+            # Auto-assign order if not provided
+            order = serializer.validated_data.get('order')
+            if order is None:
+                max_order = lesson.sections.aggregate(Max('order'))['order__max']
+                order = (max_order or -1) + 1
+
+            section = serializer.save(lesson=lesson, order=order)
+            return Response(
+                LessonSectionSerializer(section).data,
+                status=status.HTTP_201_CREATED
+            )
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+
+@api_view(['GET', 'PUT', 'DELETE'])
+@perm_classes([IsAuthenticated])
+def lesson_section_detail(request, lesson_id, section_id):
+    """
+    GET: Get a single section
+    PUT: Update a section (instructor only)
+    DELETE: Delete a section (instructor only)
+    """
+    lesson = get_object_or_404(Lesson, pk=lesson_id)
+    course = lesson.unit.course
+    section = get_object_or_404(LessonSection, pk=section_id, lesson=lesson)
+
+    # Check access - must be instructor or enrolled student
+    is_instructor = request.user == course.instructor
+    is_enrolled = Enrollment.objects.filter(
+        user=request.user, course=course, is_active=True
+    ).exists()
+
+    if not is_instructor and not is_enrolled:
+        return Response(
+            {'error': 'Access denied'},
+            status=status.HTTP_403_FORBIDDEN
+        )
+
+    if request.method == 'GET':
+        serializer = LessonSectionSerializer(section)
+        return Response(serializer.data)
+
+    elif request.method == 'PUT':
+        # Only instructor can update
+        if not is_instructor:
+            return Response(
+                {'error': 'Only instructors can update sections'},
+                status=status.HTTP_403_FORBIDDEN
+            )
+
+        serializer = LessonSectionCreateSerializer(section, data=request.data)
+        if serializer.is_valid():
+            serializer.save()
+            return Response(LessonSectionSerializer(section).data)
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+    elif request.method == 'DELETE':
+        # Only instructor can delete
+        if not is_instructor:
+            return Response(
+                {'error': 'Only instructors can delete sections'},
+                status=status.HTTP_403_FORBIDDEN
+            )
+
+        deleted_order = section.order
+        section.delete()
+
+        # Reorder remaining sections to fill the gap
+        lesson.sections.filter(order__gt=deleted_order).update(order=F('order') - 1)
+
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
+
+@api_view(['POST'])
+@perm_classes([IsAuthenticated])
+def lesson_sections_reorder(request, lesson_id):
+    """
+    Reorder sections for a lesson.
+    Expects: { "section_ids": [3, 1, 2] }
+    """
+    lesson = get_object_or_404(Lesson, pk=lesson_id)
+    course = lesson.unit.course
+
+    # Only instructor can reorder
+    if request.user != course.instructor:
+        return Response(
+            {'error': 'Only instructors can reorder sections'},
+            status=status.HTTP_403_FORBIDDEN
+        )
+
+    section_ids = request.data.get('section_ids', [])
+    if not section_ids:
+        return Response(
+            {'error': 'section_ids is required'},
+            status=status.HTTP_400_BAD_REQUEST
+        )
+
+    # Verify all section IDs belong to this lesson
+    existing_ids = set(lesson.sections.values_list('id', flat=True))
+    provided_ids = set(section_ids)
+
+    if existing_ids != provided_ids:
+        return Response(
+            {'error': 'Invalid section IDs provided'},
+            status=status.HTTP_400_BAD_REQUEST
+        )
+
+    # To avoid unique_together constraint violations, first set all to temporary high values
+    # then set them to their final order
+    offset = 10000
+    for i, section_id in enumerate(section_ids):
+        LessonSection.objects.filter(pk=section_id).update(order=offset + i)
+
+    # Now set the final order values
+    for new_order, section_id in enumerate(section_ids):
+        LessonSection.objects.filter(pk=section_id).update(order=new_order)
+
+    # Return updated sections
+    sections = lesson.sections.all().order_by('order')
+    serializer = LessonSectionSerializer(sections, many=True)
+    return Response(serializer.data)
+
+
+# ============================================
+# Instructor Progress Reset
+# ============================================
+
+@api_view(['POST'])
+@perm_classes([IsAuthenticated])
+def reset_lesson_progress(request, lesson_id):
+    """
+    Reset lesson progress for the current user (instructor only).
+    This resets:
+    - LessonProgress (completed, video_position, current_section)
+    - LessonQuizAttempt records
+    - LessonQuestionAnswer records
+
+    Used by instructors to repeatedly test the student experience.
+    """
+    lesson = get_object_or_404(Lesson, pk=lesson_id)
+    course = lesson.unit.course
+
+    # Only allow instructors of this course to reset their progress
+    if request.user != course.instructor:
+        return Response(
+            {'error': 'Only the course instructor can reset their progress'},
+            status=status.HTTP_403_FORBIDDEN
+        )
+
+    # Reset LessonProgress
+    LessonProgress.objects.filter(
+        user=request.user,
+        lesson=lesson
+    ).update(
+        completed=False,
+        video_position=0,
+        current_section=0
+    )
+
+    # Delete quiz attempts
+    LessonQuizAttempt.objects.filter(
+        user=request.user,
+        lesson=lesson
+    ).delete()
+
+    # Delete question answers
+    LessonQuestionAnswer.objects.filter(
+        user=request.user,
+        question__lesson=lesson
+    ).delete()
+
+    return Response({'message': 'Progress reset successfully'})

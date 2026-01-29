@@ -53,4 +53,12 @@ urlpatterns = [
     # Lesson Attachments (Phase 16)
     path('lessons/<int:lesson_id>/attachments/', views.lesson_attachments, name='lesson-attachments'),
     path('lessons/<int:lesson_id>/attachments/<int:attachment_id>/', views.lesson_attachment_detail, name='lesson-attachment-detail'),
+
+    # Lesson Sections (Phase 17: Lesson Pagination)
+    path('lessons/<int:lesson_id>/sections/', views.lesson_sections, name='lesson-sections'),
+    path('lessons/<int:lesson_id>/sections/<int:section_id>/', views.lesson_section_detail, name='lesson-section-detail'),
+    path('lessons/<int:lesson_id>/sections/reorder/', views.lesson_sections_reorder, name='lesson-sections-reorder'),
+
+    # Instructor Progress Reset
+    path('lessons/<int:lesson_id>/progress/reset/', views.reset_lesson_progress, name='reset-lesson-progress'),
 ]

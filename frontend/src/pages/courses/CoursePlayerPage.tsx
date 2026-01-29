@@ -6,10 +6,11 @@ import { Button } from '@/components/ui/Button';
 import { Card, CardContent } from '@/components/ui/Card';
 import { CourseSidebar } from '@/components/course/CourseSidebar';
 import { VideoPlayer } from '@/components/video/VideoPlayer';
-import { LessonQuestions } from '@/components/lesson/LessonQuestions';
+import { LessonQuizSection } from '@/components/lesson/LessonQuizSection';
 import { LessonAttachmentsList } from '@/components/lesson/LessonAttachmentsList';
 import { courseService } from '@/services/courses';
-import type { LessonProgress, LessonQuestionsStatus, LessonAttachment } from '@/types';
+import { useAuth } from '@/contexts/AuthContext';
+import type { LessonProgress, LessonQuestionsStatus, LessonAttachment, LessonSection } from '@/types';
 import {
   Loader2, ChevronLeft, ChevronRight, CheckCircle, Circle, FileQuestion
 } from 'lucide-react';
@@ -23,6 +24,8 @@ interface LessonDetail {
   order: number;
   unit: number;
   attachments?: LessonAttachment[];
+  sections?: LessonSection[];
+  section_count?: number;
 }
 
 interface LessonWithProgress {
@@ -61,6 +64,7 @@ interface CourseWithProgress {
 export function CoursePlayerPage() {
   const { code, lessonId } = useParams<{ code: string; lessonId?: string }>();
   const navigate = useNavigate();
+  const { user } = useAuth();
 
   const [course, setCourse] = useState<CourseWithProgress | null>(null);
   const [currentLesson, setCurrentLesson] = useState<LessonDetail | null>(null);
@@ -74,8 +78,36 @@ export function CoursePlayerPage() {
   const [isMarkingComplete, setIsMarkingComplete] = useState(false);
   const [questionsStatus, setQuestionsStatus] = useState<LessonQuestionsStatus | null>(null);
 
+  // Section navigation state
+  const [currentSectionIndex, setCurrentSectionIndex] = useState(0);
+
+  // Check if current user is the instructor
+  const isInstructor = course && user && course.instructor.id === user.id;
+
+  // Ref to track current lesson for cleanup
+  const currentLessonRef = useRef<number | null>(null);
+  const isInstructorRef = useRef(false);
+
+  // Update refs when values change
+  useEffect(() => {
+    currentLessonRef.current = currentLesson?.id || null;
+    isInstructorRef.current = !!isInstructor;
+  }, [currentLesson?.id, isInstructor]);
+
+  // Reset instructor progress when leaving the lesson
+  useEffect(() => {
+    return () => {
+      if (isInstructorRef.current && currentLessonRef.current) {
+        courseService.resetLessonProgress(currentLessonRef.current).catch(() => {
+          // Silent fail - instructor might have navigated away quickly
+        });
+      }
+    };
+  }, []);
+
   // Track last saved position to avoid unnecessary API calls
   const lastSavedPositionRef = useRef<number>(0);
+  const lastSavedSectionRef = useRef<number>(0);
   const isSavingRef = useRef(false);
 
   // Persist sidebar state
@@ -129,13 +161,30 @@ export function CoursePlayerPage() {
     try {
       setIsLessonLoading(true);
       setQuestionsStatus(null); // Reset questions status when loading new lesson
-      const [lessonData, progressData] = await Promise.all([
+      setCurrentSectionIndex(0); // Reset section index
+      const [lessonData, progressData, quizStatusData] = await Promise.all([
         courseService.getLesson(id),
-        courseService.getLessonProgress(id)
+        courseService.getLessonProgress(id),
+        courseService.getLessonQuestionsStatus(id).catch(() => null) // May not exist
       ]);
       setCurrentLesson(lessonData);
       setProgress(progressData);
+      setQuestionsStatus(quizStatusData);
       lastSavedPositionRef.current = progressData?.video_position || 0;
+      lastSavedSectionRef.current = progressData?.current_section || 0;
+
+      // Calculate total sections for resume logic
+      const contentSectionsCount = lessonData.sections?.length || 0;
+      const hasQuizSection = quizStatusData && quizStatusData.total_questions > 0;
+      const maxSectionIndex = contentSectionsCount + (hasQuizSection ? 1 : 0) - 1;
+
+      // Resume at saved section
+      if (progressData?.current_section !== undefined) {
+        const savedSection = progressData.current_section;
+        if (savedSection <= maxSectionIndex) {
+          setCurrentSectionIndex(savedSection);
+        }
+      }
 
       // Track course activity
       if (code) {
@@ -165,6 +214,35 @@ export function CoursePlayerPage() {
   const handleLessonSelect = useCallback((id: number) => {
     navigate(`/courses/${code}/learn/${id}`);
   }, [navigate, code]);
+
+  // Handle section navigation
+  const handleSectionChange = useCallback(async (newIndex: number) => {
+    if (!currentLesson || isSavingRef.current) return;
+
+    // Calculate total sections (content + quiz if present)
+    const contentSectionsCount = currentLesson.sections?.length || 0;
+    const hasQuizSection = questionsStatus && questionsStatus.total_questions > 0;
+    const maxIndex = contentSectionsCount + (hasQuizSection ? 1 : 0) - 1;
+
+    if (newIndex < 0 || newIndex > maxIndex) return;
+
+    setCurrentSectionIndex(newIndex);
+
+    // Save section progress (debounced to avoid too many API calls)
+    if (newIndex !== lastSavedSectionRef.current) {
+      isSavingRef.current = true;
+      try {
+        await courseService.updateLessonProgress(currentLesson.id, {
+          current_section: newIndex
+        });
+        lastSavedSectionRef.current = newIndex;
+      } catch (err) {
+        console.error('Failed to save section progress:', err);
+      } finally {
+        isSavingRef.current = false;
+      }
+    }
+  }, [currentLesson, questionsStatus]);
 
   const handleMarkComplete = async () => {
     if (!currentLesson || !progress) return;
@@ -227,6 +305,14 @@ export function CoursePlayerPage() {
   const handleVideoEnded = useCallback(async () => {
     if (!currentLesson || progress?.completed) return;
 
+    // If there are more sections, don't auto-complete the lesson
+    const sections = currentLesson.sections || [];
+    if (sections.length > 1 && currentSectionIndex < sections.length - 1) {
+      // Just move to next section
+      handleSectionChange(currentSectionIndex + 1);
+      return;
+    }
+
     try {
       const updated = await courseService.updateLessonProgress(currentLesson.id, {
         completed: true
@@ -260,7 +346,7 @@ export function CoursePlayerPage() {
     } catch (err) {
       console.error('Failed to mark lesson complete:', err);
     }
-  }, [currentLesson, progress?.completed, course, code, navigate]);
+  }, [currentLesson, progress?.completed, course, code, navigate, currentSectionIndex, handleSectionChange]);
 
   const getPreviousLesson = () => {
     if (!course || !currentLesson) return null;
@@ -281,6 +367,22 @@ export function CoursePlayerPage() {
   const previousLesson = getPreviousLesson();
   const nextLesson = getNextLesson();
 
+  // Get current section data
+  const contentSections = currentLesson?.sections || [];
+  const hasContentSections = contentSections.length > 0;
+  const hasQuiz = questionsStatus && questionsStatus.total_questions > 0;
+
+  // Total sections = content sections + quiz section (if exists)
+  const totalSections = hasContentSections
+    ? contentSections.length + (hasQuiz ? 1 : 0)
+    : (hasQuiz ? 1 : 0);
+  const hasSections = totalSections > 1;
+
+  // Determine if we're on the quiz section (last section when quiz exists)
+  const isOnQuizSection = hasQuiz && currentSectionIndex === totalSections - 1;
+  const currentSection = !isOnQuizSection && hasContentSections ? contentSections[currentSectionIndex] : null;
+  const isLastSection = currentSectionIndex === totalSections - 1;
+
   // Calculate progress
   const completedCount = course?.units.reduce(
     (acc, unit) => acc + unit.lessons.filter(l => l.is_completed).length,
@@ -300,16 +402,26 @@ export function CoursePlayerPage() {
         return;
       }
 
-      if (e.key === 'ArrowLeft' && previousLesson) {
-        handleLessonSelect(previousLesson.id);
-      } else if (e.key === 'ArrowRight' && nextLesson) {
-        handleLessonSelect(nextLesson.id);
+      if (e.key === 'ArrowLeft') {
+        // If we have sections and not at first section, go to previous section
+        if (hasSections && currentSectionIndex > 0) {
+          handleSectionChange(currentSectionIndex - 1);
+        } else if (previousLesson) {
+          handleLessonSelect(previousLesson.id);
+        }
+      } else if (e.key === 'ArrowRight') {
+        // If we have sections and not at last section, go to next section
+        if (hasSections && currentSectionIndex < totalSections - 1) {
+          handleSectionChange(currentSectionIndex + 1);
+        } else if (nextLesson) {
+          handleLessonSelect(nextLesson.id);
+        }
       }
     };
 
     window.addEventListener('keydown', handleKeyPress);
     return () => window.removeEventListener('keydown', handleKeyPress);
-  }, [previousLesson, nextLesson, handleLessonSelect]);
+  }, [previousLesson, nextLesson, handleLessonSelect, hasSections, currentSectionIndex, totalSections, handleSectionChange]);
 
   if (isLoading) {
     return (
@@ -333,6 +445,102 @@ export function CoursePlayerPage() {
       </div>
     );
   }
+
+  // Render section content
+  const renderSectionContent = () => {
+    // Render quiz section
+    if (isOnQuizSection && currentLesson) {
+      return (
+        <LessonQuizSection
+          lessonId={currentLesson.id}
+          onStatusChange={setQuestionsStatus}
+          onComplete={handleMarkComplete}
+          isLessonCompleted={progress?.completed}
+        />
+      );
+    }
+
+    if (!currentSection) {
+      // Fallback: render lesson content directly (legacy lessons without sections)
+      return (
+        <>
+          {/* Video - currently only YouTube is supported */}
+          {currentLesson?.video_type === 'youtube' && currentLesson.video_id && (
+            <div className="mb-8">
+              <VideoPlayer
+                videoType="youtube"
+                videoId={currentLesson.video_id}
+                initialPosition={progress?.video_position || 0}
+                onProgress={handleVideoProgress}
+                onEnded={handleVideoEnded}
+              />
+            </div>
+          )}
+
+          {/* Content */}
+          {currentLesson?.content && (
+            <Card>
+              <CardContent className="prose prose-neutral dark:prose-invert max-w-none py-6">
+                <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                  {currentLesson.content}
+                </ReactMarkdown>
+              </CardContent>
+            </Card>
+          )}
+
+          {!currentLesson?.content && currentLesson?.video_type === 'none' && (
+            <Card>
+              <CardContent className="py-12 text-center text-muted-foreground">
+                No content available for this lesson.
+              </CardContent>
+            </Card>
+          )}
+        </>
+      );
+    }
+
+    // Render section content
+    return (
+      <div className="animate-in fade-in slide-in-from-right-4 duration-300">
+        {/* Section title */}
+        {currentSection.title && (
+          <h3 className="text-xl font-semibold mb-4">{currentSection.title}</h3>
+        )}
+
+        {/* Section video */}
+        {currentSection.video_type === 'youtube' && currentSection.video_id && (
+          <div className="mb-8">
+            <VideoPlayer
+              videoType="youtube"
+              videoId={currentSection.video_id}
+              initialPosition={currentSectionIndex === 0 ? (progress?.video_position || 0) : 0}
+              onProgress={handleVideoProgress}
+              onEnded={handleVideoEnded}
+            />
+          </div>
+        )}
+
+        {/* Section content */}
+        {currentSection.content && (
+          <Card>
+            <CardContent className="prose prose-neutral dark:prose-invert max-w-none py-6">
+              <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                {currentSection.content}
+              </ReactMarkdown>
+            </CardContent>
+          </Card>
+        )}
+
+        {!currentSection.content && currentSection.video_type === 'none' && (
+          <Card>
+            <CardContent className="py-12 text-center text-muted-foreground">
+              No content available for this section.
+            </CardContent>
+          </Card>
+        )}
+      </div>
+    );
+  };
 
   return (
     <div className="h-screen flex flex-col bg-background animate-in fade-in duration-300">
@@ -401,6 +609,13 @@ export function CoursePlayerPage() {
                   <div className="mb-6">
                     <h2 className="text-2xl font-bold mb-2">{currentLesson.title}</h2>
 
+                    {/* Section title (only show if section has a title) */}
+                    {hasSections && totalSections > 1 && currentSection?.title && (
+                      <p className="text-sm text-muted-foreground mb-2">
+                        {currentSection.title}
+                      </p>
+                    )}
+
                     {/* Quiz requirement badge */}
                     {progress?.required_quiz_info && !progress?.completed && (
                       <div className={`inline-flex items-center gap-2 px-3 py-1.5 rounded-lg mb-3 ${
@@ -430,8 +645,8 @@ export function CoursePlayerPage() {
                       </div>
                     )}
 
-                    {/* Lesson questions requirement badge */}
-                    {questionsStatus && questionsStatus.total_questions > 0 && !progress?.completed && (
+                    {/* Lesson questions requirement badge - only show when NOT on quiz section */}
+                    {questionsStatus && questionsStatus.total_questions > 0 && !progress?.completed && !isOnQuizSection && (
                       <div className={`inline-flex items-center gap-2 px-3 py-1.5 rounded-lg mb-3 ${
                         questionsStatus.can_complete_lesson
                           ? 'bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400'
@@ -448,13 +663,19 @@ export function CoursePlayerPage() {
                             <span className="text-sm font-medium">
                               Complete the comprehension quiz to finish this lesson
                             </span>
+                            <button
+                              onClick={() => handleSectionChange(totalSections - 1)}
+                              className="text-sm underline hover:no-underline ml-1"
+                            >
+                              Go to Quiz →
+                            </button>
                           </>
                         )}
                       </div>
                     )}
 
-                    {/* Only show Mark Complete button if there's no quiz requirement */}
-                    {!progress?.required_quiz_info && (!questionsStatus || questionsStatus.total_questions === 0) && (
+                    {/* Only show Mark Complete button if there's no quiz requirement and on last section */}
+                    {(!hasSections || isLastSection) && !progress?.required_quiz_info && (!questionsStatus || questionsStatus.total_questions === 0) && (
                       <div className="flex items-center gap-3">
                         <Button
                           variant={progress?.completed ? 'default' : 'outline'}
@@ -483,70 +704,96 @@ export function CoursePlayerPage() {
                     )}
                   </div>
 
-                  {/* Video - currently only YouTube is supported */}
-                  {currentLesson.video_type === 'youtube' && currentLesson.video_id && (
-                    <div className="mb-8">
-                      <VideoPlayer
-                        videoType="youtube"
-                        videoId={currentLesson.video_id}
-                        initialPosition={progress?.video_position || 0}
-                        onProgress={handleVideoProgress}
-                        onEnded={handleVideoEnded}
-                      />
-                    </div>
+                  {/* Section/Lesson content */}
+                  {renderSectionContent()}
+
+                  {/* Attachments - show on last content section or quiz section */}
+                  {(!hasContentSections || isOnQuizSection || (!hasQuiz && isLastSection)) && (
+                    <LessonAttachmentsList attachments={currentLesson.attachments || []} />
                   )}
-
-                  {/* Content */}
-                  {currentLesson.content && (
-                    <Card>
-                      <CardContent className="prose prose-neutral dark:prose-invert max-w-none py-6">
-                        <ReactMarkdown remarkPlugins={[remarkGfm]}>
-                          {currentLesson.content}
-                        </ReactMarkdown>
-                      </CardContent>
-                    </Card>
-                  )}
-
-                  {!currentLesson.content && currentLesson.video_type === 'none' && (
-                    <Card>
-                      <CardContent className="py-12 text-center text-muted-foreground">
-                        No content available for this lesson.
-                      </CardContent>
-                    </Card>
-                  )}
-
-                  {/* Attachments */}
-                  <LessonAttachmentsList attachments={currentLesson.attachments || []} />
-
-                  {/* Lesson Questions (Comprehension Check) */}
-                  <LessonQuestions
-                    lessonId={currentLesson.id}
-                    onStatusChange={setQuestionsStatus}
-                  />
                 </div>
               </div>
 
               {/* Navigation footer */}
-              <div className="h-16 border-t bg-card flex items-center justify-between px-6">
+              <div className="h-14 border-t bg-card flex items-center justify-between px-4 sm:px-6">
                 <Button
-                  variant="outline"
-                  onClick={() => previousLesson && handleLessonSelect(previousLesson.id)}
-                  disabled={!previousLesson}
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => {
+                    if (hasSections && currentSectionIndex > 0) {
+                      handleSectionChange(currentSectionIndex - 1);
+                    } else if (previousLesson) {
+                      handleLessonSelect(previousLesson.id);
+                    }
+                  }}
+                  disabled={!previousLesson && currentSectionIndex === 0}
+                  className="gap-1"
                 >
-                  <ChevronLeft className="h-4 w-4 mr-2" />
-                  Previous
+                  <ChevronLeft className="h-4 w-4" />
+                  <span className="hidden sm:inline">Previous</span>
                 </Button>
 
-                <p className="text-sm text-muted-foreground hidden sm:block">
-                  Use arrow keys ← → to navigate
-                </p>
+                {/* Section indicators */}
+                <div className="flex items-center gap-2">
+                  {hasSections && totalSections > 1 ? (
+                    <>
+                      <div className="flex items-center gap-1.5">
+                        {/* Content section dots */}
+                        {contentSections.map((_, i) => (
+                          <button
+                            key={i}
+                            onClick={() => handleSectionChange(i)}
+                            className={`w-2 h-2 rounded-full transition-all ${
+                              i === currentSectionIndex
+                                ? 'bg-primary w-3'
+                                : i < currentSectionIndex
+                                  ? 'bg-primary/50'
+                                  : 'bg-muted-foreground/30 hover:bg-muted-foreground/50'
+                            }`}
+                            title={`Section ${i + 1}`}
+                          />
+                        ))}
+                        {/* Quiz section indicator */}
+                        {hasQuiz && (
+                          <button
+                            onClick={() => handleSectionChange(totalSections - 1)}
+                            className={`w-2 h-2 rounded-sm transition-all ${
+                              isOnQuizSection
+                                ? 'bg-amber-500 w-3'
+                                : currentSectionIndex < totalSections - 1
+                                  ? 'bg-amber-500/30 hover:bg-amber-500/50'
+                                  : 'bg-amber-500/50'
+                            }`}
+                            title="Comprehension Check"
+                          />
+                        )}
+                      </div>
+                      <span className="text-xs text-muted-foreground">
+                        {currentSectionIndex + 1}/{totalSections}
+                      </span>
+                    </>
+                  ) : (
+                    <span className="text-xs text-muted-foreground hidden sm:block">
+                      ← → to navigate
+                    </span>
+                  )}
+                </div>
 
                 <Button
-                  onClick={() => nextLesson && handleLessonSelect(nextLesson.id)}
-                  disabled={!nextLesson}
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => {
+                    if (hasSections && currentSectionIndex < totalSections - 1) {
+                      handleSectionChange(currentSectionIndex + 1);
+                    } else if (nextLesson) {
+                      handleLessonSelect(nextLesson.id);
+                    }
+                  }}
+                  disabled={!nextLesson && isLastSection}
+                  className="gap-1"
                 >
-                  Next
-                  <ChevronRight className="h-4 w-4 ml-2" />
+                  <span className="hidden sm:inline">Next</span>
+                  <ChevronRight className="h-4 w-4" />
                 </Button>
               </div>
             </>

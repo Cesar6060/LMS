@@ -2,7 +2,7 @@ from rest_framework import serializers
 from .models import (
     Course, Unit, Lesson, Enrollment, LessonProgress, Announcement, CourseGradingConfig,
     LessonQuestion, LessonQuestionChoice, LessonQuestionAnswer, LessonQuizAttempt,
-    LessonAttachment
+    LessonAttachment, LessonSection
 )
 from accounts.serializers import UserSerializer
 
@@ -22,6 +22,24 @@ class LessonAttachmentSerializer(serializers.ModelSerializer):
         return obj.file.url if obj.file else None
 
 
+class LessonSectionSerializer(serializers.ModelSerializer):
+    """Serializer for lesson sections."""
+
+    class Meta:
+        model = LessonSection
+        fields = ['id', 'title', 'content', 'video_type', 'video_id', 'order', 'created_at', 'updated_at']
+        read_only_fields = ['id', 'created_at', 'updated_at']
+
+
+class LessonSectionCreateSerializer(serializers.ModelSerializer):
+    """Serializer for creating/updating lesson sections (lesson set in view)."""
+
+    class Meta:
+        model = LessonSection
+        fields = ['id', 'title', 'content', 'video_type', 'video_id', 'order']
+        read_only_fields = ['id']
+
+
 class RequiredQuizSerializer(serializers.Serializer):
     """Lightweight serializer for required quiz info."""
     id = serializers.IntegerField()
@@ -34,6 +52,8 @@ class LessonSerializer(serializers.ModelSerializer):
     required_quiz_info = serializers.SerializerMethodField()
     question_count = serializers.SerializerMethodField()
     attachments = LessonAttachmentSerializer(many=True, read_only=True)
+    sections = LessonSectionSerializer(many=True, read_only=True)
+    section_count = serializers.SerializerMethodField()
 
     class Meta:
         model = Lesson
@@ -41,12 +61,16 @@ class LessonSerializer(serializers.ModelSerializer):
             'id', 'unit', 'title', 'content', 'order',
             'video_type', 'video_id', 'required_quiz', 'required_quiz_info',
             'max_quiz_attempts', 'question_count', 'attachments',
+            'sections', 'section_count',
             'created_at', 'updated_at'
         ]
         read_only_fields = ['id', 'created_at', 'updated_at']
 
     def get_question_count(self, obj):
         return obj.questions.count()
+
+    def get_section_count(self, obj):
+        return obj.sections.count()
 
     def get_required_quiz_info(self, obj):
         if obj.required_quiz:
@@ -72,17 +96,21 @@ class LessonListSerializer(serializers.ModelSerializer):
     required_quiz_info = serializers.SerializerMethodField()
     question_count = serializers.SerializerMethodField()
     attachment_count = serializers.SerializerMethodField()
+    section_count = serializers.SerializerMethodField()
 
     class Meta:
         model = Lesson
         fields = [
             'id', 'title', 'order', 'video_type', 'video_id', 'content',
             'required_quiz', 'required_quiz_info', 'max_quiz_attempts', 'question_count',
-            'attachment_count'
+            'attachment_count', 'section_count'
         ]
 
     def get_attachment_count(self, obj):
         return obj.attachments.count()
+
+    def get_section_count(self, obj):
+        return obj.sections.count()
 
     def get_required_quiz_info(self, obj):
         if obj.required_quiz:
@@ -274,7 +302,8 @@ class LessonProgressSerializer(serializers.ModelSerializer):
         model = LessonProgress
         fields = [
             'id', 'lesson', 'completed', 'completed_at', 'video_position',
-            'required_quiz_passed', 'required_quiz_info', 'lesson_questions_status', 'updated_at'
+            'current_section', 'required_quiz_passed', 'required_quiz_info',
+            'lesson_questions_status', 'updated_at'
         ]
         read_only_fields = ['id', 'completed_at', 'updated_at']
 
@@ -333,7 +362,7 @@ class LessonProgressUpdateSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = LessonProgress
-        fields = ['completed', 'video_position']
+        fields = ['completed', 'video_position', 'current_section']
 
     def validate_completed(self, value):
         """Check if required quiz and lesson questions are passed before allowing completion."""

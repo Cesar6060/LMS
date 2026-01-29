@@ -185,11 +185,11 @@ export function AnnouncementsPage() {
       {/* Header */}
       <div className="mb-6">
         <Link
-          to={`/courses/${code}`}
+          to={isInstructor ? `/instructor/courses/${code}/manage` : `/courses/${code}`}
           className="inline-flex items-center text-sm text-muted-foreground hover:text-foreground mb-4"
         >
           <ChevronLeft className="h-4 w-4 mr-1" />
-          Back to Course
+          {isInstructor ? 'Back to Manage Course' : 'Back to Course'}
         </Link>
 
         <div className="flex items-start justify-between">

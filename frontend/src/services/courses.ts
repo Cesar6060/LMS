@@ -1,5 +1,5 @@
 import api from './api';
-import type { Course, Unit, Lesson, Enrollment, LessonProgress, GradingConfig, GradeSummary, EnhancedDashboard, LessonQuestion, LessonQuestionsStatus, AnswerQuestionResult, QuizSubmissionResult, LessonAttachment } from '../types';
+import type { Course, Unit, Lesson, Enrollment, LessonProgress, GradingConfig, GradeSummary, EnhancedDashboard, LessonQuestion, LessonQuestionsStatus, AnswerQuestionResult, QuizSubmissionResult, LessonAttachment, LessonSection } from '../types';
 
 // Re-export types for convenience
 export type { Unit, Lesson } from '../types';
@@ -31,6 +31,7 @@ export interface LessonListItem {
   } | null;
   question_count?: number;
   attachment_count?: number;
+  section_count?: number;
 }
 
 export interface UnitWithLessons {
@@ -269,9 +270,13 @@ export const courseService = {
     return response.data;
   },
 
-  async updateLessonProgress(lessonId: number, data: { completed?: boolean; video_position?: number }): Promise<LessonProgress> {
+  async updateLessonProgress(lessonId: number, data: { completed?: boolean; video_position?: number; current_section?: number }): Promise<LessonProgress> {
     const response = await api.patch<LessonProgress>(`/courses/lessons/${lessonId}/progress/`, data);
     return response.data;
+  },
+
+  async resetLessonProgress(lessonId: number): Promise<void> {
+    await api.post(`/courses/lessons/${lessonId}/progress/reset/`);
   },
 
   // Course progress
@@ -510,6 +515,45 @@ export const courseService = {
 
   async deleteLessonAttachment(lessonId: number, attachmentId: number): Promise<void> {
     await api.delete(`/courses/lessons/${lessonId}/attachments/${attachmentId}/`);
+  },
+
+  // Lesson Sections (Phase 17: Lesson Pagination)
+  async getLessonSections(lessonId: number): Promise<LessonSection[]> {
+    const response = await api.get<LessonSection[]>(`/courses/lessons/${lessonId}/sections/`);
+    return response.data;
+  },
+
+  async createLessonSection(lessonId: number, data: {
+    title?: string;
+    content?: string;
+    video_type?: 'none' | 'youtube' | 'vimeo';
+    video_id?: string;
+    order?: number;
+  }): Promise<LessonSection> {
+    const response = await api.post<LessonSection>(`/courses/lessons/${lessonId}/sections/`, data);
+    return response.data;
+  },
+
+  async updateLessonSection(lessonId: number, sectionId: number, data: {
+    title?: string;
+    content?: string;
+    video_type?: 'none' | 'youtube' | 'vimeo';
+    video_id?: string;
+    order?: number;
+  }): Promise<LessonSection> {
+    const response = await api.put<LessonSection>(`/courses/lessons/${lessonId}/sections/${sectionId}/`, data);
+    return response.data;
+  },
+
+  async deleteLessonSection(lessonId: number, sectionId: number): Promise<void> {
+    await api.delete(`/courses/lessons/${lessonId}/sections/${sectionId}/`);
+  },
+
+  async reorderLessonSections(lessonId: number, sectionIds: number[]): Promise<LessonSection[]> {
+    const response = await api.post<LessonSection[]>(`/courses/lessons/${lessonId}/sections/reorder/`, {
+      section_ids: sectionIds,
+    });
+    return response.data;
   },
 };
 

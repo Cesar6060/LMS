@@ -8,10 +8,11 @@ import { courseService, type CourseDetail, type UnitWithLessons, type LessonList
 import { assignmentService } from '@/services/assignments';
 import { LessonQuestionsManager } from '@/components/lesson/LessonQuestionsManager';
 import { AttachmentUploader } from '@/components/lesson/AttachmentUploader';
+import { SectionEditor } from '@/components/lesson/SectionEditor';
 import type { AssignmentListItem } from '@/types';
 import {
-  Loader2, ChevronLeft, Plus, Trash2, Play, FileText,
-  Copy, CheckCircle, Settings, BookOpen, ClipboardList, Table, Megaphone, Eye, Users, FileQuestion, HelpCircle, Paperclip
+  Loader2, Plus, Trash2, Play, FileText,
+  Copy, CheckCircle, Settings, BookOpen, ClipboardList, Table, Megaphone, Eye, Users, FileQuestion, HelpCircle, Paperclip, Layers
 } from 'lucide-react';
 import {
   Dialog,
@@ -115,6 +116,10 @@ export function ManageCoursePage() {
   // Lesson attachments manager state
   const [showAttachmentUploader, setShowAttachmentUploader] = useState(false);
   const [selectedLessonForAttachments, setSelectedLessonForAttachments] = useState<{ id: number; title: string } | null>(null);
+
+  // Lesson sections manager state
+  const [showSectionEditor, setShowSectionEditor] = useState(false);
+  const [selectedLessonForSections, setSelectedLessonForSections] = useState<{ id: number; title: string } | null>(null);
 
   useEffect(() => {
     if (code) {
@@ -421,38 +426,26 @@ export function ManageCoursePage() {
 
   return (
     <div className="container mx-auto px-4 py-8">
-      {/* Header */}
-      <div className="flex items-center justify-between mb-6">
-        <div className="flex items-center gap-4">
-          <Link to={`/courses/${course.code}`}>
-            <Button variant="ghost" size="sm">
-              <ChevronLeft className="h-4 w-4 mr-1" />
-              View Course
-            </Button>
-          </Link>
+      {/* Course Info Header */}
+      <div className="flex items-start justify-between mb-8">
+        <div>
+          <div className="flex items-center gap-2 mb-2">
+            <Settings className="h-5 w-5 text-muted-foreground" />
+            <span className="text-sm text-muted-foreground">Managing</span>
+          </div>
+          <h1 className="text-3xl font-bold mb-2">{course.title}</h1>
+          <p className="text-sm font-mono text-muted-foreground">{course.code}</p>
         </div>
-      </div>
-
-      {/* Course Info */}
-      <div className="mb-8">
-        <div className="flex items-center gap-2 mb-2">
-          <Settings className="h-5 w-5 text-muted-foreground" />
-          <span className="text-sm text-muted-foreground">Managing</span>
-        </div>
-        <h1 className="text-3xl font-bold mb-2">{course.title}</h1>
-        <p className="text-sm font-mono text-muted-foreground">{course.code}</p>
+        <Link to={`/courses/${course.code}`}>
+          <Button variant="outline" className="gap-2">
+            <Eye className="h-4 w-4" />
+            Student View
+          </Button>
+        </Link>
       </div>
 
       {/* Quick Actions */}
       <div className="grid gap-4 md:grid-cols-4 mb-8">
-        <Link to={`/courses/${course.code}`}>
-          <Card className="hover:shadow-md transition-shadow cursor-pointer h-full">
-            <CardContent className="py-4 flex items-center gap-3">
-              <Eye className="h-5 w-5 text-muted-foreground" />
-              <span className="font-medium">View Course</span>
-            </CardContent>
-          </Card>
-        </Link>
         <Link to={`/instructor/courses/${course.code}/gradebook`}>
           <Card className="hover:shadow-md transition-shadow cursor-pointer h-full">
             <CardContent className="py-4 flex items-center gap-3">
@@ -473,7 +466,7 @@ export function ManageCoursePage() {
           <Card className="hover:shadow-md transition-shadow cursor-pointer h-full">
             <CardContent className="py-4 flex items-center gap-3">
               <Users className="h-5 w-5 text-muted-foreground" />
-              <span className="font-medium">{course.student_count} Students</span>
+              <span className="font-medium">Roster</span>
             </CardContent>
           </Card>
         </Link>
@@ -586,6 +579,17 @@ export function ManageCoursePage() {
                           </span>
                         </div>
                         <div className="flex items-center gap-2">
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => {
+                              setSelectedLessonForSections({ id: lesson.id, title: lesson.title });
+                              setShowSectionEditor(true);
+                            }}
+                            title="Manage sections (slides)"
+                          >
+                            <Layers className="h-4 w-4" />
+                          </Button>
                           <Button
                             variant="ghost"
                             size="sm"
@@ -836,6 +840,33 @@ export function ManageCoursePage() {
                   Supports GitHub Flavored Markdown (headers, lists, code blocks, links, etc.)
                 </p>
               </div>
+
+              {/* Lesson Sections (Slides) */}
+              {editingLesson?.id && (
+                <div className="space-y-2 p-4 bg-muted/50 rounded-lg">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <label className="text-sm font-medium">Content Sections</label>
+                      <p className="text-xs text-muted-foreground">
+                        Break the lesson into multiple sections (slides) for better navigation.
+                      </p>
+                    </div>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      onClick={() => {
+                        setShowLessonModal(false);
+                        setSelectedLessonForSections({ id: editingLesson.id!, title: editingLesson.title });
+                        setShowSectionEditor(true);
+                      }}
+                    >
+                      <Layers className="h-4 w-4 mr-2" />
+                      Manage Sections
+                    </Button>
+                  </div>
+                </div>
+              )}
 
               {/* Comprehension Questions */}
               {editingLesson?.id && (
@@ -1184,6 +1215,21 @@ export function ManageCoursePage() {
             setShowAttachmentUploader(open);
             if (!open) {
               setSelectedLessonForAttachments(null);
+            }
+          }}
+        />
+      )}
+
+      {/* Lesson Sections Editor */}
+      {selectedLessonForSections && (
+        <SectionEditor
+          lessonId={selectedLessonForSections.id}
+          lessonTitle={selectedLessonForSections.title}
+          open={showSectionEditor}
+          onOpenChange={(open) => {
+            setShowSectionEditor(open);
+            if (!open) {
+              setSelectedLessonForSections(null);
             }
           }}
         />

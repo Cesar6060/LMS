@@ -72,6 +72,18 @@ export interface LessonAttachment {
   uploaded_at: string;
 }
 
+// Phase 17: Lesson Sections (Slide Deck)
+export interface LessonSection {
+  id: number;
+  title: string;
+  content: string;
+  video_type: 'none' | 'youtube' | 'vimeo';
+  video_id: string;
+  order: number;
+  created_at: string;
+  updated_at: string;
+}
+
 export interface Lesson {
   id: number;
   unit: number;
@@ -86,6 +98,8 @@ export interface Lesson {
   question_count?: number;
   attachments?: LessonAttachment[];
   attachment_count?: number;
+  sections?: LessonSection[];
+  section_count?: number;
 }
 
 export interface Enrollment {
@@ -103,6 +117,7 @@ export interface LessonProgress {
   completed: boolean;
   completed_at: string | null;
   video_position: number;
+  current_section: number;
   required_quiz_passed?: boolean | null;
   required_quiz_info?: RequiredQuizInfo | null;
   lesson_questions_status?: LessonQuestionsStatus | null;
