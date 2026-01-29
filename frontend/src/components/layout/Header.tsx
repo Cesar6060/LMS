@@ -73,18 +73,6 @@ export function Header() {
       return parts;
     }
 
-    // Standalone assignment route
-    if (path.match(/\/assignments\/\d+/)) {
-      parts.push({ label: 'Assignment' });
-      return parts;
-    }
-
-    // Standalone quiz route
-    if (path.match(/\/quizzes\/\d+/)) {
-      parts.push({ label: 'Quiz' });
-      return parts;
-    }
-
     // Instructor grading route
     if (path.includes('/instructor/assignments/')) {
       parts.push({ label: 'Grading' });
