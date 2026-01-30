@@ -85,12 +85,12 @@ export function Header() {
   const breadcrumbs = getBreadcrumbInfo();
 
   return (
-    <header className="sticky top-0 z-50 w-full border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
+    <header className="sticky top-0 z-50 w-full header-gaming">
       <div className="container mx-auto flex h-14 items-center px-4">
         {/* Logo */}
-        <Link to="/" className="flex items-center space-x-2">
-          <Gamepad2 className="h-6 w-6" />
-          <span className="font-bold hidden sm:inline">GameDev</span>
+        <Link to="/" className="flex items-center space-x-2 group">
+          <Gamepad2 className="h-6 w-6 transition-all" style={{ color: '#22c55e' }} />
+          <span className="font-bold hidden sm:inline text-gradient-gaming" style={{ fontFamily: 'Orbitron, sans-serif' }}>GameDev</span>
         </Link>
 
         {/* Main Navigation */}
@@ -175,7 +175,7 @@ export function Header() {
                       <div className="font-medium">{user?.first_name} {user?.last_name}</div>
                       <div className="text-xs text-muted-foreground">{user?.email}</div>
                       {user?.is_instructor && (
-                        <span className="inline-block mt-1 rounded-full bg-primary px-2 py-0.5 text-xs text-primary-foreground">
+                        <span className="badge-gaming mt-1">
                           Instructor
                         </span>
                       )}

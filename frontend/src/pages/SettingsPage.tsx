@@ -4,17 +4,15 @@ import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { settingsService } from '@/services/settings';
 import { useAuth } from '@/contexts/AuthContext';
-import { useTheme } from '@/contexts/ThemeContext';
 import type { UserPreferences } from '@/types';
 import {
-  Settings, User, Bell, Palette, Loader2, Camera, Trash2, Check, Sun, Moon, Monitor
+  Settings, User, Bell, Loader2, Camera, Trash2, Check
 } from 'lucide-react';
 
-type TabType = 'profile' | 'notifications' | 'display';
+type TabType = 'profile' | 'notifications';
 
 export function SettingsPage() {
   const { user, refreshUser } = useAuth();
-  const { theme, setTheme } = useTheme();
 
   const [activeTab, setActiveTab] = useState<TabType>('profile');
   const [isLoading, setIsLoading] = useState(true);
@@ -46,10 +44,6 @@ export function SettingsPage() {
       setIsLoading(true);
       const data = await settingsService.getSettings();
       setPreferences(data);
-      // Sync theme with backend preferences
-      if (data.theme) {
-        setTheme(data.theme);
-      }
     } catch (err) {
       console.error('Failed to load settings:', err);
     } finally {
@@ -121,11 +115,6 @@ export function SettingsPage() {
     // Optimistic update
     setPreferences(prev => prev ? { ...prev, [key]: value } : null);
 
-    // If updating theme, also update ThemeContext
-    if (key === 'theme') {
-      setTheme(value as 'light' | 'dark' | 'system');
-    }
-
     try {
       await settingsService.updateSettings({ [key]: value });
     } catch (err) {
@@ -138,7 +127,6 @@ export function SettingsPage() {
   const tabs = [
     { id: 'profile' as TabType, label: 'Profile', icon: User },
     { id: 'notifications' as TabType, label: 'Notifications', icon: Bell },
-    { id: 'display' as TabType, label: 'Display', icon: Palette },
   ];
 
   if (isLoading) {
@@ -334,39 +322,6 @@ export function SettingsPage() {
         </Card>
       )}
 
-      {/* Display Tab */}
-      {activeTab === 'display' && preferences && (
-        <div className="space-y-6">
-          <Card>
-            <CardHeader>
-              <CardTitle className="text-lg">Theme</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <div className="grid grid-cols-3 gap-4">
-                <ThemeOption
-                  icon={Sun}
-                  label="Light"
-                  selected={theme === 'light'}
-                  onSelect={() => handleUpdatePreference('theme', 'light')}
-                />
-                <ThemeOption
-                  icon={Moon}
-                  label="Dark"
-                  selected={theme === 'dark'}
-                  onSelect={() => handleUpdatePreference('theme', 'dark')}
-                />
-                <ThemeOption
-                  icon={Monitor}
-                  label="System"
-                  selected={theme === 'system'}
-                  onSelect={() => handleUpdatePreference('theme', 'system')}
-                />
-              </div>
-            </CardContent>
-          </Card>
-
-        </div>
-      )}
     </div>
   );
 }
@@ -407,29 +362,3 @@ function ToggleSetting({
   );
 }
 
-// Theme Option Component
-function ThemeOption({
-  icon: Icon,
-  label,
-  selected,
-  onSelect,
-}: {
-  icon: typeof Sun;
-  label: string;
-  selected: boolean;
-  onSelect: () => void;
-}) {
-  return (
-    <button
-      onClick={onSelect}
-      className={`flex flex-col items-center gap-2 p-4 rounded-lg border-2 transition-colors ${
-        selected
-          ? 'border-primary bg-primary/5'
-          : 'border-muted hover:border-primary/50'
-      }`}
-    >
-      <Icon className={`h-6 w-6 ${selected ? 'text-primary' : 'text-muted-foreground'}`} />
-      <span className={`text-sm font-medium ${selected ? 'text-primary' : ''}`}>{label}</span>
-    </button>
-  );
-}

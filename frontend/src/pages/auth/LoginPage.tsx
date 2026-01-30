@@ -1,11 +1,11 @@
 import { useState, type FormEvent } from 'react';
 import { Link, useNavigate } from 'react-router';
 import { useAuth } from '@/contexts/AuthContext';
-import { useTheme } from '@/contexts/ThemeContext';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { Card, CardHeader, CardTitle, CardDescription, CardContent, CardFooter } from '@/components/ui/Card';
-import { Gamepad2, Loader2, Sun, Moon, Monitor } from 'lucide-react';
+import { AnimatedBackground } from '@/components/ui/AnimatedBackground';
+import { Gamepad2, Loader2 } from 'lucide-react';
 
 export function LoginPage() {
   const [email, setEmail] = useState('');
@@ -14,17 +14,7 @@ export function LoginPage() {
   const [isLoading, setIsLoading] = useState(false);
 
   const { login } = useAuth();
-  const { theme, setTheme, resolvedTheme } = useTheme();
   const navigate = useNavigate();
-
-  // Cycle through themes: light -> dark -> system -> light
-  const cycleTheme = () => {
-    if (theme === 'light') setTheme('dark');
-    else if (theme === 'dark') setTheme('system');
-    else setTheme('light');
-  };
-
-  const ThemeIcon = theme === 'system' ? Monitor : resolvedTheme === 'dark' ? Moon : Sun;
 
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();
@@ -49,22 +39,13 @@ export function LoginPage() {
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-muted/50 px-4 relative">
-      {/* Theme toggle in top-right corner */}
-      <button
-        onClick={cycleTheme}
-        className="absolute top-4 right-4 p-2 rounded-lg border bg-background hover:bg-muted transition-colors"
-        title={`Theme: ${theme}`}
-      >
-        <ThemeIcon className="h-5 w-5" />
-      </button>
-
-      <Card className="w-full max-w-md">
+    <AnimatedBackground className="min-h-screen flex items-center justify-center bg-background px-4" showMouseGlow={true}>
+      <Card className="w-full max-w-md backdrop-blur-sm bg-card/95">
         <CardHeader className="space-y-1 text-center">
           <div className="flex justify-center mb-4">
-            <Gamepad2 className="h-12 w-12 text-primary" />
+            <Gamepad2 className="h-12 w-12 animate-pulse" style={{ color: '#22c55e', filter: 'drop-shadow(0 0 10px rgba(34,197,94,0.5))' }} />
           </div>
-          <CardTitle className="text-2xl">Welcome back</CardTitle>
+          <CardTitle className="text-2xl text-gradient-gaming" style={{ fontFamily: 'Orbitron, sans-serif' }}>Welcome back</CardTitle>
           <CardDescription>
             Enter your credentials to access your account
           </CardDescription>
@@ -114,19 +95,19 @@ export function LoginPage() {
             </div>
           </CardContent>
           <CardFooter className="flex flex-col space-y-4">
-            <Button type="submit" className="w-full" disabled={isLoading}>
+            <Button type="submit" className="w-full" variant="neon" disabled={isLoading}>
               {isLoading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
               Sign in
             </Button>
             <p className="text-sm text-muted-foreground text-center">
               Don't have an account?{' '}
-              <Link to="/register" className="text-primary hover:underline">
+              <Link to="/register" className="hover:underline" style={{ color: '#22c55e' }}>
                 Sign up
               </Link>
             </p>
           </CardFooter>
         </form>
       </Card>
-    </div>
+    </AnimatedBackground>
   );
 }
