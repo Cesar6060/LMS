@@ -1,7 +1,6 @@
 import { createContext, useContext, useState, useEffect, useCallback, type ReactNode } from 'react';
 import type { User, LoginCredentials, RegisterData } from '../types';
 import authService from '../services/auth';
-import { useTheme } from './ThemeContext';
 
 interface AuthContextType {
   user: User | null;
@@ -18,7 +17,6 @@ const AuthContext = createContext<AuthContextType | undefined>(undefined);
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [isLoading, setIsLoading] = useState(true);
-  const { setTheme, resetTheme } = useTheme();
 
   const refreshUser = useCallback(async () => {
     if (!authService.isAuthenticated()) {
@@ -30,10 +28,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     try {
       const userData = await authService.getCurrentUser();
       setUser(userData);
-      // Apply user's theme preference from backend (don't persist to localStorage)
-      if (userData.preferences?.theme) {
-        setTheme(userData.preferences.theme, false);
-      }
+      // Theme is forced to dark mode, no need to apply user preference
     } catch (error) {
       console.error('Failed to fetch user:', error);
       setUser(null);
@@ -41,7 +36,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     } finally {
       setIsLoading(false);
     }
-  }, [setTheme]);
+  }, []);
 
   useEffect(() => {
     refreshUser();
@@ -60,8 +55,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const logout = async () => {
     await authService.logout();
     setUser(null);
-    // Reset theme to system default on logout
-    resetTheme();
   };
 
   const value: AuthContextType = {

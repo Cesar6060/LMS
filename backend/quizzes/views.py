@@ -297,3 +297,82 @@ def course_quizzes(request, course_code):
     quizzes = Quiz.objects.filter(unit__course=course).select_related('unit')
     serializer = QuizListSerializer(quizzes, many=True, context={'request': request})
     return Response(serializer.data)
+
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def quick_grade_quiz(request, quiz_id, student_id):
+    """
+    Quick grade endpoint for gradebook inline editing of quiz scores.
+    Updates or creates a quiz attempt with the specified score.
+    """
+    from accounts.models import User
+
+    quiz = get_object_or_404(Quiz, id=quiz_id)
+    course = quiz.unit.course
+
+    # Only instructor can use quick grade
+    if not is_course_instructor(request.user, course):
+        return Response(
+            {'error': 'Only the course instructor can grade.'},
+            status=status.HTTP_403_FORBIDDEN
+        )
+
+    # Get the student
+    student = get_object_or_404(User, id=student_id)
+
+    # Verify student is enrolled
+    if not is_enrolled(student, course):
+        return Response(
+            {'error': 'Student is not enrolled in this course.'},
+            status=status.HTTP_404_NOT_FOUND
+        )
+
+    points = request.data.get('points')
+    if points is None:
+        return Response(
+            {'error': 'Points value is required.'},
+            status=status.HTTP_400_BAD_REQUEST
+        )
+
+    try:
+        points = float(points)
+    except (ValueError, TypeError):
+        return Response(
+            {'error': 'Points must be a number.'},
+            status=status.HTTP_400_BAD_REQUEST
+        )
+
+    if points < 0 or points > quiz.points:
+        return Response(
+            {'error': f'Points must be between 0 and {quiz.points}.'},
+            status=status.HTTP_400_BAD_REQUEST
+        )
+
+    # Calculate score percentage from points
+    score = (points / quiz.points) * 100 if quiz.points > 0 else 0
+    passed = score >= quiz.passing_score
+
+    # Get the most recent attempt for this student (not the best one, to avoid corrupting history)
+    attempt = QuizAttempt.objects.filter(quiz=quiz, student=student).order_by('-completed_at').first()
+
+    if attempt:
+        # Update existing attempt
+        attempt.score = round(score, 2)
+        attempt.passed = passed
+        attempt.save()
+    else:
+        # Create new attempt (manual grade without actual answers)
+        attempt = QuizAttempt.objects.create(
+            quiz=quiz,
+            student=student,
+            score=round(score, 2),
+            passed=passed
+        )
+
+    return Response({
+        'success': True,
+        'points': points,
+        'score': attempt.score,
+        'passed': attempt.passed
+    })

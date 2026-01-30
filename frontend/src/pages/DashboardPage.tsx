@@ -75,8 +75,10 @@ export function DashboardPage() {
     <div className="container mx-auto px-4 py-8 max-w-6xl">
       {/* Hero: Continue Learning */}
       {hasCourses && !isInstructor && (
-        <div className="bg-gradient-to-r from-primary/10 via-primary/5 to-transparent rounded-xl p-8 mb-6">
-          <p className="text-sm font-medium text-primary mb-3">Continue Learning</p>
+        <div className="relative rounded-xl p-8 mb-6 overflow-hidden border border-[#22c55e]/20" style={{ background: 'linear-gradient(135deg, rgba(34, 197, 94, 0.1) 0%, rgba(6, 182, 212, 0.05) 50%, transparent 100%)' }}>
+          <div className="absolute inset-0 bg-grid opacity-30" />
+          <div className="relative">
+            <p className="text-sm font-medium mb-3" style={{ color: '#22c55e', fontFamily: 'Orbitron, sans-serif' }}>Continue Learning</p>
           {continueLearning ? (
             <>
               <h2 className="text-2xl font-semibold mb-2">{continueLearning.course_title}</h2>
@@ -85,16 +87,25 @@ export function DashboardPage() {
                   ? `${continueLearning.current_lesson.unit_title} · ${continueLearning.current_lesson.title}`
                   : 'Start your first lesson'}
               </p>
-              <div className="flex items-center gap-4">
+              <div className="flex items-center gap-4 mb-4">
                 <Link to={`/courses/${continueLearning.course_code}/learn`}>
-                  <Button size="lg">
+                  <Button size="lg" variant="neon">
                     <Play className="h-4 w-4 mr-2" />
                     Continue
                   </Button>
                 </Link>
-                <span className="text-muted-foreground">
+              </div>
+              {/* Progress Bar */}
+              <div className="max-w-md">
+                <div className="progress-gaming">
+                  <div
+                    className="progress-gaming-bar"
+                    style={{ width: `${continueLearning.progress_percentage}%` }}
+                  />
+                </div>
+                <p className="text-sm text-muted-foreground mt-2">
                   {continueLearning.progress_percentage}% complete
-                </span>
+                </p>
               </div>
             </>
           ) : (
@@ -105,72 +116,76 @@ export function DashboardPage() {
               </p>
             </>
           )}
+          </div>
         </div>
       )}
 
       {/* Instructor Hero */}
       {hasCourses && isInstructor && (
-        <div className="bg-gradient-to-r from-primary/10 via-primary/5 to-transparent rounded-xl p-8 mb-6">
-          <p className="text-sm font-medium text-primary mb-3">Welcome back</p>
-          <h2 className="text-2xl font-semibold mb-2">Manage your courses</h2>
-          <p className="text-muted-foreground mb-5">
-            {instructorCourses.length} active course{instructorCourses.length !== 1 ? 's' : ''}
-          </p>
-          <Link to="/instructor/courses/new">
-            <Button size="lg">
-              <Plus className="h-4 w-4 mr-2" />
-              Create Course
-            </Button>
-          </Link>
+        <div className="relative rounded-xl p-8 mb-6 overflow-hidden border border-[#06b6d4]/20" style={{ background: 'linear-gradient(135deg, rgba(6, 182, 212, 0.1) 0%, rgba(34, 197, 94, 0.05) 50%, transparent 100%)' }}>
+          <div className="absolute inset-0 bg-grid opacity-30" />
+          <div className="relative">
+            <p className="text-sm font-medium mb-3" style={{ color: '#06b6d4', fontFamily: 'Orbitron, sans-serif' }}>Welcome back</p>
+            <h2 className="text-2xl font-semibold mb-2">Manage your courses</h2>
+            <p className="text-muted-foreground mb-5">
+              {instructorCourses.length} active course{instructorCourses.length !== 1 ? 's' : ''}
+            </p>
+            <Link to="/instructor/courses/new">
+              <Button size="lg" variant="neon">
+                <Plus className="h-4 w-4 mr-2" />
+                Create Course
+              </Button>
+            </Link>
+          </div>
         </div>
       )}
 
       {/* Quick Stats */}
       {hasCourses && (
         <div className="grid grid-cols-3 gap-5 mb-8">
-          <div className="bg-card border rounded-xl p-5">
+          <div className="card-gaming rounded-xl p-5">
             <div className="flex items-center gap-2 text-muted-foreground mb-2">
-              <BookOpen className="h-5 w-5" />
+              <BookOpen className="h-5 w-5" style={{ color: '#22c55e' }} />
               <span className="text-sm font-medium">Courses</span>
             </div>
-            <p className="text-3xl font-semibold">{courses.length}</p>
+            <p className="text-3xl font-semibold text-gradient-gaming">{courses.length}</p>
           </div>
           {isInstructor ? (
             <>
-              <div className="bg-card border rounded-xl p-5">
+              <div className="card-gaming rounded-xl p-5">
                 <div className="flex items-center gap-2 text-muted-foreground mb-2">
-                  <Users className="h-5 w-5" />
+                  <Users className="h-5 w-5" style={{ color: '#06b6d4' }} />
                   <span className="text-sm font-medium">Students</span>
                 </div>
-                <p className="text-3xl font-semibold">
+                <p className="text-3xl font-semibold text-gradient-gaming">
                   {instructorCourses.reduce((sum, c) => sum + c.student_count, 0)}
                 </p>
               </div>
-              <div className="bg-card border rounded-xl p-5">
+              <div className="card-gaming rounded-xl p-5">
                 <div className="flex items-center gap-2 text-muted-foreground mb-2">
-                  <CheckCircle2 className="h-5 w-5" />
+                  <CheckCircle2 className="h-5 w-5" style={{ color: '#fbbf24' }} />
                   <span className="text-sm font-medium">Active</span>
                 </div>
-                <p className="text-3xl font-semibold">
+                <p className="text-3xl font-semibold text-gradient-gaming">
                   {instructorCourses.filter((c) => c.student_count > 0).length}
                 </p>
               </div>
             </>
           ) : (
             <>
-              <div className="bg-card border rounded-xl p-5">
+              <div className="card-gaming rounded-xl p-5">
                 <div className="flex items-center gap-2 text-muted-foreground mb-2">
-                  <CheckCircle2 className="h-5 w-5" />
+                  <CheckCircle2 className="h-5 w-5" style={{ color: '#06b6d4' }} />
                   <span className="text-sm font-medium">Completed</span>
                 </div>
-                <p className="text-3xl font-semibold">{completedLessons}</p>
+                <p className="text-3xl font-semibold text-gradient-gaming">{completedLessons}</p>
               </div>
-              <div className="bg-card border rounded-xl p-5">
+              <div className="card-gaming rounded-xl p-5">
                 <div className="flex items-center gap-2 text-muted-foreground mb-2">
-                  <BookOpen className="h-5 w-5" />
+                  <BookOpen className="h-5 w-5" style={{ color: '#fbbf24' }} />
                   <span className="text-sm font-medium">Lessons</span>
                 </div>
-                <p className="text-3xl font-semibold">{totalLessons}</p>
+                <p className="text-3xl font-semibold text-gradient-gaming">{totalLessons}</p>
               </div>
             </>
           )}
@@ -201,20 +216,20 @@ export function DashboardPage() {
 
       {/* Course List */}
       {!hasCourses ? (
-        <div className="text-center py-20 border rounded-xl bg-muted/20">
-          <BookOpen className="h-16 w-16 text-muted-foreground/30 mx-auto mb-4" />
+        <div className="text-center py-20 card-gaming bg-grid">
+          <BookOpen className="h-16 w-16 mx-auto mb-4" style={{ color: 'rgba(34, 197, 94, 0.3)' }} />
           <p className="text-lg text-muted-foreground mb-5">
             {isInstructor ? 'No courses yet' : 'No courses enrolled'}
           </p>
           {isInstructor ? (
             <Link to="/instructor/courses/new">
-              <Button size="lg">
+              <Button size="lg" variant="neon">
                 <Plus className="h-4 w-4 mr-2" />
                 Create Your First Course
               </Button>
             </Link>
           ) : (
-            <Button size="lg" onClick={() => setShowEnrollModal(true)}>
+            <Button size="lg" variant="neon" onClick={() => setShowEnrollModal(true)}>
               <Plus className="h-4 w-4 mr-2" />
               Join Your First Course
             </Button>
@@ -227,7 +242,7 @@ export function DashboardPage() {
                 <Link
                   key={course.id}
                   to={`/courses/${course.code}`}
-                  className="flex items-center justify-between p-5 bg-card border rounded-xl hover:border-primary/50 transition-colors"
+                  className="flex items-center justify-between p-5 card-gaming"
                 >
                   <div>
                     <h3 className="text-lg font-medium">{course.title}</h3>
@@ -244,7 +259,7 @@ export function DashboardPage() {
                 <Link
                   key={enrollment.id}
                   to={`/courses/${enrollment.course.code}`}
-                  className="flex items-center justify-between p-5 bg-card border rounded-xl hover:border-primary/50 transition-colors"
+                  className="flex items-center justify-between p-5 card-gaming"
                 >
                   <div>
                     <h3 className="text-lg font-medium">{enrollment.course.title}</h3>

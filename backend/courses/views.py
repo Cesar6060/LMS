@@ -1127,24 +1127,24 @@ def gradebook(request, course_code):
                     'is_late': False,
                 })
 
+        # Calculate category percentages
+        assignment_pct = round((assignment_earned / assignment_possible * 100), 1) if assignment_possible > 0 else None
+        quiz_pct = round((quiz_earned / quiz_possible * 100), 1) if quiz_possible > 0 else None
+
+        # Calculate participation (lesson completion)
+        total_lessons = Lesson.objects.filter(unit__course=course).count()
+        if total_lessons > 0:
+            completed_lessons = LessonProgress.objects.filter(
+                user=student,
+                lesson__unit__course=course,
+                completed=True
+            ).count()
+            participation_pct = round((completed_lessons / total_lessons) * 100, 1)
+        else:
+            participation_pct = None
+
         # Calculate percentage - use weighted if config exists
         if grading_config:
-            # Calculate category percentages
-            assignment_pct = (assignment_earned / assignment_possible * 100) if assignment_possible > 0 else None
-            quiz_pct = (quiz_earned / quiz_possible * 100) if quiz_possible > 0 else None
-
-            # Calculate lesson completion for participation
-            total_lessons = Lesson.objects.filter(unit__course=course).count()
-            if total_lessons > 0:
-                completed_lessons = LessonProgress.objects.filter(
-                    user=student,
-                    lesson__unit__course=course,
-                    completed=True
-                ).count()
-                participation_pct = (completed_lessons / total_lessons) * 100
-            else:
-                participation_pct = None
-
             # Calculate weighted average
             weighted_total = 0
             weight_sum = 0
@@ -1181,6 +1181,9 @@ def gradebook(request, course_code):
             'total_possible': graded_possible,  # Only count graded items
             'percentage': percentage,
             'letter_grade': calculate_letter_grade(percentage) if percentage is not None else None,
+            'assignments_percentage': assignment_pct,
+            'quizzes_percentage': quiz_pct,
+            'participation_percentage': participation_pct,
         })
 
     return Response({

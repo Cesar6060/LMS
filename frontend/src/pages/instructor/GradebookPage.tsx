@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { useParams, Link } from 'react-router';
 import { Card, CardContent } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
-import { courseService, type Gradebook, type StudentGrade } from '@/services/courses';
+import { courseService, type Gradebook } from '@/services/courses';
 import { Skeleton } from '@/components/ui/Skeleton';
 import { EditableGradeCell } from '@/components/gradebook/EditableGradeCell';
 import { GradingConfigModal } from '@/components/course/GradingConfigModal';
@@ -61,24 +61,6 @@ export function GradebookPage() {
       document.body.removeChild(a);
     } catch (err) {
       console.error('Export failed:', err);
-    }
-  };
-
-  const getGradeColor = (grade: StudentGrade) => {
-    // Late submissions get amber/orange background
-    if (grade.is_late && grade.status !== 'missing' && grade.status !== 'not_started') {
-      return 'bg-amber-50 text-amber-700 border border-amber-300 dark:bg-amber-950 dark:text-amber-300 dark:border-amber-700';
-    }
-
-    switch (grade.status) {
-      case 'graded':
-        return 'bg-emerald-50 text-emerald-700 border border-emerald-300 dark:bg-emerald-950 dark:text-emerald-300 dark:border-emerald-700';
-      case 'submitted':
-        return 'bg-sky-50 text-sky-700 border border-sky-300 dark:bg-sky-950 dark:text-sky-300 dark:border-sky-700';
-      case 'missing':
-        return 'bg-rose-50 text-rose-700 border border-rose-300 dark:bg-rose-950 dark:text-rose-300 dark:border-rose-700';
-      default:
-        return 'bg-slate-50 text-slate-500 border border-slate-200 dark:bg-slate-900 dark:text-slate-400 dark:border-slate-700';
     }
   };
 
@@ -155,7 +137,7 @@ export function GradebookPage() {
   return (
     <div className="container mx-auto px-4 py-8">
       {/* Header */}
-      <div className="mb-6">
+      <div className="mb-8">
         <Link
           to={`/instructor/courses/${code}/manage`}
           className="inline-flex items-center text-sm text-muted-foreground hover:text-foreground mb-4"
@@ -191,35 +173,35 @@ export function GradebookPage() {
         const assignmentCount = gradebook.gradebook_items.filter(i => i.type === 'assignment').length;
         const quizCount = gradebook.gradebook_items.filter(i => i.type === 'quiz').length;
         return (
-          <div className="grid gap-4 md:grid-cols-4 mb-6">
+          <div className="grid gap-6 md:grid-cols-4 mb-8">
             <Card>
-              <CardContent className="py-4">
-                <div className="text-2xl font-bold">{gradebook.students.length}</div>
-                <p className="text-sm text-muted-foreground">Students</p>
+              <CardContent className="py-6">
+                <div className="text-3xl font-bold">{gradebook.students.length}</div>
+                <p className="text-sm text-muted-foreground mt-1">Students</p>
               </CardContent>
             </Card>
             <Card>
-              <CardContent className="py-4">
-                <div className="text-2xl font-bold flex items-center gap-2">
-                  <ClipboardList className="h-5 w-5 text-blue-500" />
+              <CardContent className="py-6">
+                <div className="text-3xl font-bold flex items-center gap-2">
+                  <ClipboardList className="h-6 w-6 text-blue-500" />
                   {assignmentCount}
                 </div>
-                <p className="text-sm text-muted-foreground">Assignments</p>
+                <p className="text-sm text-muted-foreground mt-1">Assignments</p>
               </CardContent>
             </Card>
             <Card>
-              <CardContent className="py-4">
-                <div className="text-2xl font-bold flex items-center gap-2">
-                  <FileQuestion className="h-5 w-5 text-purple-500" />
+              <CardContent className="py-6">
+                <div className="text-3xl font-bold flex items-center gap-2">
+                  <FileQuestion className="h-6 w-6 text-purple-500" />
                   {quizCount}
                 </div>
-                <p className="text-sm text-muted-foreground">Quizzes</p>
+                <p className="text-sm text-muted-foreground mt-1">Quizzes</p>
               </CardContent>
             </Card>
             <Card>
-              <CardContent className="py-4">
-                <div className="text-2xl font-bold">{gradebook.total_possible}</div>
-                <p className="text-sm text-muted-foreground">Total Points</p>
+              <CardContent className="py-6">
+                <div className="text-3xl font-bold">{gradebook.total_possible}</div>
+                <p className="text-sm text-muted-foreground mt-1">Total Points</p>
               </CardContent>
             </Card>
           </div>
@@ -227,7 +209,7 @@ export function GradebookPage() {
       })()}
 
       {/* Legend */}
-      <div className="flex flex-wrap gap-4 mb-4 text-sm">
+      <div className="flex flex-wrap gap-6 mb-8 text-sm">
         <div className="flex items-center gap-2">
           <ClipboardList className="h-4 w-4 text-blue-500" />
           <span>Assignment</span>
@@ -273,44 +255,63 @@ export function GradebookPage() {
           </CardContent>
         </Card>
       ) : (
-        <Card>
+        <Card className="overflow-hidden">
           <CardContent className="p-0">
             <div className="overflow-x-auto">
-              <table className="w-full text-sm">
+              <table className="w-full text-sm border-collapse">
                 <thead>
-                  <tr className="border-b bg-muted/50">
-                    <th className="text-left p-3 font-medium sticky left-0 bg-muted/50 z-10 min-w-[200px]">
+                  <tr className="border-b border-border bg-muted">
+                    <th className="text-left px-4 py-3 font-semibold sticky left-0 bg-muted z-10 min-w-[220px] border-r border-border">
                       Student
                     </th>
                     {gradebook.gradebook_items.map((item) => (
                       <th
                         key={`${item.type}-${item.id}`}
-                        className="text-center p-3 font-medium min-w-[100px]"
+                        className="text-center px-3 py-3 font-medium min-w-[110px]"
                         title={`${item.unit_title}: ${item.title}`}
                       >
-                        <div className="flex items-center justify-center gap-1">
+                        <div className="flex items-center justify-center gap-1.5">
                           {item.type === 'quiz' ? (
-                            <FileQuestion className="h-3 w-3 text-purple-500" />
+                            <FileQuestion className="h-3.5 w-3.5 text-purple-500 flex-shrink-0" />
                           ) : (
-                            <ClipboardList className="h-3 w-3 text-blue-500" />
+                            <ClipboardList className="h-3.5 w-3.5 text-blue-500 flex-shrink-0" />
                           )}
                           <span className="truncate max-w-[80px]">{item.title}</span>
                         </div>
-                        <div className="text-xs text-muted-foreground font-normal">
+                        <div className="text-xs text-muted-foreground font-normal mt-0.5">
                           {item.max_points} pts
                         </div>
                       </th>
                     ))}
-                    <th className="text-center p-3 font-medium min-w-[80px]">Total</th>
-                    <th className="text-center p-3 font-medium min-w-[60px]">%</th>
-                    <th className="text-center p-3 font-medium min-w-[60px]">Grade</th>
+                    {/* Category Summary Columns */}
+                    <th className="text-center px-3 py-3 font-semibold min-w-[90px] bg-muted border-l border-border">
+                      <div className="flex items-center justify-center gap-1">
+                        <ClipboardList className="h-3.5 w-3.5 text-blue-500" />
+                        <span>Assign.</span>
+                      </div>
+                    </th>
+                    <th className="text-center px-3 py-3 font-semibold min-w-[90px] bg-muted">
+                      <div className="flex items-center justify-center gap-1">
+                        <FileQuestion className="h-3.5 w-3.5 text-purple-500" />
+                        <span>Quizzes</span>
+                      </div>
+                    </th>
+                    <th className="text-center px-3 py-3 font-semibold min-w-[90px] bg-muted">
+                      <span>Particip.</span>
+                    </th>
+                    <th className="text-center px-3 py-3 font-semibold min-w-[80px] bg-muted border-l border-border">
+                      Average
+                    </th>
+                    <th className="text-center px-3 py-3 font-semibold min-w-[70px] bg-muted">
+                      Grade
+                    </th>
                   </tr>
                 </thead>
                 <tbody>
-                  {gradebook.students.map((student) => (
-                    <tr key={student.id} className="border-b hover:bg-muted/30">
-                      <td className="p-3 sticky left-0 bg-background z-10">
-                        <div className="font-medium">{student.name}</div>
+                  {gradebook.students.map((student, idx) => (
+                    <tr key={student.id} className={`border-b border-border hover:bg-muted/40 ${idx % 2 === 0 ? '' : 'bg-muted/20'}`}>
+                      <td className="px-4 py-3 sticky left-0 z-10 border-r border-border bg-white dark:bg-zinc-950">
+                        <div className="font-medium text-foreground">{student.name}</div>
                         <div className="text-xs text-muted-foreground">{student.email}</div>
                       </td>
                       {gradebook.gradebook_items.map((item) => {
@@ -320,45 +321,17 @@ export function GradebookPage() {
 
                         if (!grade) {
                           return (
-                            <td key={`${item.type}-${item.id}`} className="p-2 text-center">
-                              <span className="inline-block px-2 py-1 rounded text-xs font-medium bg-slate-50 text-slate-500 border border-slate-200 dark:bg-slate-900 dark:text-slate-400 dark:border-slate-700">
+                            <td key={`${item.type}-${item.id}`} className="px-3 py-2 text-center">
+                              <span className="inline-block px-2.5 py-1 rounded text-xs font-medium bg-slate-100 text-slate-500 dark:bg-slate-800 dark:text-slate-400">
                                 -
                               </span>
                             </td>
                           );
                         }
 
-                        // For quizzes, keep the link behavior
-                        if (item.type === 'quiz') {
-                          return (
-                            <td key={`${item.type}-${item.id}`} className="p-2 text-center">
-                              <Link
-                                to={`/instructor/quizzes/${item.id}/results`}
-                                className={`inline-block px-2 py-1 rounded text-xs font-medium ${getGradeColor(grade)}`}
-                              >
-                                {grade.status === 'graded' && grade.points_earned !== null
-                                  ? `${grade.points_earned}/${item.max_points}`
-                                  : grade.status === 'submitted'
-                                  ? 'Pending'
-                                  : grade.status === 'missing'
-                                  ? 'Missing'
-                                  : '-'}
-                                {grade.is_late && grade.status !== 'missing' && (
-                                  <span className="ml-1 text-orange-600">L</span>
-                                )}
-                                {grade.passed !== undefined && grade.passed !== null && (
-                                  <span className={`ml-1 ${grade.passed ? 'text-green-600' : 'text-red-600'}`}>
-                                    {grade.passed ? 'P' : 'F'}
-                                  </span>
-                                )}
-                              </Link>
-                            </td>
-                          );
-                        }
-
-                        // For assignments, use EditableGradeCell
+                        // Use EditableGradeCell for both assignments and quizzes
                         return (
-                          <td key={`${item.type}-${item.id}`} className="p-2 text-center">
+                          <td key={`${item.type}-${item.id}`} className="px-3 py-2 text-center">
                             <EditableGradeCell
                               itemId={item.id}
                               itemType={item.type}
@@ -372,13 +345,27 @@ export function GradebookPage() {
                           </td>
                         );
                       })}
-                      <td className="p-3 text-center font-medium">
-                        {student.total_earned}/{student.total_possible}
+                      {/* Category Percentages */}
+                      <td className="px-3 py-2 text-center border-l border-border">
+                        <span className="font-medium">
+                          {student.assignments_percentage !== null ? `${student.assignments_percentage}%` : '-'}
+                        </span>
                       </td>
-                      <td className="p-3 text-center">
+                      <td className="px-3 py-2 text-center">
+                        <span className="font-medium">
+                          {student.quizzes_percentage !== null ? `${student.quizzes_percentage}%` : '-'}
+                        </span>
+                      </td>
+                      <td className="px-3 py-2 text-center">
+                        <span className="font-medium">
+                          {student.participation_percentage !== null ? `${student.participation_percentage}%` : '-'}
+                        </span>
+                      </td>
+                      {/* Overall Average */}
+                      <td className="px-3 py-2 text-center font-semibold border-l border-border">
                         {student.percentage !== null ? `${student.percentage}%` : '-'}
                       </td>
-                      <td className={`p-3 text-center font-bold ${getLetterGradeColor(student.letter_grade)}`}>
+                      <td className={`px-3 py-2 text-center font-bold text-lg ${getLetterGradeColor(student.letter_grade)}`}>
                         {student.letter_grade || '-'}
                       </td>
                     </tr>
