@@ -3,10 +3,13 @@ import { Link } from 'react-router';
 import { useAuth } from '@/contexts/AuthContext';
 import { Button } from '@/components/ui/Button';
 import { courseService, type InstructorCourse } from '@/services/courses';
-import type { Enrollment, EnhancedDashboard } from '@/types';
-import { Plus, Play, BookOpen, Users, CheckCircle2 } from 'lucide-react';
+import type { Enrollment, EnhancedDashboard, InstructorReminder } from '@/types';
+import { Plus, Play, BookOpen, Users, CheckCircle2, Clock, AlertCircle, ChevronRight, Megaphone } from 'lucide-react';
 import { EnrollmentModal } from '@/components/course/EnrollmentModal';
 import { Skeleton } from '@/components/ui/Skeleton';
+import { WeekCalendar } from '@/components/dashboard/WeekCalendar';
+import { AddReminderModal } from '@/components/dashboard/AddReminderModal';
+import { MakeAnnouncementModal } from '@/components/dashboard/MakeAnnouncementModal';
 
 export function DashboardPage() {
   const { user } = useAuth();
@@ -15,6 +18,11 @@ export function DashboardPage() {
   const [enhancedData, setEnhancedData] = useState<EnhancedDashboard | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [showEnrollModal, setShowEnrollModal] = useState(false);
+  const [showReminderModal, setShowReminderModal] = useState(false);
+  const [reminderDate, setReminderDate] = useState<string>('');
+  const [editingReminder, setEditingReminder] = useState<InstructorReminder | null>(null);
+  const [calendarKey, setCalendarKey] = useState(0);
+  const [showAnnouncementModal, setShowAnnouncementModal] = useState(false);
 
   useEffect(() => {
     loadData();
@@ -52,6 +60,18 @@ export function DashboardPage() {
   // Get continue learning data from enhanced dashboard
   const continueLearning = enhancedData && !enhancedData.is_instructor ? enhancedData.continue_learning : null;
 
+  const handleAddReminder = (date: string) => {
+    setEditingReminder(null);
+    setReminderDate(date);
+    setShowReminderModal(true);
+  };
+
+  const handleEditReminder = (reminder: InstructorReminder) => {
+    setEditingReminder(reminder);
+    setReminderDate('');
+    setShowReminderModal(true);
+  };
+
   if (isLoading) {
     return (
       <div className="container mx-auto px-4 py-8 max-w-6xl">
@@ -73,7 +93,7 @@ export function DashboardPage() {
 
   return (
     <div className="container mx-auto px-4 py-8 max-w-6xl">
-      {/* Hero: Continue Learning */}
+      {/* Hero: Continue Learning - Students */}
       {hasCourses && !isInstructor && (
         <div className="relative rounded-xl p-8 mb-6 overflow-hidden border border-[#22c55e]/20" style={{ background: 'linear-gradient(135deg, rgba(34, 197, 94, 0.1) 0%, rgba(6, 182, 212, 0.05) 50%, transparent 100%)' }}>
           <div className="absolute inset-0 bg-grid opacity-30" />
@@ -120,28 +140,28 @@ export function DashboardPage() {
         </div>
       )}
 
-      {/* Instructor Hero */}
+      {/* Hero: Make Announcement - Instructors */}
       {hasCourses && isInstructor && (
         <div className="relative rounded-xl p-8 mb-6 overflow-hidden border border-[#06b6d4]/20" style={{ background: 'linear-gradient(135deg, rgba(6, 182, 212, 0.1) 0%, rgba(34, 197, 94, 0.05) 50%, transparent 100%)' }}>
           <div className="absolute inset-0 bg-grid opacity-30" />
           <div className="relative">
-            <p className="text-sm font-medium mb-3" style={{ color: '#06b6d4', fontFamily: 'Orbitron, sans-serif' }}>Welcome back</p>
-            <h2 className="text-2xl font-semibold mb-2">Manage your courses</h2>
+            <p className="text-sm font-medium mb-3" style={{ color: '#06b6d4', fontFamily: 'Orbitron, sans-serif' }}>Quick Actions</p>
+            <h2 className="text-2xl font-semibold mb-2">Post an Announcement</h2>
             <p className="text-muted-foreground mb-5">
-              {instructorCourses.length} active course{instructorCourses.length !== 1 ? 's' : ''}
+              Keep your students informed with course updates and important news
             </p>
-            <Link to="/instructor/courses/new">
-              <Button size="lg" variant="neon">
-                <Plus className="h-4 w-4 mr-2" />
-                Create Course
+            {instructorCourses.length > 0 && (
+              <Button size="lg" variant="neon" onClick={() => setShowAnnouncementModal(true)}>
+                <Megaphone className="h-4 w-4 mr-2" />
+                Make Announcement
               </Button>
-            </Link>
+            )}
           </div>
         </div>
       )}
 
-      {/* Quick Stats */}
-      {hasCourses && (
+      {/* Student Quick Stats */}
+      {hasCourses && !isInstructor && (
         <div className="grid grid-cols-3 gap-5 mb-8">
           <div className="card-gaming rounded-xl p-5">
             <div className="flex items-center gap-2 text-muted-foreground mb-2">
@@ -150,45 +170,84 @@ export function DashboardPage() {
             </div>
             <p className="text-3xl font-semibold text-gradient-gaming">{courses.length}</p>
           </div>
-          {isInstructor ? (
-            <>
-              <div className="card-gaming rounded-xl p-5">
-                <div className="flex items-center gap-2 text-muted-foreground mb-2">
-                  <Users className="h-5 w-5" style={{ color: '#06b6d4' }} />
-                  <span className="text-sm font-medium">Students</span>
+          <div className="card-gaming rounded-xl p-5">
+            <div className="flex items-center gap-2 text-muted-foreground mb-2">
+              <CheckCircle2 className="h-5 w-5" style={{ color: '#06b6d4' }} />
+              <span className="text-sm font-medium">Completed</span>
+            </div>
+            <p className="text-3xl font-semibold text-gradient-gaming">{completedLessons}</p>
+          </div>
+          <div className="card-gaming rounded-xl p-5">
+            <div className="flex items-center gap-2 text-muted-foreground mb-2">
+              <BookOpen className="h-5 w-5" style={{ color: '#fbbf24' }} />
+              <span className="text-sm font-medium">Lessons</span>
+            </div>
+            <p className="text-3xl font-semibold text-gradient-gaming">{totalLessons}</p>
+          </div>
+        </div>
+      )}
+
+      {/* Instructor Week Calendar */}
+      {hasCourses && isInstructor && (
+        <div className="mb-8">
+          <div className="flex items-center justify-between mb-4">
+            <h2 className="text-xl font-semibold">This Week</h2>
+            <Button variant="outline" size="sm" onClick={() => handleAddReminder(new Date().toISOString().split('T')[0])}>
+              <Plus className="h-4 w-4 mr-1" />
+              Add Reminder
+            </Button>
+          </div>
+          <WeekCalendar key={calendarKey} onAddReminder={handleAddReminder} onEditReminder={handleEditReminder} />
+        </div>
+      )}
+
+      {/* Pending Submissions - Instructor Only */}
+      {isInstructor && enhancedData?.is_instructor && enhancedData.recent_submissions.length > 0 && (
+        <div className="mb-8">
+          <div className="flex items-center justify-between mb-4">
+            <h2 className="text-xl font-semibold flex items-center gap-2">
+              <AlertCircle className="h-5 w-5 text-amber-500" />
+              Needs Grading
+            </h2>
+            <span className="text-sm text-muted-foreground">
+              {enhancedData.recent_submissions.length} pending
+            </span>
+          </div>
+          <div className="space-y-3">
+            {enhancedData.recent_submissions.slice(0, 3).map((submission) => (
+              <Link
+                key={submission.id}
+                to={`/instructor/assignments/${submission.assignment_id}/grade`}
+                className="flex items-center justify-between p-4 card-gaming hover:border-amber-500/50 transition-colors"
+              >
+                <div className="flex items-center gap-4">
+                  <div className="h-10 w-10 rounded-full bg-amber-500/10 flex items-center justify-center">
+                    <Clock className="h-5 w-5 text-amber-500" />
+                  </div>
+                  <div>
+                    <p className="font-medium">{submission.assignment_title}</p>
+                    <p className="text-sm text-muted-foreground">
+                      {submission.student_name} · {submission.course_code}
+                      {submission.is_late && (
+                        <span className="ml-2 text-red-500">(Late)</span>
+                      )}
+                    </p>
+                  </div>
                 </div>
-                <p className="text-3xl font-semibold text-gradient-gaming">
-                  {instructorCourses.reduce((sum, c) => sum + c.student_count, 0)}
-                </p>
-              </div>
-              <div className="card-gaming rounded-xl p-5">
-                <div className="flex items-center gap-2 text-muted-foreground mb-2">
-                  <CheckCircle2 className="h-5 w-5" style={{ color: '#fbbf24' }} />
-                  <span className="text-sm font-medium">Active</span>
+                <div className="flex items-center gap-3">
+                  <span className="text-sm text-muted-foreground">
+                    {submission.submitted_at && new Date(submission.submitted_at).toLocaleDateString('en-US', {
+                      month: 'short',
+                      day: 'numeric',
+                      hour: 'numeric',
+                      minute: '2-digit'
+                    })}
+                  </span>
+                  <ChevronRight className="h-5 w-5 text-muted-foreground" />
                 </div>
-                <p className="text-3xl font-semibold text-gradient-gaming">
-                  {instructorCourses.filter((c) => c.student_count > 0).length}
-                </p>
-              </div>
-            </>
-          ) : (
-            <>
-              <div className="card-gaming rounded-xl p-5">
-                <div className="flex items-center gap-2 text-muted-foreground mb-2">
-                  <CheckCircle2 className="h-5 w-5" style={{ color: '#06b6d4' }} />
-                  <span className="text-sm font-medium">Completed</span>
-                </div>
-                <p className="text-3xl font-semibold text-gradient-gaming">{completedLessons}</p>
-              </div>
-              <div className="card-gaming rounded-xl p-5">
-                <div className="flex items-center gap-2 text-muted-foreground mb-2">
-                  <BookOpen className="h-5 w-5" style={{ color: '#fbbf24' }} />
-                  <span className="text-sm font-medium">Lessons</span>
-                </div>
-                <p className="text-3xl font-semibold text-gradient-gaming">{totalLessons}</p>
-              </div>
-            </>
-          )}
+              </Link>
+            ))}
+          </div>
         </div>
       )}
 
@@ -236,41 +295,48 @@ export function DashboardPage() {
           )}
         </div>
       ) : (
-        <div className="space-y-4">
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
           {isInstructor
             ? instructorCourses.map((course) => (
                 <Link
                   key={course.id}
                   to={`/courses/${course.code}`}
-                  className="flex items-center justify-between p-5 card-gaming"
+                  className="card-gaming p-6 flex flex-col hover:border-[#22c55e]/50 transition-colors"
                 >
-                  <div>
-                    <h3 className="text-lg font-medium">{course.title}</h3>
-                    <p className="text-muted-foreground">
-                      {course.code} · {course.student_count} student{course.student_count !== 1 ? 's' : ''}
-                    </p>
+                  <div className="flex-1">
+                    <h3 className="text-lg font-semibold mb-2">{course.title}</h3>
+                    <p className="text-sm text-muted-foreground mb-1">{course.code}</p>
+                    <div className="flex items-center gap-1.5 text-sm text-muted-foreground">
+                      <Users className="h-4 w-4" />
+                      <span>{course.student_count} student{course.student_count !== 1 ? 's' : ''}</span>
+                    </div>
                   </div>
-                  <Button variant="outline">
-                    Manage
-                  </Button>
+                  <div className="mt-4 pt-4 border-t border-border">
+                    <Button variant="outline" className="w-full">
+                      Manage
+                    </Button>
+                  </div>
                 </Link>
               ))
             : enrolledCourses.map((enrollment) => (
                 <Link
                   key={enrollment.id}
                   to={`/courses/${enrollment.course.code}`}
-                  className="flex items-center justify-between p-5 card-gaming"
+                  className="card-gaming p-6 flex flex-col hover:border-[#22c55e]/50 transition-colors"
                 >
-                  <div>
-                    <h3 className="text-lg font-medium">{enrollment.course.title}</h3>
-                    <p className="text-muted-foreground">
-                      {enrollment.course.code} · {enrollment.course.instructor.first_name} {enrollment.course.instructor.last_name}
+                  <div className="flex-1">
+                    <h3 className="text-lg font-semibold mb-2">{enrollment.course.title}</h3>
+                    <p className="text-sm text-muted-foreground mb-1">{enrollment.course.code}</p>
+                    <p className="text-sm text-muted-foreground">
+                      {enrollment.course.instructor.first_name} {enrollment.course.instructor.last_name}
                     </p>
                   </div>
-                  <Button variant="outline">
-                    <Play className="h-4 w-4 mr-2" />
-                    Learn
-                  </Button>
+                  <div className="mt-4 pt-4 border-t border-border">
+                    <Button variant="outline" className="w-full">
+                      <Play className="h-4 w-4 mr-2" />
+                      Continue
+                    </Button>
+                  </div>
                 </Link>
               ))}
         </div>
@@ -284,6 +350,35 @@ export function DashboardPage() {
           onSuccess={() => {
             setShowEnrollModal(false);
             loadData();
+          }}
+        />
+      )}
+
+      {/* Add Reminder Modal */}
+      {isInstructor && (
+        <AddReminderModal
+          open={showReminderModal}
+          onOpenChange={(open) => {
+            setShowReminderModal(open);
+            if (!open) setEditingReminder(null);
+          }}
+          defaultDate={reminderDate}
+          courses={instructorCourses}
+          editingReminder={editingReminder}
+          onSuccess={() => {
+            setCalendarKey(k => k + 1); // Trigger calendar reload
+          }}
+        />
+      )}
+
+      {/* Make Announcement Modal */}
+      {isInstructor && (
+        <MakeAnnouncementModal
+          open={showAnnouncementModal}
+          onOpenChange={setShowAnnouncementModal}
+          courses={instructorCourses}
+          onSuccess={() => {
+            // Optionally reload data or show success toast
           }}
         />
       )}

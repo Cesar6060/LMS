@@ -411,7 +411,7 @@ export function CourseDetailPage() {
                         <div
                           className="h-full bg-green-600 transition-all duration-500"
                           style={{
-                            width: unit.isComplete ? '100%' : `${(unit.completedLessons / unit.totalLessons) * 100}%`,
+                            width: unit.isComplete ? '100%' : unit.totalLessons > 0 ? `${(unit.completedLessons / unit.totalLessons) * 100}%` : '0%',
                           }}
                         />
                       </div>

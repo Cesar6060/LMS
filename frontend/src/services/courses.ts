@@ -1,5 +1,5 @@
 import api from './api';
-import type { Course, Unit, Lesson, Enrollment, LessonProgress, GradingConfig, GradeSummary, EnhancedDashboard, LessonQuestion, LessonQuestionsStatus, AnswerQuestionResult, QuizSubmissionResult, LessonAttachment, LessonSection } from '../types';
+import type { Course, Unit, Lesson, Enrollment, LessonProgress, GradingConfig, GradeSummary, EnhancedDashboard, LessonQuestion, LessonQuestionsStatus, AnswerQuestionResult, QuizSubmissionResult, LessonAttachment, LessonSection, InstructorReminder, CalendarResponse } from '../types';
 
 // Re-export types for convenience
 export type { Unit, Lesson } from '../types';
@@ -557,6 +557,56 @@ export const courseService = {
       section_ids: sectionIds,
     });
     return response.data;
+  },
+
+  // Instructor Calendar & Reminders
+  async getInstructorCalendar(startDate?: string, endDate?: string): Promise<CalendarResponse> {
+    const params = new URLSearchParams();
+    if (startDate) params.append('start_date', startDate);
+    if (endDate) params.append('end_date', endDate);
+    const query = params.toString() ? `?${params.toString()}` : '';
+    const response = await api.get<CalendarResponse>(`/courses/instructor/calendar/${query}`);
+    return response.data;
+  },
+
+  async getReminders(): Promise<InstructorReminder[]> {
+    const response = await api.get<InstructorReminder[]>('/courses/instructor/reminders/');
+    return response.data;
+  },
+
+  async getReminder(id: number): Promise<InstructorReminder> {
+    const response = await api.get<InstructorReminder>(`/courses/instructor/reminders/${id}/`);
+    return response.data;
+  },
+
+  async createReminder(data: {
+    title: string;
+    description?: string;
+    date: string;
+    time?: string;
+    end_time?: string;
+    color?: string;
+    course?: number;
+  }): Promise<InstructorReminder> {
+    const response = await api.post<InstructorReminder>('/courses/instructor/reminders/', data);
+    return response.data;
+  },
+
+  async updateReminder(id: number, data: {
+    title?: string;
+    description?: string;
+    date?: string;
+    time?: string;
+    end_time?: string;
+    color?: string;
+    course?: number;
+  }): Promise<InstructorReminder> {
+    const response = await api.patch<InstructorReminder>(`/courses/instructor/reminders/${id}/`, data);
+    return response.data;
+  },
+
+  async deleteReminder(id: number): Promise<void> {
+    await api.delete(`/courses/instructor/reminders/${id}/`);
   },
 };
 

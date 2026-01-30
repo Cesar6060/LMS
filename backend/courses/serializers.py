@@ -2,7 +2,7 @@ from rest_framework import serializers
 from .models import (
     Course, Unit, Lesson, Enrollment, LessonProgress, Announcement, CourseGradingConfig,
     LessonQuestion, LessonQuestionChoice, LessonQuestionAnswer, LessonQuizAttempt,
-    LessonAttachment, LessonSection
+    LessonAttachment, LessonSection, InstructorReminder
 )
 from accounts.serializers import UserSerializer
 
@@ -619,3 +619,58 @@ class LessonQuestionsStatusSerializer(serializers.Serializer):
     correct_answers = serializers.IntegerField()
     all_correct = serializers.BooleanField()
     can_complete_lesson = serializers.BooleanField()
+
+
+
+class InstructorReminderSerializer(serializers.ModelSerializer):
+    """Serializer for instructor calendar reminders."""
+    course_code = serializers.SerializerMethodField()
+    course_title = serializers.SerializerMethodField()
+
+    class Meta:
+        model = InstructorReminder
+        fields = [
+            "id", "course", "course_code", "course_title", "title",
+            "description", "date", "time", "end_time", "color", "created_at", "updated_at"
+        ]
+        read_only_fields = ["id", "created_at", "updated_at"]
+
+    def get_course_code(self, obj):
+        return obj.course.code if obj.course else None
+
+    def get_course_title(self, obj):
+        return obj.course.title if obj.course else None
+
+
+class InstructorReminderCreateSerializer(serializers.ModelSerializer):
+    """Serializer for creating/updating reminders (instructor set in view)."""
+
+    class Meta:
+        model = InstructorReminder
+        fields = ["id", "course", "title", "description", "date", "time", "end_time", "color"]
+        read_only_fields = ["id"]
+
+    def validate_course(self, value):
+        """Ensure instructor owns the course if specified."""
+        if value:
+            request = self.context.get("request")
+            if request and value.instructor != request.user:
+                raise serializers.ValidationError("You can only add reminders to your own courses.")
+        return value
+
+    def validate(self, data):
+        """Validate that end_time is after time if both are provided."""
+        time = data.get('time') or (self.instance.time if self.instance else None)
+        end_time = data.get('end_time')
+
+        if time and end_time and end_time <= time:
+            raise serializers.ValidationError({
+                'end_time': 'End time must be after start time.'
+            })
+
+        # If no start time, clear end time
+        if not time and end_time:
+            data['end_time'] = None
+
+        return data
+

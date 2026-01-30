@@ -9,6 +9,7 @@ router.register(r'units', views.UnitViewSet, basename='unit')
 router.register(r'lessons', views.LessonViewSet, basename='lesson')
 router.register(r'enrollments', views.EnrollmentViewSet, basename='enrollment')
 router.register(r'announcements', views.AnnouncementViewSet, basename='announcement')
+router.register(r'instructor/reminders', views.InstructorReminderViewSet, basename='instructor-reminder')
 
 urlpatterns = [
     # Router URLs
@@ -61,4 +62,7 @@ urlpatterns = [
 
     # Instructor Progress Reset
     path('lessons/<int:lesson_id>/progress/reset/', views.reset_lesson_progress, name='reset-lesson-progress'),
+
+    # Instructor Calendar
+    path('instructor/calendar/', views.instructor_calendar, name='instructor-calendar'),
 ]

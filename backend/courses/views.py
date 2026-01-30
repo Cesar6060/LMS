@@ -419,7 +419,7 @@ class CourseProgressView(generics.RetrieveAPIView):
             completed=True
         ).count()
 
-        progress_percentage = round((completed_lessons / total_lessons) * 100, 1)
+        progress_percentage = round((completed_lessons / total_lessons) * 100, 1) if total_lessons > 0 else 0
 
         return Response({
             'total_lessons': total_lessons,
@@ -535,6 +535,7 @@ def enhanced_dashboard(request):
         for sub in recent_submissions:
             recent_submissions_data.append({
                 'id': sub.id,
+                'assignment_id': sub.assignment.id,
                 'student_name': sub.student.get_full_name() or sub.student.email,
                 'student_email': sub.student.email,
                 'assignment_title': sub.assignment.title,
@@ -877,7 +878,7 @@ class CourseAnnouncementsView(generics.ListCreateAPIView):
         # Prefetch user preferences to avoid N+1 queries
         enrollments = Enrollment.objects.filter(
             course=announcement.course, is_active=True
-        ).select_related('user').prefetch_related('user__userpreferences')
+        ).select_related('user').prefetch_related('user__preferences')
         notifications = []
         email_tasks = []
 
@@ -896,7 +897,7 @@ class CourseAnnouncementsView(generics.ListCreateAPIView):
                 # Check preferences (already prefetched)
                 should_send = True
                 try:
-                    prefs = enrollment.user.userpreferences
+                    prefs = enrollment.user.preferences
                     should_send = prefs.email_announcements
                 except UserPreferences.DoesNotExist:
                     pass
@@ -2528,3 +2529,146 @@ def reset_lesson_progress(request, lesson_id):
     ).delete()
 
     return Response({'message': 'Progress reset successfully'})
+
+
+# ============================================
+# Instructor Calendar & Reminders
+# ============================================
+
+from .models import InstructorReminder
+from .serializers import InstructorReminderSerializer, InstructorReminderCreateSerializer
+
+
+class InstructorReminderViewSet(viewsets.ModelViewSet):
+    """ViewSet for instructor reminders."""
+    permission_classes = [IsAuthenticated]
+
+    def get_queryset(self):
+        # Only instructors can access reminders
+        if not self.request.user.is_instructor:
+            return InstructorReminder.objects.none()
+        return InstructorReminder.objects.filter(instructor=self.request.user)
+
+    def get_serializer_class(self):
+        if self.action in ['create', 'update', 'partial_update']:
+            return InstructorReminderCreateSerializer
+        return InstructorReminderSerializer
+
+    def get_serializer_context(self):
+        context = super().get_serializer_context()
+        context['request'] = self.request
+        return context
+
+    def perform_create(self, serializer):
+        # Only instructors can create reminders
+        if not self.request.user.is_instructor:
+            from rest_framework.exceptions import PermissionDenied
+            raise PermissionDenied("Only instructors can create reminders")
+        serializer.save(instructor=self.request.user)
+
+
+@api_view(['GET'])
+@perm_classes([IsAuthenticated])
+def instructor_calendar(request):
+    """
+    Get calendar events for the instructor's dashboard.
+    Returns assignments, quizzes, and custom reminders for a date range.
+    
+    Query params:
+    - start_date: YYYY-MM-DD (defaults to today)
+    - end_date: YYYY-MM-DD (defaults to 7 days from start)
+    """
+    from datetime import datetime, timedelta
+    from django.utils import timezone
+    from assignments.models import Assignment
+    from quizzes.models import Quiz
+
+    if not request.user.is_instructor:
+        return Response(
+            {'error': 'Only instructors can access this endpoint'},
+            status=status.HTTP_403_FORBIDDEN
+        )
+
+    # Parse date range
+    today = timezone.now().date()
+    start_date_str = request.query_params.get('start_date')
+    end_date_str = request.query_params.get('end_date')
+
+    if start_date_str:
+        try:
+            start_date = datetime.strptime(start_date_str, '%Y-%m-%d').date()
+        except ValueError:
+            return Response(
+                {'error': 'Invalid start_date format. Use YYYY-MM-DD'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+    else:
+        start_date = today
+
+    if end_date_str:
+        try:
+            end_date = datetime.strptime(end_date_str, '%Y-%m-%d').date()
+        except ValueError:
+            return Response(
+                {'error': 'Invalid end_date format. Use YYYY-MM-DD'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+    else:
+        end_date = start_date + timedelta(days=6)
+
+    # Get instructor's courses
+    courses = Course.objects.filter(instructor=request.user)
+
+    events = []
+
+    # Get assignments with due dates in range
+    assignments = Assignment.objects.filter(
+        unit__course__in=courses,
+        due_date__date__gte=start_date,
+        due_date__date__lte=end_date
+    ).select_related('unit__course')
+
+    for assignment in assignments:
+        events.append({
+            'id': f'assignment-{assignment.id}',
+            'type': 'assignment',
+            'title': assignment.title,
+            'course_code': assignment.unit.course.code,
+            'date': assignment.due_date.date().isoformat(),
+            'time': assignment.due_date.time().strftime('%H:%M') if assignment.due_date else None,
+            'color': 'green',
+            'url': f'/instructor/assignments/{assignment.id}/grade',
+        })
+
+    # Get quizzes - they don't have due dates typically, so skip unless we add that field
+    # For now, just reminders and assignments
+
+    # Get custom reminders
+    reminders = InstructorReminder.objects.filter(
+        instructor=request.user,
+        date__gte=start_date,
+        date__lte=end_date
+    ).select_related('course')
+
+    for reminder in reminders:
+        events.append({
+            'id': f'reminder-{reminder.id}',
+            'type': 'reminder',
+            'title': reminder.title,
+            'description': reminder.description,
+            'course_code': reminder.course.code if reminder.course else None,
+            'date': reminder.date.isoformat(),
+            'time': reminder.time.strftime('%H:%M') if reminder.time else None,
+            'end_time': reminder.end_time.strftime('%H:%M') if reminder.end_time else None,
+            'color': reminder.color,
+            'reminder_id': reminder.id,
+        })
+
+    # Sort by date and time
+    events.sort(key=lambda x: (x['date'], x['time'] or '23:59'))
+
+    return Response({
+        'start_date': start_date.isoformat(),
+        'end_date': end_date.isoformat(),
+        'events': events,
+    })

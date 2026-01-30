@@ -442,6 +442,45 @@ class LessonAttachment(models.Model):
         super().save(*args, **kwargs)
 
 
+class InstructorReminder(models.Model):
+    """
+    Custom reminders/events created by instructors for their calendar.
+    These appear alongside assignment/quiz due dates on the dashboard.
+    """
+    instructor = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name='reminders'
+    )
+    course = models.ForeignKey(
+        Course,
+        on_delete=models.CASCADE,
+        related_name='reminders',
+        null=True,
+        blank=True,
+        help_text='Optional: associate with a specific course'
+    )
+    title = models.CharField(max_length=200)
+    description = models.TextField(blank=True)
+    date = models.DateField()
+    time = models.TimeField(null=True, blank=True, help_text='Start time')
+    end_time = models.TimeField(null=True, blank=True, help_text='End time (optional)')
+    color = models.CharField(
+        max_length=20,
+        default='blue',
+        help_text='Color for calendar display (blue, green, amber, red, purple)'
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = 'courses_instructorreminder'
+        ordering = ['date', 'time']
+
+    def __str__(self):
+        return f"{self.instructor.email} - {self.title} ({self.date})"
+
+
 class LessonSection(models.Model):
     """
     A section/slide within a lesson.

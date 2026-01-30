@@ -408,6 +408,7 @@ export interface CourseProgressItem {
 
 export interface RecentSubmission {
   id: number;
+  assignment_id: number;
   student_name: string;
   student_email: string;
   assignment_title: string;
@@ -497,4 +498,40 @@ export interface AnswerQuestionResult {
   is_correct: boolean;
   correct_choice_id: number | null;
   correct_choice_text: string | null;
+}
+
+// Instructor Calendar & Reminders
+export interface InstructorReminder {
+  id: number;
+  course: number | null;
+  course_code: string | null;
+  course_title: string | null;
+  title: string;
+  description: string;
+  date: string;
+  time: string | null;
+  end_time: string | null;
+  color: 'blue' | 'green' | 'amber' | 'red' | 'purple';
+  created_at: string;
+  updated_at: string;
+}
+
+export interface CalendarEvent {
+  id: string;
+  type: 'assignment' | 'quiz' | 'reminder';
+  title: string;
+  description?: string;
+  course_code: string | null;
+  date: string;
+  time: string | null;
+  end_time?: string | null;
+  color: string;
+  url?: string;
+  reminder_id?: number;
+}
+
+export interface CalendarResponse {
+  start_date: string;
+  end_date: string;
+  events: CalendarEvent[];
 }
