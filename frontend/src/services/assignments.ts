@@ -176,6 +176,17 @@ export const assignmentService = {
     const response = await api.post(`/assignments/assignments/${assignmentId}/quick-grade/${studentId}/`, { points });
     return response.data;
   },
+
+  // Quick grade quiz from gradebook
+  async quickGradeQuiz(quizId: number, studentId: number, points: number): Promise<{
+    success: boolean;
+    points: number;
+    score: number;
+    passed: boolean;
+  }> {
+    const response = await api.post(`/quizzes/quizzes/${quizId}/quick-grade/${studentId}/`, { points });
+    return response.data;
+  },
 };
 
 export default assignmentService;

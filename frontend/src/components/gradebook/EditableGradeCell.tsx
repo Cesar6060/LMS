@@ -36,8 +36,8 @@ export function EditableGradeCell({
     }
   }, [isEditing]);
 
-  // Only assignments can be quick-graded (quizzes are auto-graded)
-  const canEdit = itemType === 'assignment';
+  // Both assignments and quizzes can be quick-graded
+  const canEdit = true;
 
   const handleClick = () => {
     if (!canEdit) return;
@@ -76,7 +76,11 @@ export function EditableGradeCell({
     setError('');
 
     try {
-      await assignmentService.quickGrade(itemId, studentId, points);
+      if (itemType === 'quiz') {
+        await assignmentService.quickGradeQuiz(itemId, studentId, points);
+      } else {
+        await assignmentService.quickGrade(itemId, studentId, points);
+      }
       onUpdate(points);
       setIsEditing(false);
     } catch (err) {
@@ -155,10 +159,9 @@ export function EditableGradeCell({
       className={`px-2 py-1 rounded text-sm ${bgColor} ${
         canEdit ? 'cursor-pointer hover:ring-2 hover:ring-primary/50' : ''
       } ${isLate ? 'ring-1 ring-amber-400' : ''}`}
-      title={canEdit ? 'Click to edit grade' : 'Quiz grades are auto-calculated'}
+      title="Click to edit grade"
     >
       {displayValue}
-      {isLate && <span className="ml-1 text-amber-600 text-xs">L</span>}
     </div>
   );
 }

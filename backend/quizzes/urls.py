@@ -16,4 +16,7 @@ urlpatterns = [
 
     # Course-level quiz list
     path('courses/<str:course_code>/quizzes/', views.course_quizzes, name='course-quizzes'),
+
+    # Quick grade for gradebook
+    path('quizzes/<int:quiz_id>/quick-grade/<int:student_id>/', views.quick_grade_quiz, name='quick-grade-quiz'),
 ]

@@ -117,6 +117,9 @@ export interface GradebookStudent {
   total_possible: number;
   percentage: number | null;
   letter_grade: string | null;
+  assignments_percentage: number | null;
+  quizzes_percentage: number | null;
+  participation_percentage: number | null;
 }
 
 export interface Gradebook {
