@@ -10,6 +10,7 @@ from datetime import timedelta
 from decimal import Decimal
 
 from accounts.models import User
+from allauth.account.models import EmailAddress
 from courses.models import Course, Unit, Lesson, Enrollment, LessonProgress, CourseGradingConfig
 from assignments.models import Assignment, Submission, Grade
 from quizzes.models import Quiz, Question, Choice, QuizAttempt, AttemptAnswer
@@ -36,18 +37,26 @@ class Command(BaseCommand):
         instructor = self.create_instructor()
         students = self.create_students()
 
-        # Create course with content
+        # Create main course (VGD101) with full content
         course = self.create_course(instructor)
         units = self.create_units(course)
         lessons = self.create_lessons(units)
         assignments = self.create_assignments(units)
         quizzes = self.create_quizzes(units)
 
-        # Enroll students and create activity
+        # Enroll students and create activity for main course
         self.enroll_students(students, course)
         self.create_progress(students, lessons)
         self.create_submissions(students, assignments, instructor)
         self.create_quiz_attempts(students, quizzes)
+
+        # Create additional courses (minimal content for demo variety)
+        cs_course = self.create_cs_course(instructor)
+        robotics_course = self.create_robotics_course(instructor)
+
+        # Enroll some students in additional courses
+        self.enroll_students(students[:3], cs_course)  # First 3 students
+        self.enroll_students(students[1:4], robotics_course)  # Students 2-4
 
         self.stdout.write(self.style.SUCCESS('\nDatabase seeded successfully!'))
         self.stdout.write('')
@@ -55,15 +64,17 @@ class Command(BaseCommand):
         self.stdout.write('DEMO ACCOUNTS')
         self.stdout.write('='*50)
         self.stdout.write(f'\nInstructor:')
+        self.stdout.write(f'  Name: Cesar Villarreal')
         self.stdout.write(f'  Email: instructor@demo.com')
-        self.stdout.write(f'  Password: password123')
+        self.stdout.write(f'  Password: Admin123!')
         self.stdout.write(f'\nStudents:')
         for i in range(1, 6):
             self.stdout.write(f'  Email: student{i}@demo.com')
-        self.stdout.write(f'  Password (all): password123')
-        self.stdout.write(f'\nCourse:')
-        self.stdout.write(f'  Code: {course.code}')
-        self.stdout.write(f'  Enrollment Code: {course.enrollment_code}')
+        self.stdout.write(f'  Password (all): Admin123!')
+        self.stdout.write(f'\nCourses:')
+        self.stdout.write(f'  {course.code}: {course.title}')
+        self.stdout.write(f'  {cs_course.code}: {cs_course.title}')
+        self.stdout.write(f'  {robotics_course.code}: {robotics_course.title}')
         self.stdout.write('='*50)
 
     def clear_data(self):
@@ -91,27 +102,39 @@ class Command(BaseCommand):
         instructor, created = User.objects.get_or_create(
             email='instructor@demo.com',
             defaults={
-                'first_name': 'Demo',
-                'last_name': 'Instructor',
+                'first_name': 'Cesar',
+                'last_name': 'Villarreal',
                 'is_instructor': True,
             }
         )
+        # Always update password to ensure it's correct
+        instructor.set_password('Admin123!')
+        instructor.first_name = 'Cesar'
+        instructor.last_name = 'Villarreal'
+        instructor.save()
+
+        # Create verified email address for login
+        EmailAddress.objects.get_or_create(
+            user=instructor,
+            email=instructor.email,
+            defaults={'verified': True, 'primary': True}
+        )
+
         if created:
-            instructor.set_password('password123')
-            instructor.save()
             self.stdout.write(f'  Created instructor: {instructor.email}')
         else:
-            self.stdout.write(f'  Instructor exists: {instructor.email}')
+            self.stdout.write(f'  Updated instructor: {instructor.email}')
         return instructor
 
     def create_students(self):
-        """Create demo student accounts."""
+        """Create demo student accounts with diverse profiles."""
+        # Diverse student profiles for realistic demo data
         student_names = [
-            ('Alice', 'Anderson'),
-            ('Bob', 'Brown'),
-            ('Charlie', 'Chen'),
-            ('Diana', 'Davis'),
-            ('Evan', 'Edwards'),
+            ('Emma', 'Martinez'),      # High achiever - completes everything, great grades
+            ('James', 'Thompson'),     # Good student - mostly on track, some late work
+            ('Sofia', 'Patel'),        # Average student - struggling with some concepts
+            ('Marcus', 'Williams'),    # Behind student - missing work, needs help
+            ('Aria', 'Kim'),           # New student - just started, minimal progress
         ]
 
         students = []
@@ -124,12 +147,23 @@ class Command(BaseCommand):
                     'is_instructor': False,
                 }
             )
+            # Always update to ensure correct data
+            student.first_name = first
+            student.last_name = last
+            student.set_password('Admin123!')
+            student.save()
+
+            # Create verified email address for login
+            EmailAddress.objects.get_or_create(
+                user=student,
+                email=student.email,
+                defaults={'verified': True, 'primary': True}
+            )
+
             if created:
-                student.set_password('password123')
-                student.save()
-                self.stdout.write(f'  Created student: {student.email}')
+                self.stdout.write(f'  Created student: {student.email} ({first} {last})')
             else:
-                self.stdout.write(f'  Student exists: {student.email}')
+                self.stdout.write(f'  Updated student: {student.email} ({first} {last})')
             students.append(student)
         return students
 
@@ -163,6 +197,110 @@ No prior programming experience required!''',
                 quizzes_weight=40,
                 participation_weight=10,
             )
+        else:
+            self.stdout.write(f'  Course exists: {course.code}')
+        return course
+
+    def create_cs_course(self, instructor):
+        """Create Principles of Computer Science course."""
+        course, created = Course.objects.get_or_create(
+            code='CS101',
+            defaults={
+                'title': 'Principles of Computer Science',
+                'description': '''An introduction to the fundamental concepts of computer science and computational thinking.
+
+## Topics Covered
+- Algorithms and problem solving
+- Data structures basics
+- Introduction to programming
+- Computer architecture overview
+- Software development lifecycle
+
+## Who Should Take This Course
+Students interested in understanding how computers work and how to think like a programmer.''',
+                'instructor': instructor,
+                'is_active': True,
+            }
+        )
+        if created:
+            self.stdout.write(f'  Created course: {course.code}')
+            CourseGradingConfig.objects.create(
+                course=course,
+                assignments_weight=40,
+                quizzes_weight=50,
+                participation_weight=10,
+            )
+            # Create units
+            units_data = [
+                ('Introduction to Computing', 1),
+                ('Algorithms & Logic', 2),
+                ('Data & Information', 3),
+            ]
+            for title, order in units_data:
+                unit, _ = Unit.objects.get_or_create(
+                    course=course, order=order, defaults={'title': title}
+                )
+                # Add a simple lesson to each unit
+                Lesson.objects.get_or_create(
+                    unit=unit, order=1,
+                    defaults={
+                        'title': f'Introduction to {title}',
+                        'content': f'# {title}\n\nThis lesson covers the basics of {title.lower()}.',
+                        'video_type': 'none',
+                    }
+                )
+        else:
+            self.stdout.write(f'  Course exists: {course.code}')
+        return course
+
+    def create_robotics_course(self, instructor):
+        """Create Robotics Engineering course."""
+        course, created = Course.objects.get_or_create(
+            code='ROB201',
+            defaults={
+                'title': 'Robotics Engineering',
+                'description': '''Learn the fundamentals of robotics including mechanical design, electronics, and programming.
+
+## What You'll Build
+- Line-following robot
+- Obstacle avoidance system
+- Remote-controlled vehicle
+- Autonomous navigation project
+
+## Prerequisites
+- Basic understanding of physics
+- Intro programming helpful but not required''',
+                'instructor': instructor,
+                'is_active': True,
+            }
+        )
+        if created:
+            self.stdout.write(f'  Created course: {course.code}')
+            CourseGradingConfig.objects.create(
+                course=course,
+                assignments_weight=60,
+                quizzes_weight=25,
+                participation_weight=15,
+            )
+            # Create units
+            units_data = [
+                ('Robotics Fundamentals', 1),
+                ('Sensors & Actuators', 2),
+                ('Programming Robots', 3),
+            ]
+            for title, order in units_data:
+                unit, _ = Unit.objects.get_or_create(
+                    course=course, order=order, defaults={'title': title}
+                )
+                # Add a simple lesson to each unit
+                Lesson.objects.get_or_create(
+                    unit=unit, order=1,
+                    defaults={
+                        'title': f'Understanding {title}',
+                        'content': f'# {title}\n\nThis lesson introduces {title.lower()} concepts.',
+                        'video_type': 'none',
+                    }
+                )
         else:
             self.stdout.write(f'  Course exists: {course.code}')
         return course
@@ -582,141 +720,231 @@ Submit your project folder as a zip file.''', 100, now + timedelta(days=30), Tru
                 self.stdout.write(f'  Enrolled: {student.email}')
 
     def create_progress(self, students, lessons):
-        """Create some lesson progress for students."""
-        # Student 1 (Alice): Completed all lessons
-        # Student 2 (Bob): Completed 75%
-        # Student 3 (Charlie): Completed 50%
-        # Student 4 (Diana): Completed 25%
-        # Student 5 (Evan): Just started (1 lesson)
+        """Create varied lesson progress for students."""
+        # Emma (1): Star student - all lessons complete, watched all videos
+        # James (2): Good progress - 80% complete, some videos partially watched
+        # Sofia (3): Moderate progress - 60% complete, skipped some videos
+        # Marcus (4): Behind - 30% complete, struggling to keep up
+        # Aria (5): New student - just started, 1-2 lessons only
 
-        completion_rates = [1.0, 0.75, 0.50, 0.25, 0.1]
+        completion_rates = [1.0, 0.80, 0.60, 0.30, 0.12]
+        video_progress = [1.0, 0.85, 0.5, 0.3, 0.0]  # How much video they watched
 
-        for student, rate in zip(students, completion_rates):
+        for student, rate, vid_rate in zip(students, completion_rates, video_progress):
             lessons_to_complete = int(len(lessons) * rate)
             for i, lesson in enumerate(lessons[:lessons_to_complete]):
-                LessonProgress.objects.get_or_create(
+                # Vary completion dates - earlier students finished earlier
+                days_ago = max(1, len(lessons) - i + (5 - students.index(student)) * 2)
+                progress, created = LessonProgress.objects.get_or_create(
                     user=student,
                     lesson=lesson,
                     defaults={
                         'completed': True,
-                        'completed_at': timezone.now() - timedelta(days=len(lessons) - i),
+                        'completed_at': timezone.now() - timedelta(days=days_ago),
+                        'video_position': int(100 * vid_rate) if lesson.video_id else 0,
                     }
                 )
+                if not created:
+                    progress.completed = True
+                    progress.completed_at = timezone.now() - timedelta(days=days_ago)
+                    progress.video_position = int(100 * vid_rate) if lesson.video_id else 0
+                    progress.save()
 
-        self.stdout.write('  Created lesson progress')
+        self.stdout.write('  Created lesson progress with varied completion rates')
 
     def create_submissions(self, students, assignments, instructor):
-        """Create demo submissions with various statuses."""
+        """Create demo submissions with diverse statuses reflecting student profiles."""
         now = timezone.now()
 
-        # Student 1 (Alice): All submitted/graded
-        # Student 2 (Bob): Some submitted, pending grade
-        # Student 3 (Charlie): Has late submission
-        # Student 4 (Diana): Has drafts
-        # Student 5 (Evan): Missing assignments
+        # Emma (0): Star student - all graded with A/A+ grades
+        # James (1): Good student - most submitted, awaiting grades, one late
+        # Sofia (2): Average - some graded (B/C grades), some submitted, one draft
+        # Marcus (3): Behind - drafts and missing work, one graded (low score)
+        # Aria (4): New - only first assignment submitted
 
-        for assignment in assignments:
-            # Skip past-due assignments for some students
+        for idx, assignment in enumerate(assignments):
             is_past_due = assignment.due_date and assignment.due_date < now
 
-            # Alice - graded
+            # Emma - star student, all A grades
             sub, created = Submission.objects.get_or_create(
                 assignment=assignment,
                 student=students[0],
                 defaults={
-                    'content': f'Here is my submission for {assignment.title}. I worked hard on this!',
+                    'content': f'''## {assignment.title} Submission
+
+I've completed all the requirements for this assignment. Here are the key points:
+
+1. Followed all instructions carefully
+2. Added extra features for bonus points
+3. Tested thoroughly before submitting
+
+Looking forward to your feedback!''',
                     'status': 'graded',
-                    'submitted_at': now - timedelta(days=5),
+                    'submitted_at': (assignment.due_date or now) - timedelta(days=3),
                 }
             )
             if created:
+                # High grades: 90-100%
+                score_percent = 0.90 + (idx % 3) * 0.03
                 Grade.objects.create(
                     submission=sub,
                     grader=instructor,
-                    points=int(assignment.max_points * 0.92),
-                    feedback='Excellent work! Very thorough submission.',
+                    points=int(assignment.max_points * score_percent),
+                    feedback='Excellent work, Emma! Your attention to detail is impressive. Keep it up!',
                 )
 
-            # Bob - submitted, pending grade
+            # James - good student, mix of graded and pending
             if not is_past_due:
-                Submission.objects.get_or_create(
-                    assignment=assignment,
-                    student=students[1],
-                    defaults={
-                        'content': f'My work for {assignment.title}.',
-                        'status': 'submitted',
-                        'submitted_at': now - timedelta(hours=12),
-                    }
-                )
+                if idx < 2:  # First two graded
+                    sub, created = Submission.objects.get_or_create(
+                        assignment=assignment,
+                        student=students[1],
+                        defaults={
+                            'content': f'Here is my submission for {assignment.title}. Let me know if anything needs revision.',
+                            'status': 'graded',
+                            'submitted_at': (assignment.due_date or now) - timedelta(days=1),
+                        }
+                    )
+                    if created:
+                        Grade.objects.create(
+                            submission=sub,
+                            grader=instructor,
+                            points=int(assignment.max_points * 0.85),
+                            feedback='Good work, James. A few minor improvements could push this to an A.',
+                        )
+                elif idx == 2 and assignment.allow_late:  # One late
+                    sub, created = Submission.objects.get_or_create(
+                        assignment=assignment,
+                        student=students[1],
+                        defaults={
+                            'content': f'Apologies for the late submission. Had some technical issues.',
+                            'status': 'graded',
+                            'submitted_at': (assignment.due_date or now) + timedelta(days=1),
+                            'late_penalty_applied': Decimal('10.00'),
+                        }
+                    )
+                    if created:
+                        Grade.objects.create(
+                            submission=sub,
+                            grader=instructor,
+                            points=int(assignment.max_points * 0.80),
+                            feedback='Solid work. Please try to submit on time next time. 10% late penalty applied.',
+                        )
+                else:  # Rest awaiting grade
+                    Submission.objects.get_or_create(
+                        assignment=assignment,
+                        student=students[1],
+                        defaults={
+                            'content': f'Completed {assignment.title}. Ready for review.',
+                            'status': 'submitted',
+                            'submitted_at': now - timedelta(hours=6),
+                        }
+                    )
 
-            # Charlie - late submission with penalty (for applicable assignments)
-            if assignment.allow_late and assignment.due_date:
+            # Sofia - average student, B/C grades, some still working
+            if idx < 3 and not is_past_due:
+                if idx < 2:  # First two graded with B/C
+                    sub, created = Submission.objects.get_or_create(
+                        assignment=assignment,
+                        student=students[2],
+                        defaults={
+                            'content': f'My attempt at {assignment.title}. I think I understood most of it.',
+                            'status': 'graded',
+                            'submitted_at': (assignment.due_date or now) - timedelta(hours=12),
+                        }
+                    )
+                    if created:
+                        score_percent = 0.72 + (idx * 0.05)
+                        Grade.objects.create(
+                            submission=sub,
+                            grader=instructor,
+                            points=int(assignment.max_points * score_percent),
+                            feedback='Good effort, Sofia. Review the feedback and consider visiting office hours for clarification.',
+                        )
+                else:  # Still working
+                    Submission.objects.get_or_create(
+                        assignment=assignment,
+                        student=students[2],
+                        defaults={
+                            'content': 'Still working on this... almost done.',
+                            'status': 'draft',
+                        }
+                    )
+
+            # Marcus - behind, mostly drafts and missing
+            if idx == 0:  # Only first assignment graded (low score)
                 sub, created = Submission.objects.get_or_create(
                     assignment=assignment,
-                    student=students[2],
+                    student=students[3],
                     defaults={
-                        'content': f'Late submission for {assignment.title}. Sorry for the delay!',
+                        'content': 'Here is what I have so far.',
                         'status': 'graded',
-                        'submitted_at': assignment.due_date + timedelta(days=2),
-                        'late_penalty_applied': Decimal('20.00'),
+                        'submitted_at': (assignment.due_date or now) - timedelta(hours=2),
                     }
                 )
                 if created:
                     Grade.objects.create(
                         submission=sub,
                         grader=instructor,
-                        points=int(assignment.max_points * 0.85),
-                        feedback='Good work, but please try to submit on time. 20 point late penalty applied.',
+                        points=int(assignment.max_points * 0.65),
+                        feedback='Marcus, this is incomplete. Please see me during office hours to discuss how to improve.',
                     )
-
-            # Diana - draft
-            if not is_past_due:
+            elif idx == 1 and not is_past_due:  # One draft
                 Submission.objects.get_or_create(
                     assignment=assignment,
                     student=students[3],
                     defaults={
-                        'content': 'Work in progress... still working on this.',
+                        'content': 'Started working on this...',
                         'status': 'draft',
                     }
                 )
+            # Rest are missing for Marcus
 
-            # Evan - no submission (missing) for most, but one submitted
-            if assignment == assignments[0]:
+            # Aria - new student, only first assignment
+            if idx == 0:
                 Submission.objects.get_or_create(
                     assignment=assignment,
                     student=students[4],
                     defaults={
-                        'content': 'Here is my first submission!',
+                        'content': 'This is my first assignment! Excited to learn game development.',
                         'status': 'submitted',
-                        'submitted_at': now - timedelta(days=1),
+                        'submitted_at': now - timedelta(hours=18),
                     }
                 )
 
-        self.stdout.write('  Created submissions and grades')
+        self.stdout.write('  Created diverse submissions and grades')
 
     def create_quiz_attempts(self, students, quizzes):
-        """Create quiz attempts for students."""
-        for quiz in quizzes:
+        """Create quiz attempts matching student profiles."""
+        for quiz_idx, quiz in enumerate(quizzes):
             questions = list(quiz.questions.all())
             if not questions:
                 continue
 
-            # Alice - perfect score
+            # Emma - perfect or near-perfect scores on all quizzes
             self._create_attempt(students[0], quiz, questions, correct_count=len(questions))
 
-            # Bob - one wrong
-            self._create_attempt(students[1], quiz, questions, correct_count=max(0, len(questions) - 1))
+            # James - good scores, occasionally misses one
+            james_correct = len(questions) if quiz_idx == 0 else max(1, len(questions) - 1)
+            self._create_attempt(students[1], quiz, questions, correct_count=james_correct)
 
-            # Charlie - passing score
-            passing_count = int(len(questions) * 0.7) + 1
-            self._create_attempt(students[2], quiz, questions, correct_count=min(passing_count, len(questions)))
+            # Sofia - passing but not great, varies by quiz
+            sofia_correct = int(len(questions) * (0.7 + quiz_idx * 0.05))
+            self._create_attempt(students[2], quiz, questions, correct_count=min(sofia_correct + 1, len(questions)))
 
-            # Diana - failing score
-            self._create_attempt(students[3], quiz, questions, correct_count=1)
+            # Marcus - struggles, failed first quiz, barely passed second
+            if quiz_idx == 0:
+                self._create_attempt(students[3], quiz, questions, correct_count=1)  # Failed
+            elif quiz_idx == 1:
+                passing_min = int(len(questions) * 0.7)
+                self._create_attempt(students[3], quiz, questions, correct_count=passing_min)  # Barely passed
+            # No attempt on quiz 3 for Marcus
 
-            # Evan - no attempt
+            # Aria - only took first quiz (new student)
+            if quiz_idx == 0:
+                self._create_attempt(students[4], quiz, questions, correct_count=len(questions) - 1)
 
-        self.stdout.write('  Created quiz attempts')
+        self.stdout.write('  Created quiz attempts with varied performance')
 
     def _create_attempt(self, student, quiz, questions, correct_count):
         """Helper to create a quiz attempt."""

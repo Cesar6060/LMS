@@ -1,213 +1,187 @@
-# Dev Learning Platform
+# GameDev Learning Platform
 
-A modern educational platform for video game development courses.
+A full-stack Learning Management System (LMS) built for video game development education, featuring real-time notifications, immersive learning mode, and comprehensive course management.
+
+![Dashboard Preview](docs/screenshots/dashboard.png)
+
+## Features
+
+### For Students
+- **Immersive Learning Mode** - Distraction-free course player with video lessons, markdown content, and progress tracking
+- **Real-time Notifications** - Instant updates for grades, announcements, and deadlines via WebSockets
+- **Quiz System** - Auto-graded multiple choice quizzes with attempt tracking
+- **Assignment Submissions** - File uploads with late submission policies
+- **Progress Tracking** - Resume videos exactly where you left off
+
+### For Instructors
+- **Course Builder** - Create courses with units, lessons, and embedded videos
+- **Gradebook** - Matrix view with inline grading and CSV export
+- **Student Roster** - Track activity, send invitations, manage enrollments
+- **Announcements** - Pin important updates, optional email notifications
+- **Quiz Builder** - Create questions with configurable attempts and passing scores
 
 ## Tech Stack
 
-- **Backend:** Django 4.2 LTS + Django REST Framework
-- **Frontend:** React 18 + TypeScript + Vite
-- **Database:** PostgreSQL 16
-- **Auth:** django-allauth + dj-rest-auth
+| Layer | Technology |
+|-------|------------|
+| **Frontend** | React 18, TypeScript, Vite, Tailwind CSS, Framer Motion |
+| **Backend** | Django 4.2 LTS, Django REST Framework, Django Channels |
+| **Database** | PostgreSQL 16 |
+| **Real-time** | Redis, WebSockets |
+| **Auth** | JWT tokens, django-allauth, dj-rest-auth |
+| **DevOps** | Docker, Docker Compose |
+
+## Screenshots
+
+<details>
+<summary>Click to expand screenshots</summary>
+
+### Learning Mode
+![Learning Mode](docs/screenshots/learning-mode.png)
+*Immersive course player with collapsible sidebar and video progress tracking*
+
+### Gradebook
+![Gradebook](docs/screenshots/gradebook.png)
+*Instructor gradebook with inline editing and CSV export*
+
+### Quiz Interface
+![Quiz](docs/screenshots/quiz.png)
+*Student quiz-taking experience with instant feedback*
+
+### Dark Mode
+![Dark Mode](docs/screenshots/dark-mode.png)
+*Full dark mode support throughout the application*
+
+</details>
+
+## Architecture
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│                        Frontend                              │
+│  React 18 + TypeScript + Tailwind + Framer Motion           │
+└─────────────────────────┬───────────────────────────────────┘
+                          │ REST API + WebSocket
+┌─────────────────────────┴───────────────────────────────────┐
+│                        Backend                               │
+│  Django REST Framework + Django Channels                     │
+├──────────────────┬──────────────────┬───────────────────────┤
+│   PostgreSQL     │      Redis       │    File Storage       │
+│   (Data Store)   │   (WebSocket)    │   (Media/Uploads)     │
+└──────────────────┴──────────────────┴───────────────────────┘
+```
+
+### Key Design Decisions
+
+- **Django Channels for WebSockets** - Real-time notifications without polling, scalable with Redis backend
+- **JWT Authentication** - Stateless auth with refresh tokens for better security
+- **Role-based Access Control** - Instructor vs student permissions enforced at API level
+- **Enrollment Codes** - Secure course access without requiring instructor approval for each student
 
 ## Quick Start
 
 ### Prerequisites
+- Docker & Docker Compose
 
-- Python 3.12 (NOT 3.13)
-- Node.js 22 LTS
-- PostgreSQL 16
-- Docker & Docker Compose (optional)
-
-### Option 1: Docker (Recommended)
+### Run with Docker
 
 ```bash
-# Copy environment file
-cp .env.example .env
+# Clone the repository
+git clone https://github.com/yourusername/gamedev-platform.git
+cd gamedev-platform
 
 # Start all services
 docker-compose up
 
-# Access:
-# - Frontend: http://localhost:5173
-# - Backend API: http://localhost:8000/api
-# - Admin: http://localhost:8000/admin
+# Access the application
+# Frontend: http://localhost:5173
+# Backend API: http://localhost:8000/api
+# Admin Panel: http://localhost:8000/admin
 ```
 
-### Option 2: Local Development
+### Demo Accounts
 
-#### Backend
+Seed the database with demo data:
 
 ```bash
-cd backend
-
-# Create virtual environment
-python -m venv venv
-source venv/bin/activate  # Windows: venv\Scripts\activate
-
-# Install dependencies
-pip install -r requirements.txt
-
-# Set up environment
-cp ../.env.example .env
-# Edit .env with your database credentials
-
-# Run migrations
-python manage.py migrate
-
-# Create superuser
-python manage.py createsuperuser
-
-# Run server
-python manage.py runserver
+docker-compose exec backend python manage.py seed_data
 ```
 
-#### Frontend
+| Role | Email | Password |
+|------|-------|----------|
+| Instructor | instructor@demo.com | password123 |
+| Student | student1@demo.com | password123 |
 
-```bash
-cd frontend
+## API Overview
 
-# Install dependencies
-npm install
+The platform exposes a RESTful API with 40+ endpoints:
 
-# Run dev server
-npm run dev
-```
+| Resource | Endpoints | Description |
+|----------|-----------|-------------|
+| Auth | 8 | Registration, login, password reset, user settings |
+| Courses | 12 | CRUD, enrollment, units, lessons |
+| Assignments | 6 | Submissions, grading, file uploads |
+| Quizzes | 10 | Questions, attempts, auto-grading |
+| Gradebook | 3 | Matrix view, export, quick grade |
+| Notifications | 4 | Real-time via WebSocket + REST fallback |
 
 ## Project Structure
 
 ```
-gamedev-platform-v2/
+gamedev-platform/
 ├── backend/
-│   ├── config/          # Django settings
-│   ├── accounts/        # User model, auth
-│   ├── courses/         # Courses, units, lessons
+│   ├── accounts/        # User model, auth, preferences
+│   ├── courses/         # Courses, units, lessons, progress
 │   ├── assignments/     # Assignments, submissions, grades
-│   └── notifications/   # Real-time notifications (Phase 5)
+│   ├── quizzes/         # Quiz engine with auto-grading
+│   └── notifications/   # WebSocket consumers, notification model
 ├── frontend/
 │   ├── src/
-│   │   ├── components/  # Reusable components
-│   │   ├── pages/       # Route pages
-│   │   ├── contexts/    # React contexts
-│   │   └── services/    # API services
+│   │   ├── components/  # 50+ reusable UI components
+│   │   ├── pages/       # Route pages (student & instructor views)
+│   │   ├── contexts/    # Auth, Theme, Notification contexts
+│   │   └── services/    # API service layer
 │   └── ...
-├── docker-compose.yml
-└── README.md
+└── docker-compose.yml
 ```
 
-## API Endpoints
+## Development Highlights
 
-### Authentication
-- `POST /api/auth/registration/` - Register new user
-- `POST /api/auth/login/` - Login
-- `POST /api/auth/logout/` - Logout
-- `GET /api/auth/user/` - Current user
-- `POST /api/auth/password/reset/` - Request password reset
+### Security
+- Admin-only instructor promotion (no self-registration as instructor)
+- Enrollment codes prevent unauthorized course access
+- File upload validation and size limits
+- CORS and CSRF protection
 
-### Courses
-- `GET /api/courses/` - List courses
-- `POST /api/courses/` - Create course (instructor)
-- `GET /api/courses/{code}/` - Course detail
-- `POST /api/courses/{code}/enroll/` - Enroll with code
+### Performance
+- Video progress saved on pause/seek (debounced)
+- Optimistic UI updates for better perceived performance
+- Lazy loading for course content
 
-### Assignments
-- `GET /api/courses/{code}/assignments/` - List assignments
-- `POST /api/assignments/{id}/submission/` - Submit assignment
-- `POST /api/submissions/{id}/grade/` - Grade submission (instructor)
+### UX Polish
+- Framer Motion animations throughout
+- Keyboard navigation in learning mode
+- Toast notifications for async actions
+- Responsive design with mobile support
 
-### Announcements
-- `GET /api/courses/{code}/announcements/` - List announcements
-- `POST /api/courses/{code}/announcements/` - Create announcement (instructor)
-- `GET /api/announcements/{id}/` - Announcement detail
+## What I Learned
 
-### Gradebook
-- `GET /api/courses/{code}/gradebook/` - Full gradebook matrix
-- `GET /api/courses/{code}/gradebook/export/` - CSV export
+- **WebSocket Architecture** - Implementing real-time features with Django Channels and handling connection lifecycle
+- **State Management** - Balancing React Context vs component state for auth, theme, and notifications
+- **API Design** - Structuring RESTful endpoints for complex nested resources (courses → units → lessons)
+- **Docker Development** - Creating a reproducible dev environment with hot-reload for both frontend and backend
 
-### Student Roster
-- `GET /api/courses/{code}/students/` - Student roster
-- `POST /api/courses/{code}/students/invite/` - Send email invitation
-- `DELETE /api/courses/{code}/students/{id}/` - Remove student
+## Future Enhancements
 
-### User Settings
-- `GET /api/auth/settings/` - Get user preferences
-- `PATCH /api/auth/settings/` - Update preferences
-- `POST /api/auth/settings/avatar/` - Upload avatar
-- `DELETE /api/auth/settings/avatar/delete/` - Remove avatar
-
-### Quizzes
-- `GET /api/courses/{code}/quizzes/` - List course quizzes
-- `GET /api/units/{id}/quizzes/` - List unit quizzes
-- `POST /api/units/{id}/quizzes/` - Create quiz (instructor)
-- `GET /api/quizzes/{id}/` - Quiz detail with questions
-- `PUT /api/quizzes/{id}/` - Update quiz (instructor)
-- `DELETE /api/quizzes/{id}/` - Delete quiz (instructor)
-- `POST /api/quizzes/{id}/questions/` - Add question (instructor)
-- `PUT /api/questions/{id}/` - Update question (instructor)
-- `DELETE /api/questions/{id}/` - Delete question (instructor)
-- `POST /api/quizzes/{id}/submit/` - Submit quiz answers
-- `GET /api/quizzes/{id}/attempts/` - Get quiz attempts
-
-**Quiz Features:**
-- Multiple choice questions with single correct answer
-- Auto-grading with immediate results
-- Configurable max attempts (0 = unlimited)
-- Passing score threshold
-- Best score tracking
-
-## Development Phases
-
-### MVP (Complete)
-- [x] Phase 1: Foundation (Auth)
-- [x] Phase 2: Courses & Enrollment
-- [x] Phase 3: Video & Progress
-- [x] Phase 4: Assignments
-- [x] Phase 5: Notifications
-- [x] Phase 6: Polish & Deploy
-
-### Extended Features (In Progress)
-- [x] Phase 7: Announcements & Communication
-- [x] Phase 8: Gradebook & Grade Export
-- [x] Phase 9: Student Roster & Activity Tracking
-- [x] Phase 10: Assignment Availability & Late Policies
-- [x] Phase 11: User Settings & Preferences
-- [x] Phase 12: Quizzes
-- [ ] Phase 13: Discussion Forums
-- [ ] Phase 14: Analytics Dashboard
-- [ ] Phase 15: Email Configuration
-
-## Demo Data
-
-Seed the database with demo content for testing:
-
-```bash
-cd backend
-python manage.py seed_data
-
-# Or clear existing data first
-python manage.py seed_data --clear
-```
-
-Demo accounts created:
-- **Instructor:** instructor@demo.com / password123
-- **Students:** student1@demo.com, student2@demo.com, student3@demo.com / password123
-
-The seed command creates a sample course (VGD101) with units, lessons, assignments, and student progress.
-
-## Testing
-
-```bash
-# Backend tests
-cd backend
-pytest
-
-# With coverage
-pytest --cov=. --cov-report=html
-```
-
-## Environment Variables
-
-See `.env.example` for all available configuration options.
+- [ ] Discussion forums for peer support
+- [ ] Instructor analytics dashboard
+- [ ] Certificate generation on course completion
+- [ ] Mobile app with React Native
 
 ## License
 
-MIT License
+MIT License - feel free to use this as a reference for your own projects.
+
+---
+
+**Built by [Your Name]** | [Portfolio](https://yourportfolio.com) | [LinkedIn](https://linkedin.com/in/yourprofile)
