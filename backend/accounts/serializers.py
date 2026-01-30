@@ -47,24 +47,25 @@ class UserSerializer(serializers.ModelSerializer):
 
 
 class RegisterSerializer(BaseRegisterSerializer):
-    """Custom registration serializer that includes is_instructor field."""
+    """Custom registration serializer with first/last name support.
+
+    Note: is_instructor is intentionally NOT accepted here for security.
+    Only Django admins can promote users to instructor status.
+    """
 
     username = None  # Remove username field
     first_name = serializers.CharField(required=False, allow_blank=True)
     last_name = serializers.CharField(required=False, allow_blank=True)
-    is_instructor = serializers.BooleanField(default=False, required=False)
 
     def get_cleaned_data(self):
         data = super().get_cleaned_data()
         data['first_name'] = self.validated_data.get('first_name', '')
         data['last_name'] = self.validated_data.get('last_name', '')
-        data['is_instructor'] = self.validated_data.get('is_instructor', False)
         return data
 
     def save(self, request):
         user = super().save(request)
         user.first_name = self.cleaned_data.get('first_name', '')
         user.last_name = self.cleaned_data.get('last_name', '')
-        user.is_instructor = self.cleaned_data.get('is_instructor', False)
         user.save()
         return user

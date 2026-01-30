@@ -34,7 +34,6 @@ export interface RegisterData {
   password2: string;
   first_name?: string;
   last_name?: string;
-  is_instructor?: boolean;
 }
 
 // Phase 2: Course types

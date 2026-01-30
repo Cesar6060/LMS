@@ -49,7 +49,7 @@ export function LoginPage() {
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-muted/50 px-4 relative">
+    <div className="min-h-screen flex items-center justify-center bg-slate-100 dark:bg-slate-950 px-4 relative">
       {/* Theme toggle in top-right corner */}
       <button
         onClick={cycleTheme}
