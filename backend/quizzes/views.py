@@ -353,8 +353,8 @@ def quick_grade_quiz(request, quiz_id, student_id):
     score = (points / quiz.points) * 100 if quiz.points > 0 else 0
     passed = score >= quiz.passing_score
 
-    # Get or create the best attempt for this student
-    attempt = QuizAttempt.objects.filter(quiz=quiz, student=student).order_by('-score').first()
+    # Get the most recent attempt for this student (not the best one, to avoid corrupting history)
+    attempt = QuizAttempt.objects.filter(quiz=quiz, student=student).order_by('-completed_at').first()
 
     if attempt:
         # Update existing attempt
