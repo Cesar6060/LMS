@@ -13,7 +13,6 @@ export function RegisterPage() {
   const [password2, setPassword2] = useState('');
   const [firstName, setFirstName] = useState('');
   const [lastName, setLastName] = useState('');
-  const [isInstructor, setIsInstructor] = useState(false);
   const [error, setError] = useState('');
   const [isLoading, setIsLoading] = useState(false);
 
@@ -38,7 +37,6 @@ export function RegisterPage() {
         password2,
         first_name: firstName,
         last_name: lastName,
-        is_instructor: isInstructor,
       });
       navigate('/dashboard');
     } catch (err: unknown) {
@@ -140,18 +138,6 @@ export function RegisterPage() {
                 required
                 autoComplete="new-password"
               />
-            </div>
-            <div className="flex items-center space-x-2">
-              <input
-                id="isInstructor"
-                type="checkbox"
-                checked={isInstructor}
-                onChange={(e) => setIsInstructor(e.target.checked)}
-                className="h-4 w-4 rounded border-gray-300"
-              />
-              <label htmlFor="isInstructor" className="text-sm">
-                I am an instructor
-              </label>
             </div>
           </CardContent>
           <CardFooter className="flex flex-col space-y-4">
