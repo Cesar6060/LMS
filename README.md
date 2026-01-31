@@ -2,7 +2,7 @@
 
 A full-stack Learning Management System (LMS) built for video game development education, featuring real-time notifications, immersive learning mode, and comprehensive course management.
 
-![Dashboard Preview](docs/screenshots/dashboard.png)
+![Dashboard Preview](docs/screenshots/Dashboard.png)
 
 ## Features
 
@@ -36,21 +36,21 @@ A full-stack Learning Management System (LMS) built for video game development e
 <details>
 <summary>Click to expand screenshots</summary>
 
-### Learning Mode
-![Learning Mode](docs/screenshots/learning-mode.png)
-*Immersive course player with collapsible sidebar and video progress tracking*
+### Course Management
+![Course Management](docs/screenshots/Course-Manage.png)
+*Instructor course builder with units, lessons, and content management*
 
 ### Gradebook
-![Gradebook](docs/screenshots/gradebook.png)
+![Gradebook](docs/screenshots/Gradebook.png)
 *Instructor gradebook with inline editing and CSV export*
 
-### Quiz Interface
-![Quiz](docs/screenshots/quiz.png)
-*Student quiz-taking experience with instant feedback*
+### Grading Interface
+![Grading](docs/screenshots/Grading.png)
+*Assignment grading with feedback and late penalty support*
 
-### Dark Mode
-![Dark Mode](docs/screenshots/dark-mode.png)
-*Full dark mode support throughout the application*
+### Student Roster
+![Roster](docs/screenshots/Roster.png)
+*Student roster with activity tracking and enrollment management*
 
 </details>
 
@@ -87,8 +87,8 @@ A full-stack Learning Management System (LMS) built for video game development e
 
 ```bash
 # Clone the repository
-git clone https://github.com/yourusername/gamedev-platform.git
-cd gamedev-platform
+git clone https://github.com/Cesar6060/dev-learning-platform.git
+cd dev-learning-platform
 
 # Start all services
 docker-compose up
@@ -184,4 +184,4 @@ MIT License - feel free to use this as a reference for your own projects.
 
 ---
 
-**Built by [Your Name]** | [Portfolio](https://yourportfolio.com) | [LinkedIn](https://linkedin.com/in/yourprofile)
+**Built by Cesar Villarreal** | [GitHub](https://github.com/Cesar6060)
