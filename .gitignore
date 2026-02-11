@@ -3,6 +3,7 @@ CLAUDE.md
 PLAN.md
 TROUBLESHOOTING.md
 Troubleshooting.md
+docs/*.md
 
 # Python
 __pycache__/
