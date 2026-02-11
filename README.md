@@ -4,6 +4,10 @@ A full-stack Learning Management System (LMS) built for video game development e
 
 ![Dashboard Preview](docs/screenshots/Dashboard.png)
 
+![Student Courses](docs/screenshots/Student_Courses.png)
+
+![Learning Mode](docs/screenshots/Student_Learning_Mode.png)
+
 ## Features
 
 ### For Students
@@ -35,14 +39,6 @@ A full-stack Learning Management System (LMS) built for video game development e
 
 <details>
 <summary>Click to expand screenshots</summary>
-
-### Student Courses
-![Student Courses](docs/screenshots/Student_Courses.png)
-*Student dashboard with enrolled courses and progress overview*
-
-### Immersive Learning Mode
-![Learning Mode](docs/screenshots/Student_Learning_Mode.png)
-*Distraction-free video player with lesson navigation and progress tracking*
 
 ### Course Management
 ![Course Management](docs/screenshots/Course-Manage.png)
