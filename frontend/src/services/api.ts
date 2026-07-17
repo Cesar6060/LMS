@@ -36,4 +36,9 @@ api.interceptors.response.use(
   }
 );
 
+/** True when the error is an API response with status 403 (forbidden). */
+export function isForbidden(error: unknown): boolean {
+  return axios.isAxiosError(error) && error.response?.status === 403;
+}
+
 export default api;

@@ -4,6 +4,8 @@ import { Card, CardContent } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { courseService, type RosterStudent } from '@/services/courses';
+import { isForbidden } from '@/services/api';
+import { AccessDenied } from '@/components/AccessDenied';
 import { Skeleton } from '@/components/ui/Skeleton';
 import {
   ChevronLeft, Mail, Users, AlertCircle, Trash2,
@@ -26,6 +28,7 @@ export function StudentRosterPage() {
   const [students, setStudents] = useState<RosterStudent[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState('');
+  const [forbidden, setForbidden] = useState(false);
 
   // Search and sort
   const [searchQuery, setSearchQuery] = useState('');
@@ -55,8 +58,12 @@ export function StudentRosterPage() {
       const data = await courseService.getStudentRoster(code!);
       setStudents(data);
     } catch (err) {
-      setError('Failed to load student roster');
-      console.error(err);
+      if (isForbidden(err)) {
+        setForbidden(true);
+      } else {
+        setError('Failed to load student roster');
+        console.error(err);
+      }
     } finally {
       setIsLoading(false);
     }
@@ -215,6 +222,10 @@ export function StudentRosterPage() {
         <Skeleton className="h-64 w-full" />
       </div>
     );
+  }
+
+  if (forbidden) {
+    return <AccessDenied />;
   }
 
   if (error) {

@@ -6,28 +6,14 @@ from django.shortcuts import get_object_or_404
 from django.db.models import Count, Max
 from django.db.models.functions import Coalesce
 
-from courses.models import Course, Enrollment
+from courses.models import Course
+from courses.permissions import is_course_instructor, can_access_course as can_access
 from notifications.models import Notification
 from .models import Thread, Reply
 from .serializers import (
     ThreadListSerializer, ThreadDetailSerializer, ThreadCreateSerializer,
     ReplySerializer, ReplyCreateSerializer,
 )
-
-
-def is_course_instructor(user, course):
-    """Check if user is the instructor of a course."""
-    return course.instructor == user
-
-
-def is_enrolled(user, course):
-    """Check if user is actively enrolled in a course."""
-    return Enrollment.objects.filter(user=user, course=course, is_active=True).exists()
-
-
-def can_access(user, course):
-    """Read access = instructor of the course or active enrollment."""
-    return is_course_instructor(user, course) or is_enrolled(user, course)
 
 
 # ==================== Thread Views ====================

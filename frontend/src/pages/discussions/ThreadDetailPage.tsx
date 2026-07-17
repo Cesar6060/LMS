@@ -7,6 +7,8 @@ import { Input } from '@/components/ui/Input';
 import { Skeleton } from '@/components/ui/Skeleton';
 import { courseService } from '@/services/courses';
 import { discussionService } from '@/services/discussions';
+import { isForbidden } from '@/services/api';
+import { AccessDenied } from '@/components/AccessDenied';
 import type { ThreadDetail, Reply } from '@/types';
 import {
   MessageSquare, Pin, Lock, Unlock, ChevronLeft, Trash2, Edit, User, Calendar,
@@ -37,6 +39,7 @@ export function ThreadDetailPage() {
   const [instructorId, setInstructorId] = useState<number | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState('');
+  const [forbidden, setForbidden] = useState(false);
 
   // Reply form
   const [replyContent, setReplyContent] = useState('');
@@ -56,7 +59,7 @@ export function ThreadDetailPage() {
   const [editingReplyContent, setEditingReplyContent] = useState('');
   const [deleteReplyId, setDeleteReplyId] = useState<number | null>(null);
 
-  const isInstructor = user?.id != null && user.id === instructorId;
+  const isCourseOwner = user?.id != null && user.id === instructorId;
   const isThreadAuthor = user?.id != null && user.id === thread?.author.id;
 
   useEffect(() => {
@@ -75,8 +78,12 @@ export function ThreadDetailPage() {
       setThread(threadData);
       setInstructorId(courseData.instructor.id);
     } catch (err) {
-      setError('Failed to load thread');
-      console.error(err);
+      if (isForbidden(err)) {
+        setForbidden(true);
+      } else {
+        setError('Failed to load thread');
+        console.error(err);
+      }
     } finally {
       setIsLoading(false);
     }
@@ -192,6 +199,10 @@ export function ThreadDetailPage() {
     );
   }
 
+  if (forbidden) {
+    return <AccessDenied />;
+  }
+
   if (error || !thread) {
     return (
       <div className="container mx-auto px-4 py-8">
@@ -211,7 +222,7 @@ export function ThreadDetailPage() {
     );
   }
 
-  const canReply = !thread.is_locked || isInstructor;
+  const canReply = !thread.is_locked || isCourseOwner;
 
   return (
     <div className="container mx-auto px-4 py-8 max-w-3xl">
@@ -245,7 +256,7 @@ export function ThreadDetailPage() {
         </div>
 
         <div className="flex items-center gap-2 flex-shrink-0">
-          {isInstructor && (
+          {isCourseOwner && (
             <>
               <Button variant="outline" size="sm" onClick={handleTogglePin} title={thread.is_pinned ? 'Unpin' : 'Pin'}>
                 <Pin className={`h-4 w-4 ${thread.is_pinned ? 'text-primary' : ''}`} />
@@ -260,7 +271,7 @@ export function ThreadDetailPage() {
               <Edit className="h-4 w-4" />
             </Button>
           )}
-          {(isThreadAuthor || isInstructor) && (
+          {(isThreadAuthor || isCourseOwner) && (
             <Button
               variant="outline"
               size="sm"
@@ -303,7 +314,7 @@ export function ThreadDetailPage() {
                         <Edit className="h-3 w-3" />
                       </Button>
                     )}
-                    {(isReplyAuthor || isInstructor) && (
+                    {(isReplyAuthor || isCourseOwner) && (
                       <Button
                         variant="ghost"
                         size="sm"

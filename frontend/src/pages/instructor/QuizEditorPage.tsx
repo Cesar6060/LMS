@@ -5,6 +5,8 @@ import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { courseService, type CourseDetail } from '@/services/courses';
 import { quizzesService } from '@/services/quizzes';
+import { isForbidden } from '@/services/api';
+import { AccessDenied } from '@/components/AccessDenied';
 import type { Quiz, Question } from '@/types';
 import {
   Loader2, ChevronLeft, Plus, Trash2, FileQuestion,
@@ -40,6 +42,7 @@ export function QuizEditorPage() {
   const [quizzes, setQuizzes] = useState<Quiz[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState('');
+  const [forbidden, setForbidden] = useState(false);
 
   // Quiz modal
   const [showQuizModal, setShowQuizModal] = useState(false);
@@ -73,8 +76,12 @@ export function QuizEditorPage() {
       setCourse(courseData);
       setQuizzes(quizzesData);
     } catch (err) {
-      console.error('Failed to load data:', err);
-      setError('Failed to load course data');
+      if (isForbidden(err)) {
+        setForbidden(true);
+      } else {
+        setError('Failed to load course data');
+        console.error(err);
+      }
     } finally {
       setIsLoading(false);
     }
@@ -288,6 +295,10 @@ export function QuizEditorPage() {
         </div>
       </div>
     );
+  }
+
+  if (forbidden) {
+    return <AccessDenied />;
   }
 
   if (error || !course) {

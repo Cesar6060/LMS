@@ -1,6 +1,5 @@
 import { useState, type FormEvent } from 'react';
 import { useNavigate, Link } from 'react-router';
-import { useAuth } from '@/contexts/AuthContext';
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
@@ -8,7 +7,6 @@ import { courseService } from '@/services/courses';
 import { Loader2, ChevronLeft } from 'lucide-react';
 
 export function CreateCoursePage() {
-  const { user } = useAuth();
   const navigate = useNavigate();
 
   const [formData, setFormData] = useState({
@@ -18,12 +16,6 @@ export function CreateCoursePage() {
   });
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState('');
-
-  // Redirect if not an instructor
-  if (!user?.is_instructor) {
-    navigate('/dashboard');
-    return null;
-  }
 
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();

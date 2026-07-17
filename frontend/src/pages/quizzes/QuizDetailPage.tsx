@@ -3,6 +3,8 @@ import { useParams, Link } from 'react-router';
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { quizzesService } from '@/services/quizzes';
+import { isForbidden } from '@/services/api';
+import { AccessDenied } from '@/components/AccessDenied';
 import { useAuth } from '@/contexts/AuthContext';
 import type { Quiz, QuizAttempt } from '@/types';
 import {
@@ -17,6 +19,7 @@ export function QuizDetailPage() {
   const [quiz, setQuiz] = useState<Quiz | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState('');
+  const [forbidden, setForbidden] = useState(false);
 
   // Quiz taking state
   const [selectedAnswers, setSelectedAnswers] = useState<Record<string, number>>({});
@@ -35,8 +38,12 @@ export function QuizDetailPage() {
       const data = await quizzesService.getQuiz(parseInt(quizId));
       setQuiz(data);
     } catch (err) {
-      console.error('Failed to load quiz:', err);
-      setError('Failed to load quiz');
+      if (isForbidden(err)) {
+        setForbidden(true);
+      } else {
+        setError('Failed to load quiz');
+        console.error(err);
+      }
     } finally {
       setIsLoading(false);
     }
@@ -87,6 +94,10 @@ export function QuizDetailPage() {
         </div>
       </div>
     );
+  }
+
+  if (forbidden) {
+    return <AccessDenied />;
   }
 
   if (error || !quiz) {

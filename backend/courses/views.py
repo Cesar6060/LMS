@@ -22,9 +22,13 @@ from .serializers import (
     LessonQuestionCreateSerializer, AnswerQuestionSerializer, LessonAttachmentSerializer,
     LessonSectionSerializer, LessonSectionCreateSerializer
 )
+from rest_framework.exceptions import PermissionDenied
 from .permissions import (
     IsInstructor, IsInstructorOrReadOnly, IsCourseInstructor,
-    IsEnrolledOrInstructor
+    IsEnrolledOrInstructor,
+    is_course_instructor, is_enrolled, can_access_course,
+    require_course_instructor, require_course_access, require_enrollment,
+    accessible_course_ids,
 )
 
 
@@ -111,12 +115,10 @@ class CourseViewSet(viewsets.ModelViewSet):
     def regenerate_code(self, request, code=None):
         """Regenerate enrollment code (instructor only)."""
         course = self.get_object()
-
-        if course.instructor != request.user:
-            return Response(
-                {'error': 'Only the course instructor can regenerate the code'},
-                status=status.HTTP_403_FORBIDDEN
-            )
+        require_course_instructor(
+            request.user, course,
+            "Only the course instructor can regenerate the code."
+        )
 
         new_code = course.regenerate_enrollment_code()
         return Response({'enrollment_code': new_code})
@@ -140,10 +142,20 @@ class UnitViewSet(viewsets.ModelViewSet):
     ViewSet for Unit CRUD operations.
     """
     serializer_class = UnitSerializer
-    permission_classes = [IsAuthenticated, IsCourseInstructor]
+    permission_classes = [IsAuthenticated, IsEnrolledOrInstructor]
 
     def get_queryset(self):
-        return Unit.objects.select_related('course').prefetch_related('lessons')
+        queryset = Unit.objects.select_related('course').prefetch_related('lessons')
+        if self.action == 'list':
+            # List only shows units of courses the user teaches or is enrolled in;
+            # detail actions keep the full queryset so object permissions return 403
+            queryset = queryset.filter(course_id__in=accessible_course_ids(self.request.user))
+        return queryset
+
+    def perform_create(self, serializer):
+        # UnitCreateSerializer has no course field; units are created via the
+        # course-scoped endpoint where ownership is checked.
+        raise PermissionDenied("Create units via /api/courses/{code}/units/.")
 
     def get_serializer_class(self):
         if self.action in ['create', 'update', 'partial_update']:
@@ -210,18 +222,16 @@ class CourseUnitsView(generics.ListCreateAPIView):
         return UnitSerializer
 
     def get_queryset(self):
-        course_code = self.kwargs['course_code']
-        return Unit.objects.filter(
-            course__code=course_code
-        ).prefetch_related('lessons')
+        course = get_object_or_404(Course, code=self.kwargs['course_code'])
+        require_course_access(self.request.user, course)
+        return Unit.objects.filter(course=course).prefetch_related('lessons')
 
     def perform_create(self, serializer):
         course = get_object_or_404(Course, code=self.kwargs['course_code'])
-
-        # Check if user is instructor
-        if course.instructor != self.request.user:
-            from rest_framework.exceptions import PermissionDenied
-            raise PermissionDenied("Only the course instructor can add units.")
+        require_course_instructor(
+            self.request.user, course,
+            "Only the course instructor can add units."
+        )
 
         # Set order to next available
         max_order = course.units.aggregate(
@@ -238,7 +248,17 @@ class LessonViewSet(viewsets.ModelViewSet):
     permission_classes = [IsAuthenticated, IsEnrolledOrInstructor]
 
     def get_queryset(self):
-        return Lesson.objects.select_related('unit__course')
+        queryset = Lesson.objects.select_related('unit__course')
+        if self.action == 'list':
+            # List only shows lessons of courses the user teaches or is enrolled in;
+            # detail actions keep the full queryset so object permissions return 403
+            queryset = queryset.filter(unit__course_id__in=accessible_course_ids(self.request.user))
+        return queryset
+
+    def perform_create(self, serializer):
+        # LessonCreateSerializer has no unit field; lessons are created via the
+        # unit-scoped endpoint where ownership is checked.
+        raise PermissionDenied("Create lessons via /api/units/{unit_id}/lessons/.")
 
     def get_serializer_class(self):
         if self.action == 'list':
@@ -303,16 +323,16 @@ class UnitLessonsView(generics.ListCreateAPIView):
         return LessonSerializer
 
     def get_queryset(self):
-        unit_id = self.kwargs['unit_id']
-        return Lesson.objects.filter(unit_id=unit_id)
+        unit = get_object_or_404(Unit, pk=self.kwargs['unit_id'])
+        require_course_access(self.request.user, unit.course)
+        return Lesson.objects.filter(unit=unit)
 
     def perform_create(self, serializer):
         unit = get_object_or_404(Unit, pk=self.kwargs['unit_id'])
-
-        # Check if user is instructor
-        if unit.course.instructor != self.request.user:
-            from rest_framework.exceptions import PermissionDenied
-            raise PermissionDenied("Only the course instructor can add lessons.")
+        require_course_instructor(
+            self.request.user, unit.course,
+            "Only the course instructor can add lessons."
+        )
 
         # Set order to next available
         max_order = unit.lessons.aggregate(
@@ -363,17 +383,10 @@ class LessonProgressView(generics.RetrieveUpdateAPIView):
 
     def get_object(self):
         lesson = get_object_or_404(Lesson, pk=self.kwargs['lesson_id'])
-
-        # Verify user is enrolled or instructor
-        course = lesson.unit.course
-        if course.instructor != self.request.user:
-            if not Enrollment.objects.filter(
-                user=self.request.user,
-                course=course,
-                is_active=True
-            ).exists():
-                from rest_framework.exceptions import PermissionDenied
-                raise PermissionDenied("You must be enrolled in this course.")
+        require_course_access(
+            self.request.user, lesson.unit.course,
+            "You must be enrolled in this course."
+        )
 
         # Get or create progress
         progress, created = LessonProgress.objects.get_or_create(
@@ -391,16 +404,10 @@ class CourseProgressView(generics.RetrieveAPIView):
 
     def get(self, request, course_code):
         course = get_object_or_404(Course, code=course_code)
-
-        # Verify user is enrolled or instructor
-        if course.instructor != request.user:
-            if not Enrollment.objects.filter(
-                user=request.user,
-                course=course,
-                is_active=True
-            ).exists():
-                from rest_framework.exceptions import PermissionDenied
-                raise PermissionDenied("You must be enrolled in this course.")
+        require_course_access(
+            request.user, course,
+            "You must be enrolled in this course."
+        )
 
         # Count total lessons in course
         total_lessons = Lesson.objects.filter(unit__course=course).count()
@@ -784,7 +791,12 @@ class AnnouncementViewSet(viewsets.ModelViewSet):
     permission_classes = [IsAuthenticated]
 
     def get_queryset(self):
-        return Announcement.objects.select_related('course', 'author')
+        queryset = Announcement.objects.select_related('course', 'author')
+        if self.action == 'list':
+            # List only shows announcements of courses the user teaches or is
+            # enrolled in; detail keeps the full queryset so reads return 403
+            queryset = queryset.filter(course_id__in=accessible_course_ids(self.request.user))
+        return queryset
 
     def get_serializer_class(self):
         if self.action == 'list':
@@ -795,21 +807,27 @@ class AnnouncementViewSet(viewsets.ModelViewSet):
 
     def check_object_permissions(self, request, obj):
         super().check_object_permissions(request, obj)
-        # Only the course instructor can modify announcements
-        if request.method not in ['GET', 'HEAD', 'OPTIONS']:
-            if obj.course.instructor != request.user:
-                from rest_framework.exceptions import PermissionDenied
-                raise PermissionDenied("Only the course instructor can modify announcements.")
+        if request.method in ['GET', 'HEAD', 'OPTIONS']:
+            # Reads require enrollment or course ownership
+            require_course_access(
+                request.user, obj.course,
+                "You must be enrolled in this course."
+            )
+        else:
+            # Only the course instructor can modify announcements
+            require_course_instructor(
+                request.user, obj.course,
+                "Only the course instructor can modify announcements."
+            )
 
     @action(detail=True, methods=['post'])
     def pin(self, request, pk=None):
         """Pin an announcement."""
         announcement = self.get_object()
-        if announcement.course.instructor != request.user:
-            return Response(
-                {'error': 'Only the course instructor can pin announcements'},
-                status=status.HTTP_403_FORBIDDEN
-            )
+        require_course_instructor(
+            request.user, announcement.course,
+            "Only the course instructor can pin announcements."
+        )
         announcement.is_pinned = True
         announcement.save(update_fields=['is_pinned'])
         return Response(AnnouncementSerializer(announcement).data)
@@ -818,11 +836,10 @@ class AnnouncementViewSet(viewsets.ModelViewSet):
     def unpin(self, request, pk=None):
         """Unpin an announcement."""
         announcement = self.get_object()
-        if announcement.course.instructor != request.user:
-            return Response(
-                {'error': 'Only the course instructor can unpin announcements'},
-                status=status.HTTP_403_FORBIDDEN
-            )
+        require_course_instructor(
+            request.user, announcement.course,
+            "Only the course instructor can unpin announcements."
+        )
         announcement.is_pinned = False
         announcement.save(update_fields=['is_pinned'])
         return Response(AnnouncementSerializer(announcement).data)
@@ -840,28 +857,19 @@ class CourseAnnouncementsView(generics.ListCreateAPIView):
         return AnnouncementListSerializer
 
     def get_queryset(self):
-        course_code = self.kwargs['course_code']
-        course = get_object_or_404(Course, code=course_code)
-
-        # Verify user is enrolled or instructor
-        if course.instructor != self.request.user:
-            if not Enrollment.objects.filter(
-                user=self.request.user,
-                course=course,
-                is_active=True
-            ).exists():
-                from rest_framework.exceptions import PermissionDenied
-                raise PermissionDenied("You must be enrolled in this course.")
-
+        course = get_object_or_404(Course, code=self.kwargs['course_code'])
+        require_course_access(
+            self.request.user, course,
+            "You must be enrolled in this course."
+        )
         return Announcement.objects.filter(course=course).select_related('author')
 
     def perform_create(self, serializer):
         course = get_object_or_404(Course, code=self.kwargs['course_code'])
-
-        # Only instructor can create announcements
-        if course.instructor != self.request.user:
-            from rest_framework.exceptions import PermissionDenied
-            raise PermissionDenied("Only the course instructor can create announcements.")
+        require_course_instructor(
+            self.request.user, course,
+            "Only the course instructor can create announcements."
+        )
 
         announcement = serializer.save(course=course, author=self.request.user)
 
@@ -952,13 +960,10 @@ def gradebook(request, course_code):
     from .models import CourseGradingConfig
 
     course = get_object_or_404(Course, code=course_code)
-
-    # Only instructor can view gradebook
-    if request.user != course.instructor:
-        return Response(
-            {'error': 'Only the course instructor can view the gradebook.'},
-            status=status.HTTP_403_FORBIDDEN
-        )
+    require_course_instructor(
+        request.user, course,
+        "Only the course instructor can view the gradebook."
+    )
 
     # Get grading config (for weighted grades)
     try:
@@ -1217,12 +1222,10 @@ def gradebook_export(request, course_code):
 
     course = get_object_or_404(Course, code=course_code)
 
-    # Only instructor can export gradebook
-    if request.user != course.instructor:
-        return Response(
-            {'error': 'Only the course instructor can export the gradebook.'},
-            status=status.HTTP_403_FORBIDDEN
-        )
+    require_course_instructor(
+        request.user, course,
+        "Only the course instructor can export the gradebook."
+    )
 
     # Get all assignments for the course
     assignments = Assignment.objects.filter(
@@ -1331,11 +1334,10 @@ def student_roster(request, course_code):
     """
     course = get_object_or_404(Course, code=course_code)
 
-    if request.user != course.instructor:
-        return Response(
-            {'error': 'Only the course instructor can view the student roster.'},
-            status=status.HTTP_403_FORBIDDEN
-        )
+    require_course_instructor(
+        request.user, course,
+        "Only the course instructor can view the student roster."
+    )
 
     enrollments = Enrollment.objects.filter(
         course=course,
@@ -1354,11 +1356,10 @@ def remove_student(request, course_code, enrollment_id):
     """
     course = get_object_or_404(Course, code=course_code)
 
-    if request.user != course.instructor:
-        return Response(
-            {'error': 'Only the course instructor can remove students.'},
-            status=status.HTTP_403_FORBIDDEN
-        )
+    require_course_instructor(
+        request.user, course,
+        "Only the course instructor can remove students."
+    )
 
     enrollment = get_object_or_404(Enrollment, id=enrollment_id, course=course)
 
@@ -1380,11 +1381,10 @@ def send_course_invite(request, course_code):
 
     course = get_object_or_404(Course, code=course_code)
 
-    if request.user != course.instructor:
-        return Response(
-            {'error': 'Only the course instructor can send invitations.'},
-            status=status.HTTP_403_FORBIDDEN
-        )
+    require_course_instructor(
+        request.user, course,
+        "Only the course instructor can send invitations."
+    )
 
     email = request.data.get('email', '').strip().lower()
     if not email:
@@ -1454,7 +1454,7 @@ def update_course_activity(request, course_code):
         enrollment.update_activity()
         return Response({'status': 'updated'})
     except Enrollment.DoesNotExist:
-        return Response({'status': 'not_enrolled'}, status=status.HTTP_404_NOT_FOUND)
+        raise PermissionDenied("You must be enrolled in this course.")
 
 
 @api_view(['GET', 'PUT'])
@@ -1468,22 +1468,16 @@ def course_grading_config(request, course_code):
 
     # GET is allowed for enrolled students and instructor
     # PUT is only for instructor
-    if request.method == 'PUT' and request.user != course.instructor:
-        return Response(
-            {'error': 'Only the course instructor can update grading settings.'},
-            status=status.HTTP_403_FORBIDDEN
+    if request.method == 'PUT':
+        require_course_instructor(
+            request.user, course,
+            "Only the course instructor can update grading settings."
         )
-
-    if request.method == 'GET':
-        # Check if user has access (instructor or enrolled)
-        is_enrolled = Enrollment.objects.filter(
-            user=request.user, course=course, is_active=True
-        ).exists()
-        if request.user != course.instructor and not is_enrolled:
-            return Response(
-                {'error': 'You must be enrolled in this course.'},
-                status=status.HTTP_403_FORBIDDEN
-            )
+    else:
+        require_course_access(
+            request.user, course,
+            "You must be enrolled in this course."
+        )
 
     # Get or create config with defaults
     config, created = CourseGradingConfig.objects.get_or_create(
@@ -1520,16 +1514,10 @@ def student_grade_summary(request, course_code):
 
     course = get_object_or_404(Course, code=course_code)
 
-    # Must be enrolled or instructor
-    is_enrolled = Enrollment.objects.filter(
-        user=request.user, course=course, is_active=True
-    ).exists()
-
-    if request.user != course.instructor and not is_enrolled:
-        return Response(
-            {'error': 'You must be enrolled in this course.'},
-            status=status.HTTP_403_FORBIDDEN
-        )
+    require_course_access(
+        request.user, course,
+        "You must be enrolled in this course."
+    )
 
     # Get grading config (or use defaults)
     try:
@@ -1767,17 +1755,8 @@ def lesson_questions(request, lesson_id):
     lesson = get_object_or_404(Lesson, pk=lesson_id)
     course = lesson.unit.course
 
-    # Check access
-    is_instructor = request.user == course.instructor
-    is_enrolled = Enrollment.objects.filter(
-        user=request.user, course=course, is_active=True
-    ).exists()
-
-    if not is_instructor and not is_enrolled:
-        return Response(
-            {'error': 'You must be enrolled in this course.'},
-            status=status.HTTP_403_FORBIDDEN
-        )
+    is_instructor = is_course_instructor(request.user, course)
+    require_course_access(request.user, course, "You must be enrolled in this course.")
 
     if request.method == 'GET':
         questions = lesson.questions.prefetch_related('choices').all()
@@ -1790,11 +1769,10 @@ def lesson_questions(request, lesson_id):
         return Response(serializer.data)
 
     elif request.method == 'POST':
-        if not is_instructor:
-            return Response(
-                {'error': 'Only the instructor can create questions.'},
-                status=status.HTTP_403_FORBIDDEN
-            )
+        require_course_instructor(
+            request.user, course,
+            "Only the instructor can create questions."
+        )
 
         serializer = LessonQuestionCreateSerializer(data=request.data)
         if not serializer.is_valid():
@@ -1848,17 +1826,8 @@ def lesson_question_detail(request, lesson_id, question_id):
     question = get_object_or_404(LessonQuestion, pk=question_id, lesson=lesson)
     course = lesson.unit.course
 
-    # Check access
-    is_instructor = request.user == course.instructor
-    is_enrolled = Enrollment.objects.filter(
-        user=request.user, course=course, is_active=True
-    ).exists()
-
-    if not is_instructor and not is_enrolled:
-        return Response(
-            {'error': 'You must be enrolled in this course.'},
-            status=status.HTTP_403_FORBIDDEN
-        )
+    is_instructor = is_course_instructor(request.user, course)
+    require_course_access(request.user, course, "You must be enrolled in this course.")
 
     if request.method == 'GET':
         if is_instructor:
@@ -1868,11 +1837,10 @@ def lesson_question_detail(request, lesson_id, question_id):
         return Response(serializer.data)
 
     elif request.method == 'PUT':
-        if not is_instructor:
-            return Response(
-                {'error': 'Only the instructor can update questions.'},
-                status=status.HTTP_403_FORBIDDEN
-            )
+        require_course_instructor(
+            request.user, course,
+            "Only the instructor can update questions."
+        )
 
         serializer = LessonQuestionCreateSerializer(data=request.data)
         if not serializer.is_valid():
@@ -1914,11 +1882,10 @@ def lesson_question_detail(request, lesson_id, question_id):
         return Response(LessonQuestionSerializer(question).data)
 
     elif request.method == 'DELETE':
-        if not is_instructor:
-            return Response(
-                {'error': 'Only the instructor can delete questions.'},
-                status=status.HTTP_403_FORBIDDEN
-            )
+        require_course_instructor(
+            request.user, course,
+            "Only the instructor can delete questions."
+        )
 
         # Clear all quiz attempts for this lesson since questions changed
         LessonQuizAttempt.objects.filter(lesson=lesson).delete()
@@ -1946,17 +1913,7 @@ def answer_lesson_question(request, lesson_id):
     lesson = get_object_or_404(Lesson, pk=lesson_id)
     course = lesson.unit.course
 
-    # Check enrollment
-    is_enrolled = Enrollment.objects.filter(
-        user=request.user, course=course, is_active=True
-    ).exists()
-    is_instructor = request.user == course.instructor
-
-    if not is_enrolled and not is_instructor:
-        return Response(
-            {'error': 'You must be enrolled in this course.'},
-            status=status.HTTP_403_FORBIDDEN
-        )
+    require_course_access(request.user, course, "You must be enrolled in this course.")
 
     serializer = AnswerQuestionSerializer(data=request.data)
     if not serializer.is_valid():
@@ -1999,17 +1956,7 @@ def lesson_questions_status(request, lesson_id):
     lesson = get_object_or_404(Lesson, pk=lesson_id)
     course = lesson.unit.course
 
-    # Check enrollment
-    is_enrolled = Enrollment.objects.filter(
-        user=request.user, course=course, is_active=True
-    ).exists()
-    is_instructor = request.user == course.instructor
-
-    if not is_enrolled and not is_instructor:
-        return Response(
-            {'error': 'You must be enrolled in this course.'},
-            status=status.HTTP_403_FORBIDDEN
-        )
+    require_course_access(request.user, course, "You must be enrolled in this course.")
 
     total_questions = lesson.questions.count()
 
@@ -2070,17 +2017,7 @@ def submit_lesson_quiz(request, lesson_id):
     lesson = get_object_or_404(Lesson, pk=lesson_id)
     course = lesson.unit.course
 
-    # Check enrollment
-    is_enrolled = Enrollment.objects.filter(
-        user=request.user, course=course, is_active=True
-    ).exists()
-    is_instructor = request.user == course.instructor
-
-    if not is_enrolled and not is_instructor:
-        return Response(
-            {'error': 'You must be enrolled in this course.'},
-            status=status.HTTP_403_FORBIDDEN
-        )
+    require_course_access(request.user, course, "You must be enrolled in this course.")
 
     # Check if quiz has questions
     questions = lesson.questions.prefetch_related('choices').all()
@@ -2202,17 +2139,7 @@ def lesson_attachments(request, lesson_id):
     lesson = get_object_or_404(Lesson, pk=lesson_id)
     course = lesson.unit.course
 
-    # Check access - must be instructor or enrolled student
-    is_instructor = request.user == course.instructor
-    is_enrolled = Enrollment.objects.filter(
-        user=request.user, course=course, is_active=True
-    ).exists()
-
-    if not is_instructor and not is_enrolled:
-        return Response(
-            {'error': 'Access denied'},
-            status=status.HTTP_403_FORBIDDEN
-        )
+    require_course_access(request.user, course, "You must be enrolled in this course.")
 
     if request.method == 'GET':
         attachments = lesson.attachments.all()
@@ -2222,12 +2149,10 @@ def lesson_attachments(request, lesson_id):
         return Response(serializer.data)
 
     elif request.method == 'POST':
-        # Only instructor can upload
-        if not is_instructor:
-            return Response(
-                {'error': 'Only instructors can upload attachments'},
-                status=status.HTTP_403_FORBIDDEN
-            )
+        require_course_instructor(
+            request.user, course,
+            "Only instructors can upload attachments."
+        )
 
         files = request.FILES.getlist('files')
         if not files:
@@ -2299,12 +2224,10 @@ def lesson_attachment_detail(request, lesson_id, attachment_id):
     lesson = get_object_or_404(Lesson, pk=lesson_id)
     course = lesson.unit.course
 
-    # Only instructor can delete
-    if request.user != course.instructor:
-        return Response(
-            {'error': 'Only instructors can delete attachments'},
-            status=status.HTTP_403_FORBIDDEN
-        )
+    require_course_instructor(
+        request.user, course,
+        "Only instructors can delete attachments."
+    )
 
     attachment = get_object_or_404(LessonAttachment, pk=attachment_id, lesson=lesson)
 
@@ -2330,17 +2253,7 @@ def lesson_sections(request, lesson_id):
     lesson = get_object_or_404(Lesson, pk=lesson_id)
     course = lesson.unit.course
 
-    # Check access - must be instructor or enrolled student
-    is_instructor = request.user == course.instructor
-    is_enrolled = Enrollment.objects.filter(
-        user=request.user, course=course, is_active=True
-    ).exists()
-
-    if not is_instructor and not is_enrolled:
-        return Response(
-            {'error': 'Access denied'},
-            status=status.HTTP_403_FORBIDDEN
-        )
+    require_course_access(request.user, course, "You must be enrolled in this course.")
 
     if request.method == 'GET':
         sections = lesson.sections.all().order_by('order')
@@ -2348,12 +2261,10 @@ def lesson_sections(request, lesson_id):
         return Response(serializer.data)
 
     elif request.method == 'POST':
-        # Only instructor can create sections
-        if not is_instructor:
-            return Response(
-                {'error': 'Only instructors can create sections'},
-                status=status.HTTP_403_FORBIDDEN
-            )
+        require_course_instructor(
+            request.user, course,
+            "Only instructors can create sections."
+        )
 
         serializer = LessonSectionCreateSerializer(data=request.data)
         if serializer.is_valid():
@@ -2383,29 +2294,17 @@ def lesson_section_detail(request, lesson_id, section_id):
     course = lesson.unit.course
     section = get_object_or_404(LessonSection, pk=section_id, lesson=lesson)
 
-    # Check access - must be instructor or enrolled student
-    is_instructor = request.user == course.instructor
-    is_enrolled = Enrollment.objects.filter(
-        user=request.user, course=course, is_active=True
-    ).exists()
-
-    if not is_instructor and not is_enrolled:
-        return Response(
-            {'error': 'Access denied'},
-            status=status.HTTP_403_FORBIDDEN
-        )
+    require_course_access(request.user, course, "You must be enrolled in this course.")
 
     if request.method == 'GET':
         serializer = LessonSectionSerializer(section)
         return Response(serializer.data)
 
     elif request.method == 'PUT':
-        # Only instructor can update
-        if not is_instructor:
-            return Response(
-                {'error': 'Only instructors can update sections'},
-                status=status.HTTP_403_FORBIDDEN
-            )
+        require_course_instructor(
+            request.user, course,
+            "Only instructors can update sections."
+        )
 
         serializer = LessonSectionCreateSerializer(section, data=request.data)
         if serializer.is_valid():
@@ -2414,12 +2313,10 @@ def lesson_section_detail(request, lesson_id, section_id):
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
     elif request.method == 'DELETE':
-        # Only instructor can delete
-        if not is_instructor:
-            return Response(
-                {'error': 'Only instructors can delete sections'},
-                status=status.HTTP_403_FORBIDDEN
-            )
+        require_course_instructor(
+            request.user, course,
+            "Only instructors can delete sections."
+        )
 
         deleted_order = section.order
         section.delete()
@@ -2440,12 +2337,10 @@ def lesson_sections_reorder(request, lesson_id):
     lesson = get_object_or_404(Lesson, pk=lesson_id)
     course = lesson.unit.course
 
-    # Only instructor can reorder
-    if request.user != course.instructor:
-        return Response(
-            {'error': 'Only instructors can reorder sections'},
-            status=status.HTTP_403_FORBIDDEN
-        )
+    require_course_instructor(
+        request.user, course,
+        "Only instructors can reorder sections."
+    )
 
     section_ids = request.data.get('section_ids', [])
     if not section_ids:
@@ -2500,11 +2395,10 @@ def reset_lesson_progress(request, lesson_id):
     course = lesson.unit.course
 
     # Only allow instructors of this course to reset their progress
-    if request.user != course.instructor:
-        return Response(
-            {'error': 'Only the course instructor can reset their progress'},
-            status=status.HTTP_403_FORBIDDEN
-        )
+    require_course_instructor(
+        request.user, course,
+        "Only the course instructor can reset their progress."
+    )
 
     # Reset LessonProgress
     LessonProgress.objects.filter(
@@ -2562,8 +2456,7 @@ class InstructorReminderViewSet(viewsets.ModelViewSet):
     def perform_create(self, serializer):
         # Only instructors can create reminders
         if not self.request.user.is_instructor:
-            from rest_framework.exceptions import PermissionDenied
-            raise PermissionDenied("Only instructors can create reminders")
+            raise PermissionDenied("Only instructors can create reminders.")
         serializer.save(instructor=self.request.user)
 
 
@@ -2584,10 +2477,7 @@ def instructor_calendar(request):
     from quizzes.models import Quiz
 
     if not request.user.is_instructor:
-        return Response(
-            {'error': 'Only instructors can access this endpoint'},
-            status=status.HTTP_403_FORBIDDEN
-        )
+        raise PermissionDenied("Only instructors can access this endpoint.")
 
     # Parse date range
     today = timezone.now().date()

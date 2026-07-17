@@ -52,13 +52,13 @@ export function CourseDetailPage() {
   const [showEnrollModal, setShowEnrollModal] = useState(false);
   const [descriptionExpanded, setDescriptionExpanded] = useState(false);
 
-  const isInstructor = user?.id === course?.instructor.id;
+  const isCourseOwner = user?.id === course?.instructor.id;
   const isEnrolled = course?.is_enrolled || false;
-  const canAccessContent = isInstructor || isEnrolled;
+  const canAccessContent = isCourseOwner || isEnrolled;
 
   // Compute next lesson for enrolled students
   const getNextLesson = (): NextLessonInfo | null => {
-    if (!course || !isEnrolled || isInstructor) return null;
+    if (!course || !isEnrolled || isCourseOwner) return null;
 
     // For now, we'll compute this from the course structure
     // The first incomplete lesson or the first lesson if none completed
@@ -270,7 +270,7 @@ export function CourseDetailPage() {
               );
             })()}
           </div>
-          {isInstructor && (
+          {isCourseOwner && (
             <Link to={`/instructor/courses/${course.code}/manage`}>
               <Button variant="outline">
                 <Settings className="h-4 w-4 mr-2" />
@@ -302,7 +302,7 @@ export function CourseDetailPage() {
           </div>
         )}
 
-        {isEnrolled && !isInstructor && (
+        {isEnrolled && !isCourseOwner && (
           <div className="mt-4 flex items-center gap-2 text-green-600">
             <CheckCircle className="h-4 w-4" />
             <span className="text-sm font-medium">Enrolled</span>
@@ -311,7 +311,7 @@ export function CourseDetailPage() {
       </div>
 
       {/* Hero Learning CTA (for enrolled students) */}
-      {isEnrolled && !isInstructor && course.units.length > 0 && (
+      {isEnrolled && !isCourseOwner && course.units.length > 0 && (
         <div className="mb-8 rounded-2xl bg-gradient-to-br from-primary/10 via-primary/5 to-transparent border border-primary/20 p-8">
           <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-6">
             <div className="flex-1">
@@ -425,7 +425,7 @@ export function CourseDetailPage() {
       )}
 
       {/* Show grade summary for enrolled students */}
-      {canAccessContent && !isInstructor && (
+      {canAccessContent && !isCourseOwner && (
         <div className="mb-6">
           <StudentGradeCard courseCode={course.code} />
         </div>
@@ -441,7 +441,7 @@ export function CourseDetailPage() {
             </h2>
             <Link to={`/courses/${course.code}/announcements`}>
               <Button variant="link" className="text-sm">
-                {isInstructor ? 'Manage Announcements' : 'View All'}
+                {isCourseOwner ? 'Manage Announcements' : 'View All'}
                 <ChevronRight className="h-4 w-4 ml-1" />
               </Button>
             </Link>
@@ -480,7 +480,7 @@ export function CourseDetailPage() {
           ) : (
             <Card>
               <CardContent className="py-8 text-center text-muted-foreground">
-                {isInstructor ? (
+                {isCourseOwner ? (
                   <>
                     No announcements yet.{' '}
                     <Link to={`/courses/${course.code}/announcements`} className="text-primary hover:underline">
@@ -506,7 +506,7 @@ export function CourseDetailPage() {
             </h2>
             <Link to={`/courses/${course.code}/discussions`}>
               <Button variant="link" className="text-sm">
-                {isInstructor ? 'Manage Discussions' : 'View All'}
+                {isCourseOwner ? 'Manage Discussions' : 'View All'}
                 <ChevronRight className="h-4 w-4 ml-1" />
               </Button>
             </Link>

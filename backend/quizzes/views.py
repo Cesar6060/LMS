@@ -5,23 +5,14 @@ from rest_framework.response import Response
 from django.shortcuts import get_object_or_404
 from django.db.models import Max
 
-from courses.models import Unit, Enrollment
+from courses.models import Unit
+from courses.permissions import is_course_instructor, is_enrolled
 from .models import Quiz, Question, Choice, QuizAttempt, AttemptAnswer
 from .serializers import (
     QuizListSerializer, QuizDetailSerializer, QuizStudentDetailSerializer,
     QuizCreateUpdateSerializer, QuestionCreateUpdateSerializer,
     QuizAttemptSerializer, QuizSubmissionSerializer
 )
-
-
-def is_course_instructor(user, course):
-    """Check if user is the instructor of a course."""
-    return course.instructor == user
-
-
-def is_enrolled(user, course):
-    """Check if user is enrolled in a course."""
-    return Enrollment.objects.filter(user=user, course=course, is_active=True).exists()
 
 
 # ==================== Quiz Views ====================
@@ -314,7 +305,7 @@ def quick_grade_quiz(request, quiz_id, student_id):
     # Only instructor can use quick grade
     if not is_course_instructor(request.user, course):
         return Response(
-            {'error': 'Only the course instructor can grade.'},
+            {'detail': 'Only the course instructor can grade.'},
             status=status.HTTP_403_FORBIDDEN
         )
 
