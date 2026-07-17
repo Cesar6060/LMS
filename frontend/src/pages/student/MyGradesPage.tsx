@@ -27,11 +27,12 @@ export function MyGradesPage() {
       setIsLoading(true);
       const data = await courseService.getMyGradeSummary(code);
       setGrades(data);
-    } catch (err: any) {
+    } catch (err) {
       console.error('Failed to load grades:', err);
-      if (err.response?.status === 403) {
+      const status = (err as { response?: { status?: number } }).response?.status;
+      if (status === 403) {
         setError('You must be enrolled in this course to view grades.');
-      } else if (err.response?.status === 404) {
+      } else if (status === 404) {
         setError('Course not found or grades endpoint unavailable.');
       } else {
         setError('Failed to load grades. Please try again.');

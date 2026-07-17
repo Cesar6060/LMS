@@ -135,11 +135,12 @@ export function StudentRosterPage() {
         case 'enrolled_at':
           comparison = new Date(a.enrolled_at).getTime() - new Date(b.enrolled_at).getTime();
           break;
-        case 'last_activity_at':
+        case 'last_activity_at': {
           const aTime = a.last_activity_at ? new Date(a.last_activity_at).getTime() : 0;
           const bTime = b.last_activity_at ? new Date(b.last_activity_at).getTime() : 0;
           comparison = aTime - bTime;
           break;
+        }
         case 'progress':
           comparison = a.progress_percentage - b.progress_percentage;
           break;

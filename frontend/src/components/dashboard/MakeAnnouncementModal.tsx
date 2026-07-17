@@ -95,7 +95,7 @@ export function MakeAnnouncementModal({
           });
           successfulPosts++;
           setSuccessCount(successfulPosts);
-        } catch (err) {
+        } catch {
           errors.push(course.code);
         }
       }
