@@ -81,5 +81,5 @@ Close the real authorization holes found in the backend audit (any authenticated
 - [x] `docker compose exec frontend npm run lint` — 0 errors.
 - [x] `/verify-stack` output shown as evidence.
 - [x] Manual API checks (curl or DRF browsable, student token): `POST /api/units/` with another course's id → 403 `{'detail': ...}`; `GET /api/lessons/` → only own courses' lessons; `GET /api/announcements/` → only enrolled courses' announcements.
-- [ ] Manual UI flow: (1) log in as instructor B, paste instructor A's `/instructor/courses/{code}/gradebook` URL → AccessDenied component, no redirect; (2) log in as non-enrolled student, open a course's `/discussions` URL → AccessDenied; (3) enrolled student's normal course flow (lessons, assignments, discussions) unchanged.
-- [ ] Existing behavior preserved: instructors still see all courses in the catalog list.
+- [x] Manual UI flow: (1) log in as instructor B, paste instructor A's `/instructor/courses/{code}/gradebook` URL → AccessDenied component, no redirect; (2) log in as non-enrolled student, open a course's `/discussions` URL → AccessDenied; (3) enrolled student's normal course flow (lessons, assignments, discussions) unchanged.
+- [x] Existing behavior preserved: instructors still see all courses in the catalog list.
