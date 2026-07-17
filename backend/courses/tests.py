@@ -1202,3 +1202,151 @@ class TestPermissionBoundaries:
         response = api_client.post(f'/api/courses/courses/{course.code}/activity/')
         assert response.status_code == status.HTTP_403_FORBIDDEN
         assert 'detail' in response.data
+
+
+# ==================== Phase 16: Reorder (units, lessons, cross-unit) ====================
+
+@pytest.mark.django_db
+class TestUnitReorder:
+    @pytest.fixture
+    def units(self, course):
+        return [
+            Unit.objects.create(course=course, title=f'Unit {i}', order=i)
+            for i in range(1, 5)
+        ]
+
+    def test_reorder_unit_down(self, api_client, instructor, course, units):
+        api_client.force_authenticate(user=instructor)
+        response = api_client.patch(f'/api/courses/units/{units[0].id}/reorder/', {'order': 3})
+        assert response.status_code == status.HTTP_200_OK
+        titles = list(
+            Unit.objects.filter(course=course).order_by('order').values_list('title', flat=True)
+        )
+        assert titles == ['Unit 2', 'Unit 3', 'Unit 1', 'Unit 4']
+        orders = list(
+            Unit.objects.filter(course=course).order_by('order').values_list('order', flat=True)
+        )
+        assert orders == [1, 2, 3, 4]
+
+    def test_reorder_unit_up(self, api_client, instructor, course, units):
+        api_client.force_authenticate(user=instructor)
+        response = api_client.patch(f'/api/courses/units/{units[3].id}/reorder/', {'order': 1})
+        assert response.status_code == status.HTTP_200_OK
+        titles = list(
+            Unit.objects.filter(course=course).order_by('order').values_list('title', flat=True)
+        )
+        assert titles == ['Unit 4', 'Unit 1', 'Unit 2', 'Unit 3']
+
+    def test_reorder_unit_student_forbidden(self, api_client, student, enrollment, units):
+        api_client.force_authenticate(user=student)
+        response = api_client.patch(f'/api/courses/units/{units[0].id}/reorder/', {'order': 2})
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+
+
+@pytest.mark.django_db
+class TestLessonReorder:
+    @pytest.fixture
+    def unit_b(self, course):
+        return Unit.objects.create(course=course, title='Unit B', order=2)
+
+    @pytest.fixture
+    def lessons_a(self, unit):
+        return [
+            Lesson.objects.create(unit=unit, title=f'A{i}', order=i)
+            for i in range(1, 4)
+        ]
+
+    @pytest.fixture
+    def lessons_b(self, unit_b):
+        return [
+            Lesson.objects.create(unit=unit_b, title=f'B{i}', order=i)
+            for i in range(1, 3)
+        ]
+
+    @pytest.fixture
+    def other_instructor(self):
+        return User.objects.create_user(
+            email='other-instructor@test.com',
+            password='testpass123',
+            is_instructor=True,
+        )
+
+    @pytest.fixture
+    def other_course_unit(self, other_instructor):
+        other_course = Course.objects.create(
+            code='OTHER101',
+            title='Other Course',
+            instructor=other_instructor,
+        )
+        return Unit.objects.create(course=other_course, title='Other Unit', order=1)
+
+    def _titles(self, unit):
+        return list(
+            Lesson.objects.filter(unit=unit).order_by('order').values_list('title', flat=True)
+        )
+
+    def _orders(self, unit):
+        return list(
+            Lesson.objects.filter(unit=unit).order_by('order').values_list('order', flat=True)
+        )
+
+    def test_reorder_within_unit(self, api_client, instructor, unit, lessons_a):
+        api_client.force_authenticate(user=instructor)
+        response = api_client.patch(
+            f'/api/courses/lessons/{lessons_a[2].id}/reorder/', {'order': 1}
+        )
+        assert response.status_code == status.HTTP_200_OK
+        assert self._titles(unit) == ['A3', 'A1', 'A2']
+        assert self._orders(unit) == [1, 2, 3]
+
+    def test_cross_unit_move_happy_path(
+        self, api_client, instructor, unit, unit_b, lessons_a, lessons_b
+    ):
+        api_client.force_authenticate(user=instructor)
+        response = api_client.patch(
+            f'/api/courses/lessons/{lessons_a[1].id}/reorder/',
+            {'order': 2, 'unit': unit_b.id},
+        )
+        assert response.status_code == status.HTTP_200_OK
+        assert response.data['unit'] == unit_b.id
+        assert response.data['order'] == 2
+        assert self._titles(unit_b) == ['B1', 'A2', 'B2']
+        assert self._titles(unit) == ['A1', 'A3']
+
+    def test_cross_unit_move_compacts_orders_in_both_units(
+        self, api_client, instructor, unit, unit_b, lessons_a, lessons_b
+    ):
+        api_client.force_authenticate(user=instructor)
+        response = api_client.patch(
+            f'/api/courses/lessons/{lessons_a[0].id}/reorder/',
+            {'order': 1, 'unit': unit_b.id},
+        )
+        assert response.status_code == status.HTTP_200_OK
+        assert self._orders(unit) == [1, 2]
+        assert self._orders(unit_b) == [1, 2, 3]
+
+    def test_cross_unit_move_to_other_course_rejected(
+        self, api_client, instructor, lessons_a, other_course_unit
+    ):
+        api_client.force_authenticate(user=instructor)
+        response = api_client.patch(
+            f'/api/courses/lessons/{lessons_a[0].id}/reorder/',
+            {'order': 1, 'unit': other_course_unit.id},
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+
+    def test_reorder_student_forbidden(
+        self, api_client, student, enrollment, unit_b, lessons_a
+    ):
+        api_client.force_authenticate(user=student)
+        response = api_client.patch(
+            f'/api/courses/lessons/{lessons_a[0].id}/reorder/',
+            {'order': 1, 'unit': unit_b.id},
+        )
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+
+    def test_reorder_anonymous_unauthorized(self, api_client, lessons_a):
+        response = api_client.patch(
+            f'/api/courses/lessons/{lessons_a[0].id}/reorder/', {'order': 2}
+        )
+        assert response.status_code == status.HTTP_401_UNAUTHORIZED

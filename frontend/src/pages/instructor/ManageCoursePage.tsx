@@ -1,149 +1,176 @@
-import { useState, useEffect, type FormEvent } from 'react';
+import { useState, useEffect, useRef, useCallback, type KeyboardEvent } from 'react';
 import { useParams, Link } from 'react-router';
+import {
+  DndContext,
+  closestCorners,
+  PointerSensor,
+  KeyboardSensor,
+  useSensor,
+  useSensors,
+  type DragOverEvent,
+  type DragEndEvent,
+} from '@dnd-kit/core';
+import {
+  SortableContext,
+  verticalListSortingStrategy,
+  sortableKeyboardCoordinates,
+  arrayMove,
+} from '@dnd-kit/sortable';
 import { useAuth } from '@/contexts/AuthContext';
-import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/Card';
+import { Card, CardContent } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
-import { courseService, type CourseDetail, type UnitWithLessons, type LessonListItem } from '@/services/courses';
+import { courseService, type CourseDetail } from '@/services/courses';
 import { assignmentService } from '@/services/assignments';
+import { quizzesService } from '@/services/quizzes';
 import { isForbidden } from '@/services/api';
 import { AccessDenied } from '@/components/AccessDenied';
-import { LessonQuestionsManager } from '@/components/lesson/LessonQuestionsManager';
-import { AttachmentUploader } from '@/components/lesson/AttachmentUploader';
-import { SectionEditor } from '@/components/lesson/SectionEditor';
-import type { AssignmentListItem } from '@/types';
+import { OutlineUnitCard, type OutlineUnit } from '@/components/manage/OutlineUnitCard';
+import { AssignmentDialog } from '@/components/manage/AssignmentDialog';
+import { CourseSettingsDialog } from '@/components/manage/CourseSettingsDialog';
+import type { Assignment, AssignmentListItem, Quiz } from '@/types';
 import {
-  Loader2, Plus, Trash2, Play, FileText,
-  Copy, CheckCircle, Settings, BookOpen, ClipboardList, Table, Megaphone, Eye, Users, FileQuestion, HelpCircle, Paperclip, Layers
+  Loader2, Plus, Copy, CheckCircle, Settings, BookOpen, Eye,
+  Table, Megaphone, Users, FileQuestion, ChevronsDownUp, ChevronsUpDown,
 } from 'lucide-react';
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogDescription,
-  DialogFooter,
-} from '@/components/ui/Dialog';
 
-/**
- * Extract YouTube video ID from various URL formats or return the ID if already extracted.
- * Supports:
- * - https://www.youtube.com/watch?v=VIDEO_ID
- * - https://youtu.be/VIDEO_ID
- * - https://www.youtube.com/embed/VIDEO_ID
- * - VIDEO_ID (already extracted)
- */
-function extractYouTubeVideoId(input: string): string {
-  if (!input) return '';
+function AddUnitRow({
+  onAdd,
+  autoFocus,
+}: {
+  onAdd: (title: string) => Promise<void>;
+  autoFocus: boolean;
+}) {
+  const [active, setActive] = useState(autoFocus);
+  const [title, setTitle] = useState('');
+  const [isCreating, setIsCreating] = useState(false);
+  const inputRef = useRef<HTMLInputElement>(null);
 
-  const trimmed = input.trim();
-
-  // Try to match various YouTube URL patterns
-  const patterns = [
-    /(?:youtube\.com\/watch\?v=|youtu\.be\/|youtube\.com\/embed\/)([a-zA-Z0-9_-]{11})/,
-    /^([a-zA-Z0-9_-]{11})$/, // Just the ID itself
-  ];
-
-  for (const pattern of patterns) {
-    const match = trimmed.match(pattern);
-    if (match && match[1]) {
-      return match[1];
+  useEffect(() => {
+    if (active) {
+      inputRef.current?.focus();
     }
+  }, [active]);
+
+  const handleKeyDown = async (e: KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === 'Escape') {
+      setActive(false);
+      setTitle('');
+      return;
+    }
+    if (e.key === 'Enter' && title.trim()) {
+      e.preventDefault();
+      setIsCreating(true);
+      try {
+        await onAdd(title.trim());
+        setTitle('');
+        inputRef.current?.focus();
+      } finally {
+        setIsCreating(false);
+      }
+    }
+  };
+
+  if (!active) {
+    return (
+      <button
+        type="button"
+        className="w-full rounded-lg border border-dashed px-4 py-3 text-sm text-muted-foreground hover:text-foreground hover:border-foreground/30 flex items-center justify-center gap-2"
+        onClick={() => setActive(true)}
+      >
+        <Plus className="h-4 w-4" />
+        Add unit
+      </button>
+    );
   }
 
-  // Return as-is if no pattern matched (let backend validate)
-  return trimmed;
+  return (
+    <div className="rounded-lg border border-dashed px-4 py-3">
+      <Input
+        ref={inputRef}
+        type="text"
+        placeholder="Unit title — Enter to create, Esc to cancel"
+        value={title}
+        disabled={isCreating}
+        onChange={(e) => setTitle(e.target.value)}
+        onKeyDown={handleKeyDown}
+        onBlur={() => {
+          if (!title.trim()) setActive(false);
+        }}
+      />
+    </div>
+  );
 }
-
-type EditingUnit = { id?: number; title: string };
-type EditingLesson = {
-  id?: number;
-  title: string;
-  content: string;
-  video_type: 'none' | 'youtube';
-  video_id: string;
-  order: number;
-  required_quiz?: number | null;
-};
-type EditingAssignment = {
-  id?: number;
-  title: string;
-  description: string;
-  max_points: number;
-  due_date: string;
-  allow_late: boolean;
-  available_from: string;
-  available_until: string;
-  late_penalty_percent: number | null;
-  late_penalty_interval: 'day' | 'hour';
-  max_late_penalty: number | null;
-};
 
 export function ManageCoursePage() {
   const { code } = useParams<{ code: string }>();
   const { user } = useAuth();
 
   const [course, setCourse] = useState<CourseDetail | null>(null);
+  const [units, setUnits] = useState<OutlineUnit[]>([]);
+  const [assignments, setAssignments] = useState<AssignmentListItem[]>([]);
+  const [quizzes, setQuizzes] = useState<Quiz[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState('');
   const [forbidden, setForbidden] = useState(false);
-
-  // Unit modal state
-  const [showUnitModal, setShowUnitModal] = useState(false);
-  const [editingUnit, setEditingUnit] = useState<EditingUnit | null>(null);
-  const [unitLoading, setUnitLoading] = useState(false);
-
-  // Lesson modal state
-  const [showLessonModal, setShowLessonModal] = useState(false);
-  const [editingLesson, setEditingLesson] = useState<EditingLesson | null>(null);
-  const [selectedUnitId, setSelectedUnitId] = useState<number | null>(null);
-  const [lessonLoading, setLessonLoading] = useState(false);
-  const [lessonError, setLessonError] = useState('');
-
-  // Assignment state
-  const [assignments, setAssignments] = useState<AssignmentListItem[]>([]);
-  const [showAssignmentModal, setShowAssignmentModal] = useState(false);
-  const [editingAssignment, setEditingAssignment] = useState<EditingAssignment | null>(null);
-  const [selectedUnitForAssignment, setSelectedUnitForAssignment] = useState<number | null>(null);
-  const [assignmentLoading, setAssignmentLoading] = useState(false);
-  const [assignmentError, setAssignmentError] = useState('');
-
-  // Enrollment code copy state
   const [copied, setCopied] = useState(false);
 
-  // Lesson questions manager state
-  const [showQuestionsManager, setShowQuestionsManager] = useState(false);
-  const [selectedLessonForQuestions, setSelectedLessonForQuestions] = useState<{ id: number; title: string } | null>(null);
+  // Collapse state, persisted per course
+  const [collapsed, setCollapsed] = useState<Record<number, boolean>>({});
 
-  // Lesson attachments manager state
-  const [showAttachmentUploader, setShowAttachmentUploader] = useState(false);
-  const [selectedLessonForAttachments, setSelectedLessonForAttachments] = useState<{ id: number; title: string } | null>(null);
+  // Settings dialog
+  const [showSettings, setShowSettings] = useState(false);
 
-  // Lesson sections manager state
-  const [showSectionEditor, setShowSectionEditor] = useState(false);
-  const [selectedLessonForSections, setSelectedLessonForSections] = useState<{ id: number; title: string } | null>(null);
+  // Assignment dialog
+  const [showAssignmentDialog, setShowAssignmentDialog] = useState(false);
+  const [editingAssignment, setEditingAssignment] = useState<Assignment | null>(null);
+  const [assignmentUnitId, setAssignmentUnitId] = useState<number | null>(null);
+
+  // Snapshot for drag rollback
+  const dragSnapshot = useRef<OutlineUnit[] | null>(null);
+
+  const sensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
+    useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates })
+  );
+
+  const storageKey = `outline-collapsed:${code}`;
 
   useEffect(() => {
-    if (code) {
-      loadCourse();
-    }
-  }, [code]);
-
-  const loadCourse = async () => {
     try {
-      setIsLoading(true);
-      const [data, assignmentsData] = await Promise.all([
-        courseService.getCourse(code!),
-        assignmentService.getCourseAssignments(code!),
+      const stored = localStorage.getItem(storageKey);
+      if (stored) {
+        const ids = JSON.parse(stored) as number[];
+        setCollapsed(Object.fromEntries(ids.map(id => [id, true])));
+      } else {
+        setCollapsed({});
+      }
+    } catch {
+      setCollapsed({});
+    }
+  }, [storageKey]);
+
+  const persistCollapsed = (next: Record<number, boolean>) => {
+    setCollapsed(next);
+    const ids = Object.entries(next)
+      .filter(([, v]) => v)
+      .map(([k]) => Number(k));
+    localStorage.setItem(storageKey, JSON.stringify(ids));
+  };
+
+  const loadCourse = useCallback(async (showSpinner = false) => {
+    if (!code) return;
+    try {
+      if (showSpinner) setIsLoading(true);
+      const [data, assignmentsData, quizzesData] = await Promise.all([
+        courseService.getCourse(code),
+        assignmentService.getCourseAssignments(code),
+        quizzesService.getCourseQuizzes(code),
       ]);
       setCourse(data);
+      setUnits(data.units.map(u => ({ id: u.id, title: u.title, lessons: u.lessons })));
       setAssignments(assignmentsData);
-
-      // Check if user is the instructor
-      if (data.instructor.id !== user?.id) {
-        setForbidden(true);
-        return;
-      }
+      setQuizzes(quizzesData);
     } catch (err) {
       if (isForbidden(err)) {
         setForbidden(true);
@@ -152,9 +179,20 @@ export function ManageCoursePage() {
         console.error(err);
       }
     } finally {
-      setIsLoading(false);
+      if (showSpinner) setIsLoading(false);
     }
-  };
+  }, [code]);
+
+  useEffect(() => {
+    loadCourse(true);
+  }, [loadCourse]);
+
+  // Ownership check (course detail is visible to enrolled students too)
+  useEffect(() => {
+    if (course && user && course.instructor.id !== user.id) {
+      setForbidden(true);
+    }
+  }, [course, user]);
 
   const handleCopyEnrollmentCode = async () => {
     if (course?.enrollment_code) {
@@ -164,51 +202,33 @@ export function ManageCoursePage() {
     }
   };
 
-  // Unit handlers
-  const openAddUnitModal = () => {
-    setEditingUnit({ title: '' });
-    setShowUnitModal(true);
-  };
+  // ---------- Structure operations (commit immediately) ----------
 
-  const openEditUnitModal = (unit: UnitWithLessons) => {
-    setEditingUnit({ id: unit.id, title: unit.title });
-    setShowUnitModal(true);
-  };
-
-  const handleSaveUnit = async (e: FormEvent) => {
-    e.preventDefault();
-    if (!editingUnit || !course) return;
-
-    setUnitLoading(true);
+  const handleAddUnit = async (title: string) => {
+    if (!course) return;
     try {
-      if (editingUnit.id) {
-        // Update existing unit
-        await courseService.updateUnit(editingUnit.id, { title: editingUnit.title });
-      } else {
-        // Create new unit
-        const nextOrder = course.units.length > 0
-          ? Math.max(...course.units.map(u => u.order)) + 1
-          : 1;
-        await courseService.createUnit(course.code, {
-          title: editingUnit.title,
-          order: nextOrder,
-        });
-      }
+      await courseService.createUnit(course.code, { title });
       await loadCourse();
-      setShowUnitModal(false);
-      setEditingUnit(null);
     } catch (err) {
-      console.error('Failed to save unit:', err);
-    } finally {
-      setUnitLoading(false);
+      console.error('Failed to add unit:', err);
+      setError('Failed to add unit');
+    }
+  };
+
+  const handleRenameUnit = async (unitId: number, title: string) => {
+    setUnits(prev => prev.map(u => (u.id === unitId ? { ...u, title } : u)));
+    try {
+      await courseService.updateUnit(unitId, { title });
+    } catch (err) {
+      console.error('Failed to rename unit:', err);
+      await loadCourse();
     }
   };
 
   const handleDeleteUnit = async (unitId: number) => {
-    if (!confirm('Are you sure you want to delete this unit? All lessons in this unit will also be deleted.')) {
+    if (!confirm('Delete this unit? All lessons, assignments, and quizzes in it will also be deleted.')) {
       return;
     }
-
     try {
       await courseService.deleteUnit(unitId);
       await loadCourse();
@@ -217,88 +237,33 @@ export function ManageCoursePage() {
     }
   };
 
-  // Lesson handlers
-  const openAddLessonModal = async (unitId: number) => {
-    const unit = course?.units.find(u => u.id === unitId);
-    const nextOrder = unit && unit.lessons.length > 0
-      ? Math.max(...unit.lessons.map(l => l.order)) + 1
-      : 1;
-
-    setSelectedUnitId(unitId);
-    setLessonError('');
-    setEditingLesson({
-      title: '',
-      content: '',
-      video_type: 'none',
-      video_id: '',
-      order: nextOrder,
-      required_quiz: null,
-    });
-    setShowLessonModal(true);
-  };
-
-  const openEditLessonModal = async (lesson: LessonListItem, unitId: number) => {
-    setSelectedUnitId(unitId);
-    // Only support 'youtube' or 'none' - treat any other type as 'none'
-    const videoType = lesson.video_type === 'youtube' ? 'youtube' : 'none';
-    setEditingLesson({
-      id: lesson.id,
-      title: lesson.title,
-      content: lesson.content || '',
-      video_type: videoType,
-      video_id: lesson.video_id || '',
-      order: lesson.order,
-      required_quiz: lesson.required_quiz || null,
-    });
-    setShowLessonModal(true);
-  };
-
-  const handleSaveLesson = async (e: FormEvent) => {
-    e.preventDefault();
-    if (!editingLesson || !selectedUnitId) return;
-
-    setLessonLoading(true);
-    setLessonError('');
+  const handleAddLesson = async (unitId: number, title: string) => {
     try {
-      // Extract video ID from URL if a full URL was pasted
-      const videoId = editingLesson.video_type === 'youtube'
-        ? extractYouTubeVideoId(editingLesson.video_id)
-        : '';
-
-      const lessonData = {
-        title: editingLesson.title,
-        content: editingLesson.content || '',
-        video_type: editingLesson.video_type,
-        video_id: videoId,
-        order: editingLesson.order,
-        required_quiz: editingLesson.required_quiz || null,
-      };
-
-      if (editingLesson.id) {
-        // Update existing lesson
-        await courseService.updateLesson(editingLesson.id, lessonData);
-      } else {
-        // Create new lesson
-        await courseService.createLesson(selectedUnitId, lessonData);
-      }
+      await courseService.createLesson(unitId, { title, content: '' });
       await loadCourse();
-      setShowLessonModal(false);
-      setEditingLesson(null);
-      setSelectedUnitId(null);
-    } catch (err: unknown) {
-      console.error('Failed to save lesson:', err);
-      const error = err as { response?: { data?: { detail?: string } }; message?: string };
-      setLessonError(error.response?.data?.detail || error.message || 'Failed to save lesson');
-    } finally {
-      setLessonLoading(false);
+    } catch (err) {
+      console.error('Failed to add lesson:', err);
+      setError('Failed to add lesson');
+    }
+  };
+
+  const handleRenameLesson = async (lessonId: number, title: string) => {
+    setUnits(prev =>
+      prev.map(u => ({
+        ...u,
+        lessons: u.lessons.map(l => (l.id === lessonId ? { ...l, title } : l)),
+      }))
+    );
+    try {
+      await courseService.updateLesson(lessonId, { title });
+    } catch (err) {
+      console.error('Failed to rename lesson:', err);
+      await loadCourse();
     }
   };
 
   const handleDeleteLesson = async (lessonId: number) => {
-    if (!confirm('Are you sure you want to delete this lesson?')) {
-      return;
-    }
-
+    if (!confirm('Are you sure you want to delete this lesson?')) return;
     try {
       await courseService.deleteLesson(lessonId);
       await loadCourse();
@@ -307,89 +272,28 @@ export function ManageCoursePage() {
     }
   };
 
-  // Assignment handlers
-  const openAddAssignmentModal = (unitId: number) => {
-    setSelectedUnitForAssignment(unitId);
-    setAssignmentError('');
-    setEditingAssignment({
-      title: '',
-      description: '',
-      max_points: 100,
-      due_date: '',
-      allow_late: true,
-      available_from: '',
-      available_until: '',
-      late_penalty_percent: null,
-      late_penalty_interval: 'day',
-      max_late_penalty: null,
-    });
-    setShowAssignmentModal(true);
+  const handleAddQuiz = async (unitId: number, title: string) => {
+    try {
+      await quizzesService.createQuiz(unitId, { title });
+      await loadCourse();
+    } catch (err) {
+      console.error('Failed to add quiz:', err);
+      setError('Failed to add quiz');
+    }
   };
 
-  const handleSaveAssignment = async (e: FormEvent) => {
-    e.preventDefault();
-    if (!editingAssignment) return;
-
-    if (!selectedUnitForAssignment) {
-      setAssignmentError('No unit selected. Please close this dialog and try again.');
-      return;
-    }
-
-    setAssignmentLoading(true);
-    setAssignmentError('');
+  const handleDeleteQuiz = async (quizId: number) => {
+    if (!confirm('Are you sure you want to delete this quiz?')) return;
     try {
-      const assignmentData = {
-        title: editingAssignment.title,
-        description: editingAssignment.description,
-        max_points: editingAssignment.max_points,
-        due_date: editingAssignment.due_date || null,
-        allow_late: editingAssignment.allow_late,
-        available_from: editingAssignment.available_from || null,
-        available_until: editingAssignment.available_until || null,
-        late_penalty_percent: editingAssignment.late_penalty_percent,
-        late_penalty_interval: editingAssignment.late_penalty_interval,
-        max_late_penalty: editingAssignment.max_late_penalty,
-      };
-
-      if (editingAssignment.id) {
-        await assignmentService.updateAssignment(editingAssignment.id, assignmentData);
-      } else {
-        await assignmentService.createAssignment(selectedUnitForAssignment, assignmentData);
-      }
+      await quizzesService.deleteQuiz(quizId);
       await loadCourse();
-      setShowAssignmentModal(false);
-      setEditingAssignment(null);
-      setSelectedUnitForAssignment(null);
-    } catch (err: unknown) {
-      console.error('Failed to save assignment:', err);
-      const error = err as { response?: { data?: { detail?: string; [key: string]: unknown } }; message?: string };
-      const errorData = error.response?.data;
-      let errorMessage = 'Failed to save assignment';
-      if (errorData?.detail) {
-        errorMessage = errorData.detail;
-      } else if (errorData) {
-        // Handle field-specific errors
-        const fieldErrors = Object.entries(errorData)
-          .filter(([key]) => key !== 'detail')
-          .map(([key, value]) => `${key}: ${Array.isArray(value) ? value.join(', ') : value}`)
-          .join('; ');
-        if (fieldErrors) {
-          errorMessage = fieldErrors;
-        }
-      } else if (error.message) {
-        errorMessage = error.message;
-      }
-      setAssignmentError(errorMessage);
-    } finally {
-      setAssignmentLoading(false);
+    } catch (err) {
+      console.error('Failed to delete quiz:', err);
     }
   };
 
   const handleDeleteAssignment = async (assignmentId: number) => {
-    if (!confirm('Are you sure you want to delete this assignment?')) {
-      return;
-    }
-
+    if (!confirm('Are you sure you want to delete this assignment?')) return;
     try {
       await assignmentService.deleteAssignment(assignmentId);
       await loadCourse();
@@ -398,13 +302,167 @@ export function ManageCoursePage() {
     }
   };
 
-  // Group assignments by unit
-  const getUnitAssignments = (unitId: number) => {
-    return assignments.filter(a => {
-      const unit = course?.units.find(u => u.title === a.unit_title);
-      return unit?.id === unitId;
+  const handleAddAssignment = (unitId: number) => {
+    setEditingAssignment(null);
+    setAssignmentUnitId(unitId);
+    setShowAssignmentDialog(true);
+  };
+
+  const handleEditAssignment = async (item: AssignmentListItem) => {
+    try {
+      const full = await assignmentService.getAssignment(item.id);
+      setEditingAssignment(full);
+      setAssignmentUnitId(null);
+      setShowAssignmentDialog(true);
+    } catch (err) {
+      console.error('Failed to load assignment:', err);
+      setError('Failed to load assignment');
+    }
+  };
+
+  // ---------- Drag & drop ----------
+
+  const findLessonContainer = (id: string): number | null => {
+    if (id.startsWith('unitdrop-')) return Number(id.slice('unitdrop-'.length));
+    if (id.startsWith('unit-')) return Number(id.slice('unit-'.length));
+    if (id.startsWith('lesson-')) {
+      const lessonId = Number(id.slice('lesson-'.length));
+      const container = units.find(u => u.lessons.some(l => l.id === lessonId));
+      return container?.id ?? null;
+    }
+    return null;
+  };
+
+  const handleDragStart = () => {
+    dragSnapshot.current = units.map(u => ({ ...u, lessons: [...u.lessons] }));
+  };
+
+  const handleDragOver = (event: DragOverEvent) => {
+    const { active, over } = event;
+    const activeId = String(active.id);
+    if (!over || !activeId.startsWith('lesson-')) return;
+
+    const overId = String(over.id);
+    const activeContainer = findLessonContainer(activeId);
+    const overContainer = findLessonContainer(overId);
+    if (activeContainer === null || overContainer === null) return;
+    if (activeContainer === overContainer) return;
+
+    const lessonId = Number(activeId.slice('lesson-'.length));
+    setUnits(prev => {
+      const source = prev.find(u => u.id === activeContainer);
+      const target = prev.find(u => u.id === overContainer);
+      if (!source || !target) return prev;
+      const lesson = source.lessons.find(l => l.id === lessonId);
+      if (!lesson) return prev;
+
+      let insertIndex = target.lessons.length;
+      if (overId.startsWith('lesson-')) {
+        const overLessonId = Number(overId.slice('lesson-'.length));
+        const overIndex = target.lessons.findIndex(l => l.id === overLessonId);
+        if (overIndex >= 0) insertIndex = overIndex;
+      }
+
+      return prev.map(u => {
+        if (u.id === source.id) {
+          return { ...u, lessons: u.lessons.filter(l => l.id !== lessonId) };
+        }
+        if (u.id === target.id) {
+          const lessons = [...u.lessons];
+          lessons.splice(insertIndex, 0, lesson);
+          return { ...u, lessons };
+        }
+        return u;
+      });
     });
   };
+
+  const rollbackDrag = () => {
+    if (dragSnapshot.current) {
+      setUnits(dragSnapshot.current);
+    }
+    dragSnapshot.current = null;
+  };
+
+  const handleDragEnd = (event: DragEndEvent) => {
+    const { active, over } = event;
+    const activeId = String(active.id);
+    const snapshot = dragSnapshot.current;
+
+    if (!over) {
+      rollbackDrag();
+      return;
+    }
+    const overId = String(over.id);
+
+    // --- Unit reorder ---
+    if (activeId.startsWith('unit-')) {
+      const unitId = Number(activeId.slice('unit-'.length));
+      // The drop target may resolve to a lesson row inside another unit card;
+      // findLessonContainer maps any droppable id back to its unit.
+      const overUnitId = findLessonContainer(overId);
+      if (overUnitId === null) {
+        dragSnapshot.current = null;
+        return;
+      }
+      const oldIndex = units.findIndex(u => u.id === unitId);
+      const newIndex = units.findIndex(u => u.id === overUnitId);
+      dragSnapshot.current = null;
+      if (oldIndex < 0 || newIndex < 0 || oldIndex === newIndex) return;
+
+      setUnits(prev => arrayMove(prev, oldIndex, newIndex));
+      courseService.reorderUnit(unitId, newIndex + 1).catch(err => {
+        console.error('Failed to reorder unit:', err);
+        if (snapshot) setUnits(snapshot);
+      });
+      return;
+    }
+
+    // --- Lesson reorder / cross-unit move ---
+    if (activeId.startsWith('lesson-')) {
+      const lessonId = Number(activeId.slice('lesson-'.length));
+      const container = units.find(u => u.lessons.some(l => l.id === lessonId));
+      dragSnapshot.current = null;
+      if (!container || !snapshot) return;
+
+      let workingUnits = units;
+      let finalIndex = container.lessons.findIndex(l => l.id === lessonId);
+
+      if (overId.startsWith('lesson-')) {
+        const overLessonId = Number(overId.slice('lesson-'.length));
+        if (overLessonId !== lessonId) {
+          const overContainer = units.find(u => u.lessons.some(l => l.id === overLessonId));
+          if (overContainer && overContainer.id === container.id) {
+            const overIndex = container.lessons.findIndex(l => l.id === overLessonId);
+            workingUnits = units.map(u =>
+              u.id === container.id
+                ? { ...u, lessons: arrayMove(u.lessons, finalIndex, overIndex) }
+                : u
+            );
+            finalIndex = overIndex;
+            setUnits(workingUnits);
+          }
+        }
+      }
+
+      const originalContainer = snapshot.find(u => u.lessons.some(l => l.id === lessonId));
+      const unitChanged = originalContainer ? originalContainer.id !== container.id : false;
+      const originalIndex = originalContainer
+        ? originalContainer.lessons.findIndex(l => l.id === lessonId)
+        : -1;
+
+      if (!unitChanged && finalIndex === originalIndex) return;
+
+      courseService
+        .reorderLesson(lessonId, finalIndex + 1, unitChanged ? container.id : undefined)
+        .catch(err => {
+          console.error('Failed to reorder lesson:', err);
+          setUnits(snapshot);
+        });
+    }
+  };
+
+  // ---------- Render ----------
 
   if (isLoading) {
     return (
@@ -418,7 +476,7 @@ export function ManageCoursePage() {
     return <AccessDenied />;
   }
 
-  if (error || !course) {
+  if (error && !course) {
     return (
       <div className="container mx-auto px-4 py-8">
         <Card>
@@ -435,816 +493,181 @@ export function ManageCoursePage() {
     );
   }
 
+  if (!course) return null;
+
+  const unitAssignments = (unitId: number) => assignments.filter(a => a.unit === unitId);
+  const unitQuizzes = (unitId: number) => quizzes.filter(q => q.unit === unitId);
+
   return (
-    <div className="container mx-auto px-4 py-8">
-      {/* Course Info Header */}
-      <div className="flex items-start justify-between mb-8">
-        <div>
-          <div className="flex items-center gap-2 mb-2">
-            <Settings className="h-5 w-5 text-muted-foreground" />
-            <span className="text-sm text-muted-foreground">Managing</span>
-          </div>
-          <h1 className="text-3xl font-bold mb-2">{course.title}</h1>
-          <p className="text-sm font-mono text-muted-foreground">{course.code}</p>
-        </div>
-        <Link to={`/courses/${course.code}`}>
-          <Button variant="outline" className="gap-2">
-            <Eye className="h-4 w-4" />
-            Student View
-          </Button>
-        </Link>
-      </div>
-
-      {/* Quick Actions */}
-      <div className="grid gap-4 md:grid-cols-4 mb-8">
-        <Link to={`/instructor/courses/${course.code}/gradebook`}>
-          <Card className="hover:shadow-md transition-shadow cursor-pointer h-full">
-            <CardContent className="py-4 flex items-center gap-3">
-              <Table className="h-5 w-5 text-muted-foreground" />
-              <span className="font-medium">Gradebook</span>
-            </CardContent>
-          </Card>
-        </Link>
-        <Link to={`/courses/${course.code}/announcements`}>
-          <Card className="hover:shadow-md transition-shadow cursor-pointer h-full">
-            <CardContent className="py-4 flex items-center gap-3">
-              <Megaphone className="h-5 w-5 text-muted-foreground" />
-              <span className="font-medium">Announcements</span>
-            </CardContent>
-          </Card>
-        </Link>
-        <Link to={`/instructor/courses/${course.code}/students`}>
-          <Card className="hover:shadow-md transition-shadow cursor-pointer h-full">
-            <CardContent className="py-4 flex items-center gap-3">
-              <Users className="h-5 w-5 text-muted-foreground" />
-              <span className="font-medium">Roster</span>
-            </CardContent>
-          </Card>
-        </Link>
-        <Link to={`/instructor/courses/${course.code}/quizzes`}>
-          <Card className="hover:shadow-md transition-shadow cursor-pointer h-full">
-            <CardContent className="py-4 flex items-center gap-3">
-              <FileQuestion className="h-5 w-5 text-muted-foreground" />
-              <span className="font-medium">Quizzes</span>
-            </CardContent>
-          </Card>
-        </Link>
-      </div>
-
-      {/* Enrollment Code Card */}
-      <Card className="mb-8">
-        <CardHeader>
-          <CardTitle className="text-lg">Enrollment Code</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <div className="flex items-center gap-4">
-            <code className="bg-muted px-4 py-2 rounded-md text-lg font-mono tracking-widest">
-              {course.enrollment_code}
-            </code>
-            <Button variant="outline" size="sm" onClick={handleCopyEnrollmentCode}>
-              {copied ? (
-                <>
-                  <CheckCircle className="h-4 w-4 mr-2 text-green-500" />
-                  Copied!
-                </>
-              ) : (
-                <>
-                  <Copy className="h-4 w-4 mr-2" />
-                  Copy
-                </>
+    <div className="container mx-auto px-4 py-8 max-w-4xl">
+      {/* Header */}
+      <div className="mb-6">
+        <div className="flex flex-wrap items-start justify-between gap-4">
+          <div className="min-w-0">
+            <h1 className="text-3xl font-bold mb-1 truncate">{course.title}</h1>
+            <div className="flex flex-wrap items-center gap-3 text-sm text-muted-foreground">
+              <span className="font-mono">{course.code}</span>
+              {!course.is_active && (
+                <span className="rounded bg-muted px-2 py-0.5 text-xs font-medium">Inactive</span>
               )}
+              <span className="flex items-center gap-1.5">
+                Enrollment code:
+                <code className="bg-muted px-2 py-0.5 rounded font-mono tracking-wider">
+                  {course.enrollment_code}
+                </code>
+                <button
+                  type="button"
+                  onClick={handleCopyEnrollmentCode}
+                  className="hover:text-foreground"
+                  title="Copy enrollment code"
+                >
+                  {copied ? (
+                    <CheckCircle className="h-4 w-4 text-green-500" />
+                  ) : (
+                    <Copy className="h-4 w-4" />
+                  )}
+                </button>
+              </span>
+            </div>
+          </div>
+          <div className="flex items-center gap-2">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => persistCollapsed(Object.fromEntries(units.map(u => [u.id, true])))}
+              title="Collapse all units"
+            >
+              <ChevronsDownUp className="h-4 w-4 mr-1" />
+              Collapse all
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => persistCollapsed({})}
+              title="Expand all units"
+            >
+              <ChevronsUpDown className="h-4 w-4 mr-1" />
+              Expand all
+            </Button>
+            <Button variant="outline" size="sm" onClick={() => setShowSettings(true)}>
+              <Settings className="h-4 w-4 mr-1" />
+              Settings
             </Button>
           </div>
-          <p className="text-sm text-muted-foreground mt-2">
-            Share this code with students so they can enroll in your course.
-          </p>
-        </CardContent>
-      </Card>
-
-      {/* Units & Lessons */}
-      <div className="space-y-4">
-        <div className="flex items-center justify-between">
-          <h2 className="text-xl font-semibold">Course Content</h2>
-          <Button onClick={openAddUnitModal}>
-            <Plus className="h-4 w-4 mr-2" />
-            Add Unit
-          </Button>
         </div>
 
-        {course.units.length === 0 ? (
-          <Card>
-            <CardContent className="py-12 text-center text-muted-foreground">
-              <BookOpen className="h-12 w-12 mx-auto mb-4 opacity-50" />
-              <p>No units yet. Add your first unit to get started.</p>
-            </CardContent>
-          </Card>
-        ) : (
-          course.units.map((unit, unitIndex) => (
-            <Card key={unit.id}>
-              <CardHeader className="pb-3">
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-3">
-                    <CardTitle className="text-lg">
-                      Unit {unitIndex + 1}: {unit.title}
-                    </CardTitle>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      onClick={() => openEditUnitModal(unit)}
-                    >
-                      Edit
-                    </Button>
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      className="text-destructive hover:text-destructive"
-                      onClick={() => handleDeleteUnit(unit.id)}
-                    >
-                      <Trash2 className="h-4 w-4" />
-                    </Button>
-                  </div>
-                </div>
-              </CardHeader>
-              <CardContent className="pt-0">
-                {unit.lessons.length === 0 ? (
-                  <p className="text-sm text-muted-foreground py-4">
-                    No lessons in this unit yet.
-                  </p>
-                ) : (
-                  <ul className="divide-y mb-4">
-                    {unit.lessons.map((lesson, lessonIndex) => (
-                      <li
-                        key={lesson.id}
-                        className="flex items-center justify-between py-3"
-                      >
-                        <div className="flex items-center gap-3">
-                          {lesson.video_type !== 'none' ? (
-                            <Play className="h-4 w-4 text-muted-foreground" />
-                          ) : (
-                            <FileText className="h-4 w-4 text-muted-foreground" />
-                          )}
-                          <span>
-                            {unitIndex + 1}.{lessonIndex + 1} {lesson.title}
-                          </span>
-                        </div>
-                        <div className="flex items-center gap-2">
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            onClick={() => {
-                              setSelectedLessonForSections({ id: lesson.id, title: lesson.title });
-                              setShowSectionEditor(true);
-                            }}
-                            title="Manage sections (slides)"
-                          >
-                            <Layers className="h-4 w-4" />
-                          </Button>
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            onClick={() => {
-                              setSelectedLessonForQuestions({ id: lesson.id, title: lesson.title });
-                              setShowQuestionsManager(true);
-                            }}
-                            title="Manage comprehension questions"
-                          >
-                            <HelpCircle className="h-4 w-4" />
-                          </Button>
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            onClick={() => openEditLessonModal(lesson, unit.id)}
-                          >
-                            Edit
-                          </Button>
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            className="text-destructive hover:text-destructive"
-                            onClick={() => handleDeleteLesson(lesson.id)}
-                          >
-                            <Trash2 className="h-4 w-4" />
-                          </Button>
-                        </div>
-                      </li>
-                    ))}
-                  </ul>
-                )}
-                <div className="flex gap-2">
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={() => openAddLessonModal(unit.id)}
-                  >
-                    <Plus className="h-4 w-4 mr-2" />
-                    Add Lesson
-                  </Button>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={() => openAddAssignmentModal(unit.id)}
-                  >
-                    <ClipboardList className="h-4 w-4 mr-2" />
-                    Add Assignment
-                  </Button>
-                </div>
-
-                {/* Unit Assignments */}
-                {getUnitAssignments(unit.id).length > 0 && (
-                  <div className="mt-4 pt-4 border-t">
-                    <h4 className="text-sm font-medium mb-2 flex items-center gap-2">
-                      <ClipboardList className="h-4 w-4" />
-                      Assignments
-                    </h4>
-                    <ul className="space-y-2">
-                      {getUnitAssignments(unit.id).map(assignment => (
-                        <li
-                          key={assignment.id}
-                          className="flex items-center justify-between bg-muted/50 rounded-lg px-3 py-2"
-                        >
-                          <div>
-                            <span className="font-medium">{assignment.title}</span>
-                            <div className="text-xs text-muted-foreground">
-                              {assignment.max_points} pts
-                              {assignment.due_date && (
-                                <span className="ml-2">
-                                  Due: {new Date(assignment.due_date).toLocaleDateString()}
-                                </span>
-                              )}
-                            </div>
-                          </div>
-                          <div className="flex items-center gap-2">
-                            <Link to={`/instructor/assignments/${assignment.id}/grade`}>
-                              <Button variant="ghost" size="sm">
-                                Grade
-                              </Button>
-                            </Link>
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              className="text-destructive hover:text-destructive"
-                              onClick={() => handleDeleteAssignment(assignment.id)}
-                            >
-                              <Trash2 className="h-4 w-4" />
-                            </Button>
-                          </div>
-                        </li>
-                      ))}
-                    </ul>
-                  </div>
-                )}
-              </CardContent>
-            </Card>
-          ))
-        )}
+        {/* Quick links */}
+        <div className="flex flex-wrap items-center gap-2 mt-4">
+          <Link to={`/courses/${course.code}`}>
+            <Button variant="ghost" size="sm">
+              <Eye className="h-4 w-4 mr-1" />
+              Student View
+            </Button>
+          </Link>
+          <Link to={`/instructor/courses/${course.code}/gradebook`}>
+            <Button variant="ghost" size="sm">
+              <Table className="h-4 w-4 mr-1" />
+              Gradebook
+            </Button>
+          </Link>
+          <Link to={`/courses/${course.code}/announcements`}>
+            <Button variant="ghost" size="sm">
+              <Megaphone className="h-4 w-4 mr-1" />
+              Announcements
+            </Button>
+          </Link>
+          <Link to={`/instructor/courses/${course.code}/students`}>
+            <Button variant="ghost" size="sm">
+              <Users className="h-4 w-4 mr-1" />
+              Roster
+            </Button>
+          </Link>
+          <Link to={`/instructor/courses/${course.code}/quizzes`}>
+            <Button variant="ghost" size="sm">
+              <FileQuestion className="h-4 w-4 mr-1" />
+              Quizzes
+            </Button>
+          </Link>
+        </div>
       </div>
 
-      {/* Unit Modal */}
-      <Dialog open={showUnitModal} onOpenChange={setShowUnitModal}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>
-              {editingUnit?.id ? 'Edit Unit' : 'Add Unit'}
-            </DialogTitle>
-            <DialogDescription>
-              {editingUnit?.id
-                ? 'Update the unit title.'
-                : 'Create a new unit for your course.'}
-            </DialogDescription>
-          </DialogHeader>
-          <form onSubmit={handleSaveUnit}>
-            <div className="space-y-4 py-4">
-              <div className="space-y-2">
-                <label htmlFor="unit-title" className="text-sm font-medium">
-                  Unit Title
-                </label>
-                <Input
-                  id="unit-title"
-                  type="text"
-                  placeholder="e.g., Introduction to Unity"
-                  value={editingUnit?.title || ''}
-                  onChange={(e) =>
-                    setEditingUnit(prev => prev ? { ...prev, title: e.target.value } : null)
-                  }
-                  required
-                />
-              </div>
-            </div>
-            <DialogFooter>
-              <Button
-                type="button"
-                variant="outline"
-                onClick={() => setShowUnitModal(false)}
-                disabled={unitLoading}
-              >
-                Cancel
-              </Button>
-              <Button type="submit" disabled={unitLoading}>
-                {unitLoading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-                {editingUnit?.id ? 'Save Changes' : 'Add Unit'}
-              </Button>
-            </DialogFooter>
-          </form>
-        </DialogContent>
-      </Dialog>
-
-      {/* Lesson Modal */}
-      <Dialog open={showLessonModal} onOpenChange={setShowLessonModal}>
-        <DialogContent className="max-w-2xl">
-          <DialogHeader>
-            <DialogTitle>
-              {editingLesson?.id ? 'Edit Lesson' : 'Add Lesson'}
-            </DialogTitle>
-            <DialogDescription>
-              {editingLesson?.id
-                ? 'Update the lesson details.'
-                : 'Create a new lesson for this unit.'}
-            </DialogDescription>
-          </DialogHeader>
-          {lessonError && (
-            <div className="bg-destructive/10 border border-destructive/20 text-destructive rounded-md px-4 py-3 text-sm">
-              {lessonError}
-            </div>
-          )}
-          <form onSubmit={handleSaveLesson}>
-            <div className="space-y-4 py-4 max-h-[60vh] overflow-y-auto">
-              <div className="space-y-2">
-                <label htmlFor="lesson-title" className="text-sm font-medium">
-                  Lesson Title
-                </label>
-                <Input
-                  id="lesson-title"
-                  type="text"
-                  placeholder="e.g., Setting up your development environment"
-                  value={editingLesson?.title || ''}
-                  onChange={(e) =>
-                    setEditingLesson(prev =>
-                      prev ? { ...prev, title: e.target.value } : null
-                    )
-                  }
-                  required
-                />
-              </div>
-
-              <div className="space-y-2">
-                <label htmlFor="video-type" className="text-sm font-medium">
-                  Video Type
-                </label>
-                <select
-                  id="video-type"
-                  value={editingLesson?.video_type || 'none'}
-                  onChange={(e) =>
-                    setEditingLesson(prev =>
-                      prev
-                        ? { ...prev, video_type: e.target.value as 'none' | 'youtube' }
-                        : null
-                    )
-                  }
-                  className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
-                >
-                  <option value="none">No Video</option>
-                  <option value="youtube">YouTube</option>
-                </select>
-              </div>
-
-              {editingLesson?.video_type === 'youtube' && (
-                <div className="space-y-2">
-                  <label htmlFor="video-id" className="text-sm font-medium">
-                    YouTube URL or Video ID
-                  </label>
-                  <Input
-                    id="video-id"
-                    type="text"
-                    placeholder="Paste YouTube URL or video ID"
-                    value={editingLesson?.video_id || ''}
-                    onChange={(e) =>
-                      setEditingLesson(prev =>
-                        prev ? { ...prev, video_id: e.target.value } : null
-                      )
-                    }
-                  />
-                  <p className="text-xs text-muted-foreground">
-                    Paste the full YouTube URL (e.g., https://www.youtube.com/watch?v=dQw4w9WgXcQ) or just the video ID
-                  </p>
-                </div>
-              )}
-
-              <div className="space-y-2">
-                <label htmlFor="lesson-content" className="text-sm font-medium">
-                  Content (Markdown)
-                </label>
-                <textarea
-                  id="lesson-content"
-                  placeholder="Write your lesson content using Markdown..."
-                  value={editingLesson?.content || ''}
-                  onChange={(e) =>
-                    setEditingLesson(prev =>
-                      prev ? { ...prev, content: e.target.value } : null
-                    )
-                  }
-                  rows={10}
-                  className="flex w-full rounded-md border border-input bg-background px-3 py-2 text-sm font-mono ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
-                />
-                <p className="text-xs text-muted-foreground">
-                  Supports GitHub Flavored Markdown (headers, lists, code blocks, links, etc.)
-                </p>
-              </div>
-
-              {/* Lesson Sections (Slides) */}
-              {editingLesson?.id && (
-                <div className="space-y-2 p-4 bg-muted/50 rounded-lg">
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <label className="text-sm font-medium">Content Sections</label>
-                      <p className="text-xs text-muted-foreground">
-                        Break the lesson into multiple sections (slides) for better navigation.
-                      </p>
-                    </div>
-                    <Button
-                      type="button"
-                      variant="outline"
-                      size="sm"
-                      onClick={() => {
-                        setShowLessonModal(false);
-                        setSelectedLessonForSections({ id: editingLesson.id!, title: editingLesson.title });
-                        setShowSectionEditor(true);
-                      }}
-                    >
-                      <Layers className="h-4 w-4 mr-2" />
-                      Manage Sections
-                    </Button>
-                  </div>
-                </div>
-              )}
-
-              {/* Comprehension Questions */}
-              {editingLesson?.id && (
-                <div className="space-y-2 p-4 bg-muted/50 rounded-lg">
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <label className="text-sm font-medium">Comprehension Questions</label>
-                      <p className="text-xs text-muted-foreground">
-                        Add questions students must answer correctly to complete this lesson.
-                      </p>
-                    </div>
-                    <Button
-                      type="button"
-                      variant="outline"
-                      size="sm"
-                      onClick={() => {
-                        setShowLessonModal(false);
-                        setSelectedLessonForQuestions({ id: editingLesson.id!, title: editingLesson.title });
-                        setShowQuestionsManager(true);
-                      }}
-                    >
-                      <HelpCircle className="h-4 w-4 mr-2" />
-                      Manage Questions
-                    </Button>
-                  </div>
-                </div>
-              )}
-
-              {/* Attachments */}
-              {editingLesson?.id && (
-                <div className="space-y-2 p-4 bg-muted/50 rounded-lg">
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <label className="text-sm font-medium">File Attachments</label>
-                      <p className="text-xs text-muted-foreground">
-                        Upload PDFs, images, or other files for students to download.
-                      </p>
-                    </div>
-                    <Button
-                      type="button"
-                      variant="outline"
-                      size="sm"
-                      onClick={() => {
-                        setShowLessonModal(false);
-                        setSelectedLessonForAttachments({ id: editingLesson.id!, title: editingLesson.title });
-                        setShowAttachmentUploader(true);
-                      }}
-                    >
-                      <Paperclip className="h-4 w-4 mr-2" />
-                      Manage Attachments
-                    </Button>
-                  </div>
-                </div>
-              )}
-            </div>
-            <DialogFooter>
-              <Button
-                type="button"
-                variant="outline"
-                onClick={() => setShowLessonModal(false)}
-                disabled={lessonLoading}
-              >
-                Cancel
-              </Button>
-              <Button type="submit" disabled={lessonLoading}>
-                {lessonLoading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-                {editingLesson?.id ? 'Save Changes' : 'Add Lesson'}
-              </Button>
-            </DialogFooter>
-          </form>
-        </DialogContent>
-      </Dialog>
-
-      {/* Assignment Modal */}
-      <Dialog open={showAssignmentModal} onOpenChange={setShowAssignmentModal}>
-        <DialogContent className="max-w-2xl">
-          <DialogHeader>
-            <DialogTitle>
-              {editingAssignment?.id ? 'Edit Assignment' : 'Add Assignment'}
-            </DialogTitle>
-            <DialogDescription>
-              {editingAssignment?.id
-                ? 'Update the assignment details.'
-                : 'Create a new assignment for this unit.'}
-            </DialogDescription>
-          </DialogHeader>
-          {assignmentError && (
-            <div className="bg-destructive/10 border border-destructive/20 text-destructive rounded-md px-4 py-3 text-sm">
-              {assignmentError}
-            </div>
-          )}
-          <form onSubmit={handleSaveAssignment}>
-            <div className="space-y-4 py-4 max-h-[60vh] overflow-y-auto">
-              <div className="space-y-2">
-                <label htmlFor="assignment-title" className="text-sm font-medium">
-                  Assignment Title
-                </label>
-                <Input
-                  id="assignment-title"
-                  type="text"
-                  placeholder="e.g., Create a 2D Game Prototype"
-                  value={editingAssignment?.title || ''}
-                  onChange={(e) =>
-                    setEditingAssignment(prev =>
-                      prev ? { ...prev, title: e.target.value } : null
-                    )
-                  }
-                  required
-                />
-              </div>
-
-              <div className="grid grid-cols-2 gap-4">
-                <div className="space-y-2">
-                  <label htmlFor="max-points" className="text-sm font-medium">
-                    Max Points
-                  </label>
-                  <Input
-                    id="max-points"
-                    type="number"
-                    min="1"
-                    max="1000"
-                    value={editingAssignment?.max_points || 100}
-                    onChange={(e) =>
-                      setEditingAssignment(prev =>
-                        prev ? { ...prev, max_points: parseInt(e.target.value) || 100 } : null
-                      )
-                    }
-                  />
-                </div>
-
-                <div className="space-y-2">
-                  <label htmlFor="due-date" className="text-sm font-medium">
-                    Due Date (optional)
-                  </label>
-                  <Input
-                    id="due-date"
-                    type="datetime-local"
-                    value={editingAssignment?.due_date || ''}
-                    onChange={(e) =>
-                      setEditingAssignment(prev =>
-                        prev ? { ...prev, due_date: e.target.value } : null
-                      )
-                    }
-                  />
-                </div>
-              </div>
-
-              <div className="flex items-center gap-2">
-                <input
-                  type="checkbox"
-                  id="allow-late"
-                  checked={editingAssignment?.allow_late ?? true}
-                  onChange={(e) =>
-                    setEditingAssignment(prev =>
-                      prev ? { ...prev, allow_late: e.target.checked } : null
-                    )
-                  }
-                  className="h-4 w-4 rounded border-gray-300"
-                />
-                <label htmlFor="allow-late" className="text-sm">
-                  Allow late submissions
-                </label>
-              </div>
-
-              {/* Availability Window */}
-              <div className="border-t pt-4 mt-4">
-                <h4 className="text-sm font-medium mb-3">Availability Window</h4>
-                <div className="grid grid-cols-2 gap-4">
-                  <div className="space-y-2">
-                    <label htmlFor="available-from" className="text-sm font-medium">
-                      Available From
-                    </label>
-                    <Input
-                      id="available-from"
-                      type="datetime-local"
-                      value={editingAssignment?.available_from || ''}
-                      onChange={(e) =>
-                        setEditingAssignment(prev =>
-                          prev ? { ...prev, available_from: e.target.value } : null
-                        )
-                      }
-                    />
-                    <p className="text-xs text-muted-foreground">
-                      When the assignment becomes visible to students
-                    </p>
-                  </div>
-
-                  <div className="space-y-2">
-                    <label htmlFor="available-until" className="text-sm font-medium">
-                      Available Until
-                    </label>
-                    <Input
-                      id="available-until"
-                      type="datetime-local"
-                      value={editingAssignment?.available_until || ''}
-                      onChange={(e) =>
-                        setEditingAssignment(prev =>
-                          prev ? { ...prev, available_until: e.target.value } : null
-                        )
-                      }
-                    />
-                    <p className="text-xs text-muted-foreground">
-                      Submissions close after this date
-                    </p>
-                  </div>
-                </div>
-              </div>
-
-              {/* Late Penalty Settings */}
-              {editingAssignment?.allow_late && (
-                <div className="border-t pt-4 mt-4">
-                  <h4 className="text-sm font-medium mb-3">Late Penalty Settings</h4>
-                  <div className="grid grid-cols-3 gap-4">
-                    <div className="space-y-2">
-                      <label htmlFor="late-penalty-percent" className="text-sm font-medium">
-                        Penalty %
-                      </label>
-                      <Input
-                        id="late-penalty-percent"
-                        type="number"
-                        min="0"
-                        max="100"
-                        step="0.5"
-                        placeholder="e.g., 10"
-                        value={editingAssignment?.late_penalty_percent ?? ''}
-                        onChange={(e) =>
-                          setEditingAssignment(prev =>
-                            prev ? {
-                              ...prev,
-                              late_penalty_percent: e.target.value ? parseFloat(e.target.value) : null
-                            } : null
-                          )
-                        }
-                      />
-                    </div>
-
-                    <div className="space-y-2">
-                      <label htmlFor="late-penalty-interval" className="text-sm font-medium">
-                        Per
-                      </label>
-                      <select
-                        id="late-penalty-interval"
-                        value={editingAssignment?.late_penalty_interval || 'day'}
-                        onChange={(e) =>
-                          setEditingAssignment(prev =>
-                            prev ? {
-                              ...prev,
-                              late_penalty_interval: e.target.value as 'day' | 'hour'
-                            } : null
-                          )
-                        }
-                        className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
-                      >
-                        <option value="day">Day</option>
-                        <option value="hour">Hour</option>
-                      </select>
-                    </div>
-
-                    <div className="space-y-2">
-                      <label htmlFor="max-late-penalty" className="text-sm font-medium">
-                        Max Penalty %
-                      </label>
-                      <Input
-                        id="max-late-penalty"
-                        type="number"
-                        min="0"
-                        max="100"
-                        step="1"
-                        placeholder="e.g., 50"
-                        value={editingAssignment?.max_late_penalty ?? ''}
-                        onChange={(e) =>
-                          setEditingAssignment(prev =>
-                            prev ? {
-                              ...prev,
-                              max_late_penalty: e.target.value ? parseFloat(e.target.value) : null
-                            } : null
-                          )
-                        }
-                      />
-                    </div>
-                  </div>
-                  <p className="text-xs text-muted-foreground mt-2">
-                    Leave penalty blank for no late penalty. Example: 10% per day, max 50% means 5 days late = 50% penalty cap.
-                  </p>
-                </div>
-              )}
-
-              <div className="space-y-2">
-                <label htmlFor="assignment-description" className="text-sm font-medium">
-                  Instructions (Markdown)
-                </label>
-                <textarea
-                  id="assignment-description"
-                  placeholder="Write assignment instructions using Markdown..."
-                  value={editingAssignment?.description || ''}
-                  onChange={(e) =>
-                    setEditingAssignment(prev =>
-                      prev ? { ...prev, description: e.target.value } : null
-                    )
-                  }
-                  rows={8}
-                  className="flex w-full rounded-md border border-input bg-background px-3 py-2 text-sm font-mono ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
-                />
-              </div>
-            </div>
-            <DialogFooter>
-              <Button
-                type="button"
-                variant="outline"
-                onClick={() => setShowAssignmentModal(false)}
-                disabled={assignmentLoading}
-              >
-                Cancel
-              </Button>
-              <Button type="submit" disabled={assignmentLoading}>
-                {assignmentLoading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-                {editingAssignment?.id ? 'Save Changes' : 'Add Assignment'}
-              </Button>
-            </DialogFooter>
-          </form>
-        </DialogContent>
-      </Dialog>
-
-      {/* Lesson Questions Manager */}
-      {selectedLessonForQuestions && (
-        <LessonQuestionsManager
-          lessonId={selectedLessonForQuestions.id}
-          lessonTitle={selectedLessonForQuestions.title}
-          open={showQuestionsManager}
-          onOpenChange={(open) => {
-            setShowQuestionsManager(open);
-            if (!open) {
-              setSelectedLessonForQuestions(null);
-            }
-          }}
-        />
+      {error && (
+        <div className="bg-destructive/10 border border-destructive/20 text-destructive rounded-md px-4 py-3 text-sm mb-4">
+          {error}
+        </div>
       )}
 
-      {/* Lesson Attachments Uploader */}
-      {selectedLessonForAttachments && (
-        <AttachmentUploader
-          lessonId={selectedLessonForAttachments.id}
-          lessonTitle={selectedLessonForAttachments.title}
-          open={showAttachmentUploader}
-          onOpenChange={(open) => {
-            setShowAttachmentUploader(open);
-            if (!open) {
-              setSelectedLessonForAttachments(null);
-            }
-          }}
-        />
+      {/* Outline */}
+      {units.length === 0 ? (
+        <Card className="mb-4">
+          <CardContent className="py-12 text-center">
+            <BookOpen className="h-12 w-12 mx-auto mb-4 text-muted-foreground opacity-50" />
+            <h3 className="text-lg font-semibold mb-1">Create your first unit</h3>
+            <p className="text-sm text-muted-foreground">
+              Units organize your lessons, assignments, and quizzes.
+            </p>
+          </CardContent>
+        </Card>
+      ) : (
+        <DndContext
+          sensors={sensors}
+          collisionDetection={closestCorners}
+          onDragStart={handleDragStart}
+          onDragOver={handleDragOver}
+          onDragEnd={handleDragEnd}
+          onDragCancel={rollbackDrag}
+        >
+          <SortableContext
+            items={units.map(u => `unit-${u.id}`)}
+            strategy={verticalListSortingStrategy}
+          >
+            <div className="space-y-3 mb-4">
+              {units.map(unit => (
+                <OutlineUnitCard
+                  key={unit.id}
+                  unit={unit}
+                  courseCode={course.code}
+                  collapsed={!!collapsed[unit.id]}
+                  assignments={unitAssignments(unit.id)}
+                  quizzes={unitQuizzes(unit.id)}
+                  onToggleCollapse={(unitId) =>
+                    persistCollapsed({ ...collapsed, [unitId]: !collapsed[unitId] })
+                  }
+                  onRenameUnit={handleRenameUnit}
+                  onDeleteUnit={handleDeleteUnit}
+                  onRenameLesson={handleRenameLesson}
+                  onDeleteLesson={handleDeleteLesson}
+                  onEditAssignment={handleEditAssignment}
+                  onDeleteAssignment={handleDeleteAssignment}
+                  onDeleteQuiz={handleDeleteQuiz}
+                  onAddLesson={handleAddLesson}
+                  onAddQuiz={handleAddQuiz}
+                  onAddAssignment={handleAddAssignment}
+                />
+              ))}
+            </div>
+          </SortableContext>
+        </DndContext>
       )}
 
-      {/* Lesson Sections Editor */}
-      {selectedLessonForSections && (
-        <SectionEditor
-          lessonId={selectedLessonForSections.id}
-          lessonTitle={selectedLessonForSections.title}
-          open={showSectionEditor}
-          onOpenChange={(open) => {
-            setShowSectionEditor(open);
-            if (!open) {
-              setSelectedLessonForSections(null);
-            }
-          }}
-        />
-      )}
+      <AddUnitRow onAdd={handleAddUnit} autoFocus={units.length === 0} />
+
+      {/* Course settings */}
+      <CourseSettingsDialog
+        open={showSettings}
+        onOpenChange={setShowSettings}
+        course={course}
+        onSaved={() => loadCourse()}
+      />
+
+      {/* Assignment create/edit */}
+      <AssignmentDialog
+        open={showAssignmentDialog}
+        onOpenChange={setShowAssignmentDialog}
+        unitId={assignmentUnitId}
+        assignment={editingAssignment}
+        onSaved={() => loadCourse()}
+      />
     </div>
   );
 }

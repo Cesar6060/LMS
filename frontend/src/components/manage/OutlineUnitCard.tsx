@@ -1,0 +1,538 @@
+import { useState, useRef, useEffect, type KeyboardEvent } from 'react';
+import { Link } from 'react-router';
+import { useSortable, SortableContext, verticalListSortingStrategy } from '@dnd-kit/sortable';
+import { useDroppable } from '@dnd-kit/core';
+import { CSS } from '@dnd-kit/utilities';
+import { Card, CardContent, CardHeader } from '@/components/ui/Card';
+import { Button } from '@/components/ui/Button';
+import { Input } from '@/components/ui/Input';
+import {
+  DropdownMenu,
+  DropdownMenuTrigger,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+} from '@/components/ui/DropdownMenu';
+import type { LessonListItem } from '@/services/courses';
+import type { AssignmentListItem, Quiz } from '@/types';
+import { cn } from '@/lib/utils';
+import {
+  GripVertical, ChevronDown, ChevronRight, MoreVertical, Trash2,
+  Pencil, Play, FileText, ClipboardList, FileQuestion, Plus,
+  GraduationCap,
+} from 'lucide-react';
+
+export interface OutlineUnit {
+  id: number;
+  title: string;
+  lessons: LessonListItem[];
+}
+
+interface InlineAddRowProps {
+  onAddLesson: (title: string) => Promise<void>;
+  onAddQuiz: (title: string) => Promise<void>;
+  onAddAssignment: () => void;
+}
+
+function InlineAddRow({ onAddLesson, onAddQuiz, onAddAssignment }: InlineAddRowProps) {
+  const [mode, setMode] = useState<'lesson' | 'quiz' | null>(null);
+  const [title, setTitle] = useState('');
+  const [isCreating, setIsCreating] = useState(false);
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    if (mode) {
+      inputRef.current?.focus();
+    }
+  }, [mode]);
+
+  const reset = () => {
+    setMode(null);
+    setTitle('');
+  };
+
+  const handleKeyDown = async (e: KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === 'Escape') {
+      reset();
+      return;
+    }
+    if (e.key === 'Enter' && title.trim() && mode) {
+      e.preventDefault();
+      setIsCreating(true);
+      try {
+        if (mode === 'lesson') {
+          await onAddLesson(title.trim());
+        } else {
+          await onAddQuiz(title.trim());
+        }
+        reset();
+      } finally {
+        setIsCreating(false);
+      }
+    }
+  };
+
+  if (mode) {
+    return (
+      <div className="flex items-center gap-2 px-2 py-1.5">
+        {mode === 'lesson' ? (
+          <FileText className="h-4 w-4 text-muted-foreground flex-shrink-0" />
+        ) : (
+          <FileQuestion className="h-4 w-4 text-muted-foreground flex-shrink-0" />
+        )}
+        <Input
+          ref={inputRef}
+          type="text"
+          className="h-8"
+          placeholder={`New ${mode} title — Enter to create, Esc to cancel`}
+          value={title}
+          disabled={isCreating}
+          onChange={(e) => setTitle(e.target.value)}
+          onKeyDown={handleKeyDown}
+          onBlur={() => {
+            if (!title.trim()) reset();
+          }}
+        />
+      </div>
+    );
+  }
+
+  return (
+    <div className="flex items-center gap-1 px-2 py-1.5 text-sm text-muted-foreground">
+      <Plus className="h-4 w-4" />
+      <span className="mr-1">Add</span>
+      <button
+        type="button"
+        className="hover:text-foreground hover:underline"
+        onClick={() => setMode('lesson')}
+      >
+        lesson
+      </button>
+      <span>·</span>
+      <button
+        type="button"
+        className="hover:text-foreground hover:underline"
+        onClick={onAddAssignment}
+      >
+        assignment
+      </button>
+      <span>·</span>
+      <button
+        type="button"
+        className="hover:text-foreground hover:underline"
+        onClick={() => setMode('quiz')}
+      >
+        quiz
+      </button>
+    </div>
+  );
+}
+
+interface InlineTitleProps {
+  value: string;
+  className?: string;
+  editing: boolean;
+  onStartEdit: () => void;
+  onSave: (title: string) => void;
+  onCancel: () => void;
+}
+
+function InlineTitle({ value, className, editing, onStartEdit, onSave, onCancel }: InlineTitleProps) {
+  const [draft, setDraft] = useState(value);
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    if (editing) {
+      setDraft(value);
+      inputRef.current?.focus();
+      inputRef.current?.select();
+    }
+  }, [editing, value]);
+
+  if (!editing) {
+    return (
+      <button
+        type="button"
+        className={cn('text-left hover:underline decoration-dotted underline-offset-4', className)}
+        onClick={onStartEdit}
+        title="Click to rename"
+      >
+        {value}
+      </button>
+    );
+  }
+
+  return (
+    <Input
+      ref={inputRef}
+      type="text"
+      className="h-8"
+      value={draft}
+      onChange={(e) => setDraft(e.target.value)}
+      onKeyDown={(e) => {
+        if (e.key === 'Enter') {
+          e.preventDefault();
+          if (draft.trim()) onSave(draft.trim());
+        } else if (e.key === 'Escape') {
+          onCancel();
+        }
+      }}
+      onBlur={() => {
+        if (draft.trim() && draft.trim() !== value) {
+          onSave(draft.trim());
+        } else {
+          onCancel();
+        }
+      }}
+    />
+  );
+}
+
+interface SortableLessonRowProps {
+  lesson: LessonListItem;
+  courseCode: string;
+  onRename: (lessonId: number, title: string) => void;
+  onDelete: (lessonId: number) => void;
+}
+
+function SortableLessonRow({ lesson, courseCode, onRename, onDelete }: SortableLessonRowProps) {
+  const [editing, setEditing] = useState(false);
+  const {
+    attributes, listeners, setNodeRef, transform, transition, isDragging,
+  } = useSortable({ id: `lesson-${lesson.id}` });
+
+  return (
+    <li
+      ref={setNodeRef}
+      style={{ transform: CSS.Transform.toString(transform), transition }}
+      className={cn(
+        'group flex items-center gap-2 rounded-md px-2 py-1.5 hover:bg-muted/50',
+        isDragging && 'opacity-50'
+      )}
+    >
+      <button
+        type="button"
+        className="cursor-grab touch-none opacity-0 group-hover:opacity-100 focus:opacity-100 text-muted-foreground"
+        aria-label={`Reorder lesson ${lesson.title}`}
+        {...attributes}
+        {...listeners}
+      >
+        <GripVertical className="h-4 w-4" />
+      </button>
+      {lesson.video_type !== 'none' ? (
+        <Play className="h-4 w-4 text-muted-foreground flex-shrink-0" />
+      ) : (
+        <FileText className="h-4 w-4 text-muted-foreground flex-shrink-0" />
+      )}
+      <div className="flex-1 min-w-0">
+        {editing ? (
+          <InlineTitle
+            value={lesson.title}
+            editing={editing}
+            onStartEdit={() => setEditing(true)}
+            onSave={(title) => {
+              setEditing(false);
+              onRename(lesson.id, title);
+            }}
+            onCancel={() => setEditing(false)}
+          />
+        ) : (
+          <Link
+            to={`/instructor/courses/${courseCode}/lessons/${lesson.id}/edit`}
+            className="text-sm hover:underline truncate block"
+          >
+            {lesson.title}
+          </Link>
+        )}
+      </div>
+      <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 focus-within:opacity-100">
+        <Link to={`/instructor/courses/${courseCode}/lessons/${lesson.id}/edit`}>
+          <Button variant="ghost" size="sm" className="h-7 w-7 p-0" title="Edit lesson">
+            <Pencil className="h-3.5 w-3.5" />
+          </Button>
+        </Link>
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button variant="ghost" size="sm" className="h-7 w-7 p-0" title="More actions">
+              <MoreVertical className="h-3.5 w-3.5" />
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end">
+            <DropdownMenuItem onSelect={() => setEditing(true)}>
+              <Pencil className="h-4 w-4" />
+              Rename
+            </DropdownMenuItem>
+            <DropdownMenuSeparator />
+            <DropdownMenuItem
+              className="text-destructive focus:text-destructive"
+              onSelect={() => onDelete(lesson.id)}
+            >
+              <Trash2 className="h-4 w-4" />
+              Delete
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
+      </div>
+    </li>
+  );
+}
+
+interface OutlineUnitCardProps {
+  unit: OutlineUnit;
+  courseCode: string;
+  collapsed: boolean;
+  assignments: AssignmentListItem[];
+  quizzes: Quiz[];
+  onToggleCollapse: (unitId: number) => void;
+  onRenameUnit: (unitId: number, title: string) => void;
+  onDeleteUnit: (unitId: number) => void;
+  onRenameLesson: (lessonId: number, title: string) => void;
+  onDeleteLesson: (lessonId: number) => void;
+  onEditAssignment: (assignment: AssignmentListItem) => void;
+  onDeleteAssignment: (assignmentId: number) => void;
+  onDeleteQuiz: (quizId: number) => void;
+  onAddLesson: (unitId: number, title: string) => Promise<void>;
+  onAddQuiz: (unitId: number, title: string) => Promise<void>;
+  onAddAssignment: (unitId: number) => void;
+}
+
+export function OutlineUnitCard({
+  unit,
+  courseCode,
+  collapsed,
+  assignments,
+  quizzes,
+  onToggleCollapse,
+  onRenameUnit,
+  onDeleteUnit,
+  onRenameLesson,
+  onDeleteLesson,
+  onEditAssignment,
+  onDeleteAssignment,
+  onDeleteQuiz,
+  onAddLesson,
+  onAddQuiz,
+  onAddAssignment,
+}: OutlineUnitCardProps) {
+  const [editingTitle, setEditingTitle] = useState(false);
+  const {
+    attributes, listeners, setNodeRef, transform, transition, isDragging,
+  } = useSortable({ id: `unit-${unit.id}` });
+
+  const { setNodeRef: setDropRef } = useDroppable({ id: `unitdrop-${unit.id}` });
+
+  const itemCount = unit.lessons.length + assignments.length + quizzes.length;
+
+  return (
+    <Card
+      ref={setNodeRef}
+      style={{ transform: CSS.Transform.toString(transform), transition }}
+      className={cn('group/unit', isDragging && 'opacity-50 shadow-lg')}
+      data-testid={`unit-card-${unit.id}`}
+    >
+      <CardHeader className="py-3">
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            className="cursor-grab touch-none opacity-0 group-hover/unit:opacity-100 focus:opacity-100 text-muted-foreground"
+            aria-label={`Reorder unit ${unit.title}`}
+            {...attributes}
+            {...listeners}
+          >
+            <GripVertical className="h-5 w-5" />
+          </button>
+          <Button
+            variant="ghost"
+            size="sm"
+            className="h-7 w-7 p-0"
+            onClick={() => onToggleCollapse(unit.id)}
+            title={collapsed ? 'Expand unit' : 'Collapse unit'}
+          >
+            {collapsed ? (
+              <ChevronRight className="h-4 w-4" />
+            ) : (
+              <ChevronDown className="h-4 w-4" />
+            )}
+          </Button>
+          <div className="flex-1 min-w-0">
+            <InlineTitle
+              value={unit.title}
+              className="text-lg font-semibold"
+              editing={editingTitle}
+              onStartEdit={() => setEditingTitle(true)}
+              onSave={(title) => {
+                setEditingTitle(false);
+                onRenameUnit(unit.id, title);
+              }}
+              onCancel={() => setEditingTitle(false)}
+            />
+          </div>
+          <span className="text-xs text-muted-foreground whitespace-nowrap">
+            {itemCount} {itemCount === 1 ? 'item' : 'items'}
+          </span>
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button variant="ghost" size="sm" className="h-7 w-7 p-0" title="Unit actions">
+                <MoreVertical className="h-4 w-4" />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end">
+              <DropdownMenuItem onSelect={() => setEditingTitle(true)}>
+                <Pencil className="h-4 w-4" />
+                Rename
+              </DropdownMenuItem>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem
+                className="text-destructive focus:text-destructive"
+                onSelect={() => onDeleteUnit(unit.id)}
+              >
+                <Trash2 className="h-4 w-4" />
+                Delete
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
+        </div>
+      </CardHeader>
+      {!collapsed && (
+        <CardContent className="pt-0 pb-3" ref={setDropRef}>
+          {itemCount === 0 && (
+            <p className="text-sm text-muted-foreground px-2 py-2">
+              No lessons yet — add a lesson, assignment, or quiz.
+            </p>
+          )}
+          <SortableContext
+            items={unit.lessons.map(l => `lesson-${l.id}`)}
+            strategy={verticalListSortingStrategy}
+          >
+            <ul>
+              {unit.lessons.map(lesson => (
+                <SortableLessonRow
+                  key={lesson.id}
+                  lesson={lesson}
+                  courseCode={courseCode}
+                  onRename={onRenameLesson}
+                  onDelete={onDeleteLesson}
+                />
+              ))}
+            </ul>
+          </SortableContext>
+
+          {assignments.length > 0 && (
+            <ul>
+              {assignments.map(assignment => (
+                <li
+                  key={assignment.id}
+                  className="group flex items-center gap-2 rounded-md px-2 py-1.5 hover:bg-muted/50"
+                >
+                  <span className="w-4" />
+                  <ClipboardList className="h-4 w-4 text-muted-foreground flex-shrink-0" />
+                  <button
+                    type="button"
+                    className="flex-1 min-w-0 text-left"
+                    onClick={() => onEditAssignment(assignment)}
+                  >
+                    <span className="text-sm hover:underline truncate block">
+                      {assignment.title}
+                    </span>
+                  </button>
+                  <span className="text-xs text-muted-foreground whitespace-nowrap">
+                    {assignment.max_points} pts
+                    {assignment.due_date && (
+                      <> · due {new Date(assignment.due_date).toLocaleDateString()}</>
+                    )}
+                  </span>
+                  <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 focus-within:opacity-100">
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="h-7 w-7 p-0"
+                      title="Edit assignment"
+                      onClick={() => onEditAssignment(assignment)}
+                    >
+                      <Pencil className="h-3.5 w-3.5" />
+                    </Button>
+                    <DropdownMenu>
+                      <DropdownMenuTrigger asChild>
+                        <Button variant="ghost" size="sm" className="h-7 w-7 p-0" title="More actions">
+                          <MoreVertical className="h-3.5 w-3.5" />
+                        </Button>
+                      </DropdownMenuTrigger>
+                      <DropdownMenuContent align="end">
+                        <DropdownMenuItem asChild>
+                          <Link to={`/instructor/assignments/${assignment.id}/grade`}>
+                            <GraduationCap className="h-4 w-4" />
+                            Grade submissions
+                          </Link>
+                        </DropdownMenuItem>
+                        <DropdownMenuSeparator />
+                        <DropdownMenuItem
+                          className="text-destructive focus:text-destructive"
+                          onSelect={() => onDeleteAssignment(assignment.id)}
+                        >
+                          <Trash2 className="h-4 w-4" />
+                          Delete
+                        </DropdownMenuItem>
+                      </DropdownMenuContent>
+                    </DropdownMenu>
+                  </div>
+                </li>
+              ))}
+            </ul>
+          )}
+
+          {quizzes.length > 0 && (
+            <ul>
+              {quizzes.map(quiz => (
+                <li
+                  key={quiz.id}
+                  className="group flex items-center gap-2 rounded-md px-2 py-1.5 hover:bg-muted/50"
+                >
+                  <span className="w-4" />
+                  <FileQuestion className="h-4 w-4 text-muted-foreground flex-shrink-0" />
+                  <Link
+                    to={`/instructor/courses/${courseCode}/quizzes?quiz=${quiz.id}`}
+                    className="flex-1 min-w-0 text-sm hover:underline truncate"
+                  >
+                    {quiz.title}
+                  </Link>
+                  <span className="text-xs text-muted-foreground whitespace-nowrap">
+                    {quiz.question_count} {quiz.question_count === 1 ? 'question' : 'questions'} · {quiz.points} pts
+                  </span>
+                  <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 focus-within:opacity-100">
+                    <Link to={`/instructor/courses/${courseCode}/quizzes?quiz=${quiz.id}`}>
+                      <Button variant="ghost" size="sm" className="h-7 w-7 p-0" title="Edit quiz">
+                        <Pencil className="h-3.5 w-3.5" />
+                      </Button>
+                    </Link>
+                    <DropdownMenu>
+                      <DropdownMenuTrigger asChild>
+                        <Button variant="ghost" size="sm" className="h-7 w-7 p-0" title="More actions">
+                          <MoreVertical className="h-3.5 w-3.5" />
+                        </Button>
+                      </DropdownMenuTrigger>
+                      <DropdownMenuContent align="end">
+                        <DropdownMenuItem
+                          className="text-destructive focus:text-destructive"
+                          onSelect={() => onDeleteQuiz(quiz.id)}
+                        >
+                          <Trash2 className="h-4 w-4" />
+                          Delete
+                        </DropdownMenuItem>
+                      </DropdownMenuContent>
+                    </DropdownMenu>
+                  </div>
+                </li>
+              ))}
+            </ul>
+          )}
+
+          <InlineAddRow
+            onAddLesson={(title) => onAddLesson(unit.id, title)}
+            onAddQuiz={(title) => onAddQuiz(unit.id, title)}
+            onAddAssignment={() => onAddAssignment(unit.id)}
+          />
+        </CardContent>
+      )}
+    </Card>
+  );
+}

@@ -20,8 +20,6 @@ import {
 interface SectionEditorProps {
   lessonId: number;
   lessonTitle: string;
-  open: boolean;
-  onOpenChange: (open: boolean) => void;
 }
 
 interface EditingSection {
@@ -52,12 +50,7 @@ function extractYouTubeVideoId(input: string): string {
   return trimmed;
 }
 
-export function SectionEditor({
-  lessonId,
-  lessonTitle,
-  open,
-  onOpenChange,
-}: SectionEditorProps) {
+export function SectionEditor({ lessonId, lessonTitle }: SectionEditorProps) {
   const [sections, setSections] = useState<LessonSection[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState('');
@@ -69,10 +62,8 @@ export function SectionEditor({
   const [saveError, setSaveError] = useState('');
 
   useEffect(() => {
-    if (open) {
-      loadSections();
-    }
-  }, [open, lessonId]);
+    loadSections();
+  }, [lessonId]);
 
   const loadSections = async () => {
     try {
@@ -178,22 +169,24 @@ export function SectionEditor({
 
   return (
     <>
-      <Dialog open={open} onOpenChange={onOpenChange}>
-        <DialogContent className="max-w-3xl max-h-[85vh] overflow-hidden flex flex-col">
-          <DialogHeader>
-            <DialogTitle>Manage Sections</DialogTitle>
-            <DialogDescription>
-              {lessonTitle} - Organize content into navigable sections
-            </DialogDescription>
-          </DialogHeader>
+      <div className="space-y-4">
+        <div className="flex items-center justify-between">
+          <p className="text-sm text-muted-foreground">
+            Break "{lessonTitle}" into navigable sections (slides).
+          </p>
+          <Button size="sm" onClick={openAddSection}>
+            <Plus className="h-4 w-4 mr-2" />
+            Add Section
+          </Button>
+        </div>
 
-          {error && (
-            <div className="bg-destructive/10 border border-destructive/20 text-destructive rounded-md px-4 py-3 text-sm">
-              {error}
-            </div>
-          )}
+        {error && (
+          <div className="bg-destructive/10 border border-destructive/20 text-destructive rounded-md px-4 py-3 text-sm">
+            {error}
+          </div>
+        )}
 
-          <div className="flex-1 overflow-y-auto py-4">
+        <div>
             {isLoading ? (
               <div className="flex items-center justify-center py-12">
                 <Loader2 className="h-8 w-8 animate-spin text-primary" />
@@ -281,19 +274,8 @@ export function SectionEditor({
                 ))}
               </div>
             )}
-          </div>
-
-          <DialogFooter className="border-t pt-4">
-            <Button variant="outline" onClick={() => onOpenChange(false)}>
-              Close
-            </Button>
-            <Button onClick={openAddSection}>
-              <Plus className="h-4 w-4 mr-2" />
-              Add Section
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+        </div>
+      </div>
 
       {/* Edit Section Modal */}
       <Dialog open={showEditModal} onOpenChange={setShowEditModal}>

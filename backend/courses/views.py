@@ -4,7 +4,7 @@ from rest_framework.decorators import action, api_view, permission_classes as pe
 from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated
 from django.shortcuts import get_object_or_404
-from django.db import models
+from django.db import models, transaction
 from django.db.models import F, Max, Count
 from django.http import HttpResponse
 from django.utils import timezone
@@ -176,37 +176,33 @@ class UnitViewSet(viewsets.ModelViewSet):
 
         try:
             new_order = int(new_order)
-        except ValueError:
+        except (TypeError, ValueError):
             return Response(
                 {'error': 'Order must be an integer'},
                 status=status.HTTP_400_BAD_REQUEST
             )
 
-        old_order = unit.order
         course = unit.course
 
-        if new_order == old_order:
-            return Response(UnitSerializer(unit).data)
+        with transaction.atomic():
+            others = list(
+                Unit.objects.filter(course=course)
+                .exclude(pk=unit.pk)
+                .order_by('order')
+            )
+            position = max(1, min(new_order, len(others) + 1))
+            sequence = others[:position - 1] + [unit] + others[position - 1:]
 
-        # Reorder other units
-        if new_order > old_order:
-            # Moving down: shift units between old and new position up
-            Unit.objects.filter(
-                course=course,
-                order__gt=old_order,
-                order__lte=new_order
-            ).update(order=F('order') - 1)
-        else:
-            # Moving up: shift units between new and old position down
-            Unit.objects.filter(
-                course=course,
-                order__gte=new_order,
-                order__lt=old_order
-            ).update(order=F('order') + 1)
+            # unique_together('course', 'order') is checked per row, so shift
+            # every order past the live range before assigning the final 1..n.
+            offset = (
+                Unit.objects.filter(course=course).aggregate(m=Max('order'))['m'] or 0
+            ) + 1
+            Unit.objects.filter(course=course).update(order=F('order') + offset)
+            for index, item in enumerate(sequence, start=1):
+                Unit.objects.filter(pk=item.pk).update(order=index)
 
-        unit.order = new_order
-        unit.save()
-
+        unit.refresh_from_db()
         return Response(UnitSerializer(unit).data)
 
 
@@ -267,7 +263,10 @@ class LessonViewSet(viewsets.ModelViewSet):
 
     @action(detail=True, methods=['patch'])
     def reorder(self, request, pk=None):
-        """Reorder a lesson within its unit."""
+        """
+        Reorder a lesson within its unit, or — when an optional `unit` id is
+        given — move it to that position in another unit of the same course.
+        """
         lesson = self.get_object()
         new_order = request.data.get('order')
 
@@ -279,35 +278,71 @@ class LessonViewSet(viewsets.ModelViewSet):
 
         try:
             new_order = int(new_order)
-        except ValueError:
+        except (TypeError, ValueError):
             return Response(
                 {'error': 'Order must be an integer'},
                 status=status.HTTP_400_BAD_REQUEST
             )
 
-        old_order = lesson.order
-        unit = lesson.unit
+        source_unit = lesson.unit
+        target_unit = source_unit
 
-        if new_order == old_order:
-            return Response(LessonSerializer(lesson).data)
+        target_unit_id = request.data.get('unit')
+        if target_unit_id is not None:
+            try:
+                target_unit_id = int(target_unit_id)
+            except (TypeError, ValueError):
+                return Response(
+                    {'error': 'Unit must be an integer'},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+            target_unit = Unit.objects.select_related('course').filter(
+                pk=target_unit_id
+            ).first()
+            if target_unit is None or target_unit.course_id != source_unit.course_id:
+                return Response(
+                    {'error': 'Target unit must belong to the same course.'},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
 
-        # Reorder other lessons
-        if new_order > old_order:
-            Lesson.objects.filter(
-                unit=unit,
-                order__gt=old_order,
-                order__lte=new_order
-            ).update(order=F('order') - 1)
-        else:
-            Lesson.objects.filter(
-                unit=unit,
-                order__gte=new_order,
-                order__lt=old_order
-            ).update(order=F('order') + 1)
+        # get_object() already enforced instructor on the source course;
+        # check the target explicitly as well.
+        require_course_instructor(request.user, source_unit.course)
+        require_course_instructor(request.user, target_unit.course)
 
-        lesson.order = new_order
-        lesson.save()
+        with transaction.atomic():
+            target_others = list(
+                Lesson.objects.filter(unit=target_unit)
+                .exclude(pk=lesson.pk)
+                .order_by('order')
+            )
+            position = max(1, min(new_order, len(target_others) + 1))
+            target_sequence = (
+                target_others[:position - 1] + [lesson] + target_others[position - 1:]
+            )
 
+            unit_ids = {source_unit.pk, target_unit.pk}
+            # unique_together('unit', 'order') is checked per row, so shift
+            # every order past the live range before assigning the final 1..n.
+            offset = (
+                Lesson.objects.filter(unit_id__in=unit_ids)
+                .aggregate(m=Max('order'))['m'] or 0
+            ) + 1
+            Lesson.objects.filter(unit_id__in=unit_ids).update(order=F('order') + offset)
+
+            if target_unit.pk != source_unit.pk:
+                source_sequence = list(
+                    Lesson.objects.filter(unit=source_unit)
+                    .exclude(pk=lesson.pk)
+                    .order_by('order')
+                )
+                for index, item in enumerate(source_sequence, start=1):
+                    Lesson.objects.filter(pk=item.pk).update(order=index)
+
+            for index, item in enumerate(target_sequence, start=1):
+                Lesson.objects.filter(pk=item.pk).update(unit=target_unit, order=index)
+
+        lesson.refresh_from_db()
         return Response(LessonSerializer(lesson).data)
 
 

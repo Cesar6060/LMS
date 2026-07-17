@@ -140,7 +140,7 @@ class AssignmentListSerializer(serializers.ModelSerializer):
         model = Assignment
         fields = [
             'id', 'title', 'max_points', 'due_date', 'order',
-            'course_code', 'unit_title', 'submission_status',
+            'unit', 'course_code', 'unit_title', 'submission_status',
             'available_from', 'available_until', 'is_available', 'is_closed'
         ]
 

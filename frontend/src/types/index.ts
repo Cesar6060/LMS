@@ -129,6 +129,7 @@ export interface AssignmentListItem {
   max_points: number;
   due_date: string | null;
   order: number;
+  unit: number;
   course_code: string;
   unit_title: string;
   submission_status: {
@@ -254,6 +255,7 @@ export interface Quiz {
   max_attempts: number; // 0 = unlimited
   order: number;
   question_count: number;
+  unit?: number;
   unit_title: string;
   course_code: string;
   questions?: Question[];
