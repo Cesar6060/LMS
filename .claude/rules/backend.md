@@ -14,12 +14,19 @@ paths:
 
 ## Standard view pattern
 
+All authorization checks live in `courses/permissions.py` — import the shared
+helpers instead of writing inline checks. Denials are always 403 with
+`{'detail': ...}` (raise `PermissionDenied`); never return empty lists or
+`{'error': ...}` bodies for permission failures.
+
 ```python
+from courses.permissions import require_course_instructor, require_course_access
+
 @api_view(['GET'])
 @permission_classes([IsAuthenticated])
 def my_view(request, course_code):
     course = get_object_or_404(Course, code=course_code)
-    if request.user != course.instructor:
-        return Response({'error': 'Forbidden'}, status=403)
+    require_course_instructor(request.user, course)   # instructor-only endpoint
+    # require_course_access(request.user, course)     # enrolled-or-instructor endpoint
     # ... rest of view
 ```
