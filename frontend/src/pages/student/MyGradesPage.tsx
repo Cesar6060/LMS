@@ -3,6 +3,8 @@ import { useParams, Link } from 'react-router';
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { courseService } from '@/services/courses';
+import { isForbidden } from '@/services/api';
+import { AccessDenied } from '@/components/AccessDenied';
 import type { GradeSummary, StudentGradeDetailItem } from '@/types';
 import {
   Loader2, ChevronLeft, Trophy, ClipboardList, FileQuestion,
@@ -14,6 +16,7 @@ export function MyGradesPage() {
   const [grades, setGrades] = useState<GradeSummary | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState('');
+  const [forbidden, setForbidden] = useState(false);
 
   useEffect(() => {
     if (code) {
@@ -28,14 +31,16 @@ export function MyGradesPage() {
       const data = await courseService.getMyGradeSummary(code);
       setGrades(data);
     } catch (err) {
-      console.error('Failed to load grades:', err);
-      const status = (err as { response?: { status?: number } }).response?.status;
-      if (status === 403) {
-        setError('You must be enrolled in this course to view grades.');
-      } else if (status === 404) {
-        setError('Course not found or grades endpoint unavailable.');
+      if (isForbidden(err)) {
+        setForbidden(true);
       } else {
-        setError('Failed to load grades. Please try again.');
+        console.error('Failed to load grades:', err);
+        const status = (err as { response?: { status?: number } }).response?.status;
+        if (status === 404) {
+          setError('Course not found or grades endpoint unavailable.');
+        } else {
+          setError('Failed to load grades. Please try again.');
+        }
       }
     } finally {
       setIsLoading(false);
@@ -97,6 +102,10 @@ export function MyGradesPage() {
         </div>
       </div>
     );
+  }
+
+  if (forbidden) {
+    return <AccessDenied />;
   }
 
   if (error || !grades) {

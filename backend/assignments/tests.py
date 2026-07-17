@@ -130,8 +130,8 @@ class TestAssignmentEndpoints:
     def test_list_assignments_not_enrolled(self, api_client, student, course, unit, assignment):
         api_client.force_authenticate(user=student)
         response = api_client.get(f'/api/assignments/courses/{course.code}/assignments/')
-        assert response.status_code == status.HTTP_200_OK
-        assert len(response.data) == 0  # Returns empty, not 403
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+        assert 'detail' in response.data
 
     def test_create_assignment_as_instructor(self, api_client, instructor, unit):
         api_client.force_authenticate(user=instructor)
@@ -256,8 +256,8 @@ class TestGrading:
     def test_student_cannot_list_submissions(self, api_client, student, assignment, enrollment):
         api_client.force_authenticate(user=student)
         response = api_client.get(f'/api/assignments/assignments/{assignment.id}/submissions/')
-        assert response.status_code == status.HTTP_200_OK
-        assert len(response.data) == 0  # Returns empty, not 403
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+        assert 'detail' in response.data
 
     def test_grade_submission(self, api_client, instructor, student, assignment, enrollment):
         submission = Submission.objects.create(

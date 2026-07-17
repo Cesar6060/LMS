@@ -40,7 +40,7 @@ export function AnnouncementDetailPage() {
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
 
-  const isInstructor = user?.id === announcement?.author.id;
+  const isAuthor = user?.id === announcement?.author.id;
 
   useEffect(() => {
     if (announcementId) {
@@ -176,7 +176,7 @@ export function AnnouncementDetailPage() {
           </div>
         </div>
 
-        {isInstructor && (
+        {isAuthor && (
           <div className="flex items-center gap-2">
             <Button
               variant="outline"

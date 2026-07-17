@@ -1,11 +1,13 @@
 import { useState, useEffect, type FormEvent } from 'react';
-import { useParams, Link, useNavigate } from 'react-router';
+import { useParams, Link } from 'react-router';
 import { useAuth } from '@/contexts/AuthContext';
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { courseService, type CourseDetail, type UnitWithLessons, type LessonListItem } from '@/services/courses';
 import { assignmentService } from '@/services/assignments';
+import { isForbidden } from '@/services/api';
+import { AccessDenied } from '@/components/AccessDenied';
 import { LessonQuestionsManager } from '@/components/lesson/LessonQuestionsManager';
 import { AttachmentUploader } from '@/components/lesson/AttachmentUploader';
 import { SectionEditor } from '@/components/lesson/SectionEditor';
@@ -80,11 +82,11 @@ type EditingAssignment = {
 export function ManageCoursePage() {
   const { code } = useParams<{ code: string }>();
   const { user } = useAuth();
-  const navigate = useNavigate();
 
   const [course, setCourse] = useState<CourseDetail | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState('');
+  const [forbidden, setForbidden] = useState(false);
 
   // Unit modal state
   const [showUnitModal, setShowUnitModal] = useState(false);
@@ -139,11 +141,16 @@ export function ManageCoursePage() {
 
       // Check if user is the instructor
       if (data.instructor.id !== user?.id) {
-        navigate('/courses');
+        setForbidden(true);
+        return;
       }
     } catch (err) {
-      setError('Failed to load course');
-      console.error(err);
+      if (isForbidden(err)) {
+        setForbidden(true);
+      } else {
+        setError('Failed to load course');
+        console.error(err);
+      }
     } finally {
       setIsLoading(false);
     }
@@ -405,6 +412,10 @@ export function ManageCoursePage() {
         <Loader2 className="h-8 w-8 animate-spin text-primary" />
       </div>
     );
+  }
+
+  if (forbidden) {
+    return <AccessDenied />;
   }
 
   if (error || !course) {

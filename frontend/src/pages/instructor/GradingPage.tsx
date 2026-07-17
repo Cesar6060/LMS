@@ -3,6 +3,8 @@ import { useParams, Link } from 'react-router';
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { assignmentService } from '@/services/assignments';
+import { isForbidden } from '@/services/api';
+import { AccessDenied } from '@/components/AccessDenied';
 import type { Assignment, Submission } from '@/types';
 import {
   Loader2, ChevronLeft, User, Clock, CheckCircle,
@@ -20,6 +22,7 @@ export function GradingPage() {
   const [isGrading, setIsGrading] = useState(false);
   const [isAllowingResubmit, setIsAllowingResubmit] = useState(false);
   const [error, setError] = useState('');
+  const [forbidden, setForbidden] = useState(false);
 
   // Grading form state
   const [points, setPoints] = useState('');
@@ -58,8 +61,12 @@ export function GradingPage() {
         setSelectedSubmission(submissionsData[0]);
       }
     } catch (err) {
-      setError('Failed to load assignment');
-      console.error(err);
+      if (isForbidden(err)) {
+        setForbidden(true);
+      } else {
+        setError('Failed to load assignment');
+        console.error(err);
+      }
     } finally {
       setIsLoading(false);
     }
@@ -144,6 +151,10 @@ export function GradingPage() {
         <Loader2 className="h-8 w-8 animate-spin text-primary" />
       </div>
     );
+  }
+
+  if (forbidden) {
+    return <AccessDenied />;
   }
 
   if (!assignment) {

@@ -205,11 +205,17 @@ class TestEnrollment:
 
 @pytest.mark.django_db
 class TestUnits:
-    def test_list_units_for_course(self, api_client, student, course, unit):
+    def test_list_units_for_course(self, api_client, student, course, unit, enrollment):
         api_client.force_authenticate(user=student)
         response = api_client.get(f'/api/courses/courses/{course.code}/units/')
         assert response.status_code == status.HTTP_200_OK
         assert len(response.data) == 1
+
+    def test_list_units_not_enrolled_forbidden(self, api_client, student, course, unit):
+        api_client.force_authenticate(user=student)
+        response = api_client.get(f'/api/courses/courses/{course.code}/units/')
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+        assert 'detail' in response.data
 
     def test_create_unit_as_instructor(self, api_client, instructor, course):
         api_client.force_authenticate(user=instructor)
@@ -230,11 +236,17 @@ class TestUnits:
 
 @pytest.mark.django_db
 class TestLessons:
-    def test_list_lessons_for_unit(self, api_client, student, unit, lesson):
+    def test_list_lessons_for_unit(self, api_client, student, unit, lesson, enrollment):
         api_client.force_authenticate(user=student)
         response = api_client.get(f'/api/courses/units/{unit.id}/lessons/')
         assert response.status_code == status.HTTP_200_OK
         assert len(response.data) == 1
+
+    def test_list_lessons_not_enrolled_forbidden(self, api_client, student, unit, lesson):
+        api_client.force_authenticate(user=student)
+        response = api_client.get(f'/api/courses/units/{unit.id}/lessons/')
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+        assert 'detail' in response.data
 
     def test_get_lesson_detail_enrolled(self, api_client, student, lesson, enrollment):
         api_client.force_authenticate(user=student)
@@ -1042,3 +1054,151 @@ class TestStudentGradeSummary:
         # Weighted: (80 * 60 + 100 * 40) / 100 = 88
         assert response.data['overall']['percentage'] == 88.0
         assert response.data['is_weighted'] is True
+
+
+@pytest.mark.django_db
+class TestPermissionBoundaries:
+    """Phase 14: bare ViewSet scoping and cross-course permission hardening."""
+
+    @pytest.fixture
+    def other_instructor(self):
+        return User.objects.create_user(
+            email='other.instructor@test.com',
+            password='testpass123',
+            first_name='Other',
+            last_name='Instructor',
+            is_instructor=True
+        )
+
+    @pytest.fixture
+    def other_course(self, other_instructor):
+        return Course.objects.create(
+            code='VGD201',
+            title='Other Course',
+            description='A course the student is not enrolled in.',
+            instructor=other_instructor
+        )
+
+    @pytest.fixture
+    def other_unit(self, other_course):
+        return Unit.objects.create(course=other_course, title='Other Unit', order=1)
+
+    @pytest.fixture
+    def other_lesson(self, other_unit):
+        return Lesson.objects.create(
+            unit=other_unit, title='Other Lesson', content='Secret content', order=1
+        )
+
+    # --- Bare ViewSet creates are forbidden ---
+
+    def test_student_cannot_create_unit_via_bare_endpoint(self, api_client, student, enrollment):
+        api_client.force_authenticate(user=student)
+        response = api_client.post('/api/courses/units/', {'title': 'Injected Unit'})
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+
+    def test_student_cannot_create_lesson_via_bare_endpoint(self, api_client, student, enrollment):
+        api_client.force_authenticate(user=student)
+        response = api_client.post('/api/courses/lessons/', {'title': 'Injected', 'content': 'x'})
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+
+    # --- Bare ViewSet lists are scoped to accessible courses ---
+
+    def test_units_list_scoped_to_accessible_courses(self, api_client, student, unit, enrollment, other_unit):
+        api_client.force_authenticate(user=student)
+        response = api_client.get('/api/courses/units/')
+        assert response.status_code == status.HTTP_200_OK
+        ids = [u['id'] for u in response.data]
+        assert unit.id in ids
+        assert other_unit.id not in ids
+
+    def test_lessons_list_scoped_to_accessible_courses(self, api_client, student, lesson, enrollment, other_lesson):
+        api_client.force_authenticate(user=student)
+        response = api_client.get('/api/courses/lessons/')
+        assert response.status_code == status.HTTP_200_OK
+        ids = [l['id'] for l in response.data]
+        assert lesson.id in ids
+        assert other_lesson.id not in ids
+
+    def test_retrieve_other_course_unit_forbidden(self, api_client, student, enrollment, other_unit):
+        api_client.force_authenticate(user=student)
+        response = api_client.get(f'/api/courses/units/{other_unit.id}/')
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+        assert 'detail' in response.data
+
+    def test_retrieve_other_course_lesson_forbidden(self, api_client, student, enrollment, other_lesson):
+        api_client.force_authenticate(user=student)
+        response = api_client.get(f'/api/courses/lessons/{other_lesson.id}/')
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+        assert 'detail' in response.data
+
+    # --- Cross-instructor writes are forbidden ---
+
+    def test_other_instructor_cannot_update_unit(self, api_client, other_instructor, unit):
+        api_client.force_authenticate(user=other_instructor)
+        response = api_client.patch(f'/api/courses/units/{unit.id}/', {'title': 'Hijacked'})
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+        unit.refresh_from_db()
+        assert unit.title != 'Hijacked'
+
+    def test_other_instructor_cannot_delete_lesson(self, api_client, other_instructor, lesson):
+        api_client.force_authenticate(user=other_instructor)
+        response = api_client.delete(f'/api/courses/lessons/{lesson.id}/')
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+        assert Lesson.objects.filter(id=lesson.id).exists()
+
+    # --- Announcement list/retrieve scoping ---
+
+    def test_announcements_list_scoped_to_accessible_courses(
+        self, api_client, student, course, instructor, enrollment, other_course, other_instructor
+    ):
+        mine = Announcement.objects.create(
+            course=course, author=instructor, title='Mine', content='Visible'
+        )
+        theirs = Announcement.objects.create(
+            course=other_course, author=other_instructor, title='Theirs', content='Hidden'
+        )
+        api_client.force_authenticate(user=student)
+        response = api_client.get('/api/courses/announcements/')
+        assert response.status_code == status.HTTP_200_OK
+        ids = [a['id'] for a in response.data]
+        assert mine.id in ids
+        assert theirs.id not in ids
+
+    def test_retrieve_other_course_announcement_forbidden(
+        self, api_client, student, enrollment, other_course, other_instructor
+    ):
+        theirs = Announcement.objects.create(
+            course=other_course, author=other_instructor, title='Theirs', content='Hidden'
+        )
+        api_client.force_authenticate(user=student)
+        response = api_client.get(f'/api/courses/announcements/{theirs.id}/')
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+        assert 'detail' in response.data
+
+    # --- Cross-instructor access to instructor-only course endpoints ---
+
+    def test_gradebook_other_instructor_forbidden(self, api_client, other_instructor, course):
+        api_client.force_authenticate(user=other_instructor)
+        response = api_client.get(f'/api/courses/courses/{course.code}/gradebook/')
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+        assert 'detail' in response.data
+
+    def test_roster_other_instructor_forbidden(self, api_client, other_instructor, course):
+        api_client.force_authenticate(user=other_instructor)
+        response = api_client.get(f'/api/courses/courses/{course.code}/students/')
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+        assert 'detail' in response.data
+
+    def test_course_units_other_instructor_forbidden(self, api_client, other_instructor, course, unit):
+        api_client.force_authenticate(user=other_instructor)
+        response = api_client.get(f'/api/courses/courses/{course.code}/units/')
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+        assert 'detail' in response.data
+
+    # --- Activity endpoint now returns 403 (was 404) ---
+
+    def test_update_activity_not_enrolled_forbidden(self, api_client, student, course):
+        api_client.force_authenticate(user=student)
+        response = api_client.post(f'/api/courses/courses/{course.code}/activity/')
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+        assert 'detail' in response.data

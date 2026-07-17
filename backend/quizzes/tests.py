@@ -326,3 +326,46 @@ class TestCourseQuizzes:
         assert response.status_code == status.HTTP_200_OK
         assert len(response.data) == 1
         assert response.data[0]['title'] == 'Test Quiz'
+
+
+@pytest.mark.django_db
+class TestQuizPermissionBoundaries:
+    """Phase 14: previously untested quiz permission gaps."""
+
+    @pytest.fixture
+    def other_instructor(self):
+        return User.objects.create_user(
+            email='other.instructor@test.com',
+            password='testpass123',
+            is_instructor=True
+        )
+
+    def test_question_detail_student_forbidden(self, api_client, student, enrollment, question_with_choices):
+        api_client.force_authenticate(user=student)
+        response = api_client.put(
+            f'/api/questions/{question_with_choices.id}/',
+            {'text': 'Hijacked?'}, format='json'
+        )
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+        assert 'detail' in response.data
+
+    def test_question_delete_student_forbidden(self, api_client, student, enrollment, question_with_choices):
+        api_client.force_authenticate(user=student)
+        response = api_client.delete(f'/api/questions/{question_with_choices.id}/')
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+
+    def test_quick_grade_student_forbidden(self, api_client, student, enrollment, quiz):
+        api_client.force_authenticate(user=student)
+        response = api_client.post(
+            f'/api/quizzes/{quiz.id}/quick-grade/{student.id}/', {'points': 10}
+        )
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+        assert 'detail' in response.data
+
+    def test_quick_grade_other_instructor_forbidden(self, api_client, other_instructor, student, enrollment, quiz):
+        api_client.force_authenticate(user=other_instructor)
+        response = api_client.post(
+            f'/api/quizzes/{quiz.id}/quick-grade/{student.id}/', {'points': 10}
+        )
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+        assert 'detail' in response.data

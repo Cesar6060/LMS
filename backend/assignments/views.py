@@ -1,12 +1,17 @@
 from rest_framework import generics, status
 from rest_framework.decorators import api_view, permission_classes
+from rest_framework.exceptions import PermissionDenied, ValidationError
 from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
 from django.db.models import Q
 
-from courses.models import Course, Unit, Enrollment
+from courses.models import Course, Unit
+from courses.permissions import (
+    is_course_instructor, require_course_instructor,
+    require_course_access, require_enrollment,
+)
 from notifications.signals import notify_student_resubmission_allowed
 from .models import Assignment, Submission, SubmissionFile, SubmissionHistory, Grade
 from .serializers import (
@@ -21,13 +26,6 @@ from .serializers import (
 from .utils import calculate_late_penalty
 
 
-def is_enrolled_or_instructor(user, course):
-    """Check if user is actively enrolled in course or is the instructor."""
-    if user == course.instructor:
-        return True
-    return Enrollment.objects.filter(user=user, course=course, is_active=True).exists()
-
-
 class AssignmentListView(generics.ListAPIView):
     """List assignments for a course."""
     serializer_class = AssignmentListSerializer
@@ -36,16 +34,14 @@ class AssignmentListView(generics.ListAPIView):
     def get_queryset(self):
         course_code = self.kwargs['course_code']
         course = get_object_or_404(Course, code=course_code)
-
-        if not is_enrolled_or_instructor(self.request.user, course):
-            return Assignment.objects.none()
+        require_course_access(self.request.user, course)
 
         queryset = Assignment.objects.filter(
             unit__course=course
         ).select_related('unit', 'unit__course')
 
         # For students, filter out assignments that are not yet available
-        if self.request.user != course.instructor:
+        if not is_course_instructor(self.request.user, course):
             now = timezone.now()
             queryset = queryset.filter(
                 Q(available_from__isnull=True) | Q(available_from__lte=now)
@@ -65,17 +61,15 @@ class UnitAssignmentListCreateView(generics.ListCreateAPIView):
 
     def get_queryset(self):
         unit = get_object_or_404(Unit, id=self.kwargs['unit_id'])
-        if not is_enrolled_or_instructor(self.request.user, unit.course):
-            return Assignment.objects.none()
+        require_course_access(self.request.user, unit.course)
         return Assignment.objects.filter(unit=unit)
 
     def perform_create(self, serializer):
         unit = get_object_or_404(Unit, id=self.kwargs['unit_id'])
-
-        # Only instructor can create assignments
-        if self.request.user != unit.course.instructor:
-            from rest_framework.exceptions import PermissionDenied
-            raise PermissionDenied("Only the course instructor can create assignments.")
+        require_course_instructor(
+            self.request.user, unit.course,
+            "Only the course instructor can create assignments."
+        )
 
         # Auto-set order if not provided
         if 'order' not in serializer.validated_data:
@@ -100,23 +94,21 @@ class AssignmentDetailView(generics.RetrieveUpdateDestroyAPIView):
             id=self.kwargs['pk']
         )
         course = assignment.unit.course
-
-        if not is_enrolled_or_instructor(self.request.user, course):
-            from rest_framework.exceptions import PermissionDenied
-            raise PermissionDenied("You must be enrolled in this course.")
-
+        require_course_access(self.request.user, course, "You must be enrolled in this course.")
         return assignment
 
     def perform_update(self, serializer):
-        if self.request.user != serializer.instance.course.instructor:
-            from rest_framework.exceptions import PermissionDenied
-            raise PermissionDenied("Only the course instructor can update assignments.")
+        require_course_instructor(
+            self.request.user, serializer.instance.course,
+            "Only the course instructor can update assignments."
+        )
         serializer.save()
 
     def perform_destroy(self, instance):
-        if self.request.user != instance.course.instructor:
-            from rest_framework.exceptions import PermissionDenied
-            raise PermissionDenied("Only the course instructor can delete assignments.")
+        require_course_instructor(
+            self.request.user, instance.course,
+            "Only the course instructor can delete assignments."
+        )
         instance.delete()
 
 
@@ -141,13 +133,13 @@ class MySubmissionView(generics.RetrieveUpdateAPIView):
         course = assignment.unit.course
 
         # Must be actively enrolled (not instructor)
-        if not Enrollment.objects.filter(user=self.request.user, course=course, is_active=True).exists():
-            from rest_framework.exceptions import PermissionDenied
-            raise PermissionDenied("You must be enrolled in this course to submit.")
+        require_enrollment(
+            self.request.user, course,
+            "You must be enrolled in this course to submit."
+        )
 
         # Check if assignment is available for students
         if not assignment.is_available:
-            from rest_framework.exceptions import PermissionDenied
             raise PermissionDenied("This assignment is not yet available.")
 
         submission, created = Submission.objects.get_or_create(
@@ -207,11 +199,10 @@ def allow_resubmission(request, submission_id):
     )
 
     # Only instructor can allow resubmission
-    if request.user != submission.assignment.course.instructor:
-        return Response(
-            {'error': 'Only the course instructor can allow resubmission.'},
-            status=status.HTTP_403_FORBIDDEN
-        )
+    require_course_instructor(
+        request.user, submission.assignment.course,
+        "Only the course instructor can allow resubmission."
+    )
 
     # Archive the current submission before resetting
     grade_points = None
@@ -257,12 +248,7 @@ def submit_assignment(request, assignment_id):
         id=assignment_id
     )
     course = assignment.unit.course
-
-    if not Enrollment.objects.filter(user=request.user, course=course, is_active=True).exists():
-        return Response(
-            {'error': 'You must be enrolled in this course.'},
-            status=status.HTTP_403_FORBIDDEN
-        )
+    require_enrollment(request.user, course, "You must be enrolled in this course.")
 
     # Check if assignment is closed for submissions
     if assignment.is_closed:
@@ -312,8 +298,10 @@ class AssignmentSubmissionsView(generics.ListAPIView):
             id=self.kwargs['assignment_id']
         )
 
-        if self.request.user != assignment.course.instructor:
-            return Submission.objects.none()
+        require_course_instructor(
+            self.request.user, assignment.course,
+            "Only the course instructor can view submissions."
+        )
 
         return Submission.objects.filter(
             assignment=assignment,
@@ -332,12 +320,12 @@ class GradeSubmissionView(generics.CreateAPIView, generics.UpdateAPIView):
             id=self.kwargs['submission_id']
         )
 
-        if self.request.user != submission.assignment.course.instructor:
-            from rest_framework.exceptions import PermissionDenied
-            raise PermissionDenied("Only the course instructor can grade submissions.")
+        require_course_instructor(
+            self.request.user, submission.assignment.course,
+            "Only the course instructor can grade submissions."
+        )
 
         if submission.status == 'draft':
-            from rest_framework.exceptions import ValidationError
             raise ValidationError("Cannot grade a draft submission.")
 
         return submission
@@ -411,11 +399,10 @@ def quick_grade(request, assignment_id, student_id):
     course = assignment.unit.course
 
     # Only instructor can use quick grade
-    if request.user != course.instructor:
-        return Response(
-            {'error': 'Only the course instructor can grade.'},
-            status=status.HTTP_403_FORBIDDEN
-        )
+    require_course_instructor(
+        request.user, course,
+        "Only the course instructor can grade."
+    )
 
     # Verify student is enrolled
     enrollment = Enrollment.objects.filter(

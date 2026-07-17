@@ -5,6 +5,8 @@ import remarkGfm from 'remark-gfm';
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { assignmentService } from '@/services/assignments';
+import { isForbidden } from '@/services/api';
+import { AccessDenied } from '@/components/AccessDenied';
 import type { Assignment, Submission } from '@/types';
 import {
   Loader2, ChevronLeft, Calendar, Award, Clock,
@@ -24,6 +26,7 @@ export function AssignmentDetailPage() {
   const [isSaving, setIsSaving] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState('');
+  const [forbidden, setForbidden] = useState(false);
   const [saveMessage, setSaveMessage] = useState('');
 
   // Auto-save refs
@@ -46,8 +49,12 @@ export function AssignmentDetailPage() {
       setContent(initialContent);
       lastSavedContentRef.current = initialContent;
     } catch (err) {
-      setError('Failed to load assignment');
-      console.error(err);
+      if (isForbidden(err)) {
+        setForbidden(true);
+      } else {
+        setError('Failed to load assignment');
+        console.error(err);
+      }
     } finally {
       setIsLoading(false);
     }
@@ -271,6 +278,10 @@ export function AssignmentDetailPage() {
         <Loader2 className="h-8 w-8 animate-spin text-primary" />
       </div>
     );
+  }
+
+  if (forbidden) {
+    return <AccessDenied />;
   }
 
   if (error && !assignment) {

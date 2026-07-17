@@ -5,6 +5,8 @@ import { Card, CardContent } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { courseService, type AnnouncementListItem, type CourseDetail } from '@/services/courses';
+import { isForbidden } from '@/services/api';
+import { AccessDenied } from '@/components/AccessDenied';
 import { Skeleton } from '@/components/ui/Skeleton';
 import {
   Megaphone, Pin, ChevronLeft, Plus, Trash2, Edit,
@@ -26,6 +28,7 @@ export function AnnouncementsPage() {
   const [announcements, setAnnouncements] = useState<AnnouncementListItem[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState('');
+  const [forbidden, setForbidden] = useState(false);
 
   // Create/Edit modal state
   const [showModal, setShowModal] = useState(false);
@@ -42,7 +45,7 @@ export function AnnouncementsPage() {
   const [deleteId, setDeleteId] = useState<number | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
 
-  const isInstructor = user?.id === course?.instructor.id;
+  const isCourseOwner = user?.id === course?.instructor.id;
 
   useEffect(() => {
     if (code) {
@@ -60,8 +63,12 @@ export function AnnouncementsPage() {
       setCourse(courseData);
       setAnnouncements(announcementsData);
     } catch (err) {
-      setError('Failed to load announcements');
-      console.error(err);
+      if (isForbidden(err)) {
+        setForbidden(true);
+      } else {
+        setError('Failed to load announcements');
+        console.error(err);
+      }
     } finally {
       setIsLoading(false);
     }
@@ -163,6 +170,10 @@ export function AnnouncementsPage() {
     );
   }
 
+  if (forbidden) {
+    return <AccessDenied />;
+  }
+
   if (error || !course) {
     return (
       <div className="container mx-auto px-4 py-8">
@@ -185,11 +196,11 @@ export function AnnouncementsPage() {
       {/* Header */}
       <div className="mb-6">
         <Link
-          to={isInstructor ? `/instructor/courses/${code}/manage` : `/courses/${code}`}
+          to={isCourseOwner ? `/instructor/courses/${code}/manage` : `/courses/${code}`}
           className="inline-flex items-center text-sm text-muted-foreground hover:text-foreground mb-4"
         >
           <ChevronLeft className="h-4 w-4 mr-1" />
-          {isInstructor ? 'Back to Manage Course' : 'Back to Course'}
+          {isCourseOwner ? 'Back to Manage Course' : 'Back to Course'}
         </Link>
 
         <div className="flex items-start justify-between">
@@ -201,7 +212,7 @@ export function AnnouncementsPage() {
             <p className="text-muted-foreground">{course.code} - {course.title}</p>
           </div>
 
-          {isInstructor && (
+          {isCourseOwner && (
             <Button onClick={openCreateModal}>
               <Plus className="h-4 w-4 mr-2" />
               New Announcement
@@ -217,7 +228,7 @@ export function AnnouncementsPage() {
             <Megaphone className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
             <h3 className="text-lg font-semibold mb-2">No Announcements</h3>
             <p className="text-muted-foreground">
-              {isInstructor
+              {isCourseOwner
                 ? "You haven't created any announcements yet."
                 : 'No announcements have been posted for this course.'}
             </p>
@@ -253,7 +264,7 @@ export function AnnouncementsPage() {
                     </div>
                   </div>
 
-                  {isInstructor && (
+                  {isCourseOwner && (
                     <div className="flex items-center gap-2">
                       <Button
                         variant="ghost"

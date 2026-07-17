@@ -3,6 +3,8 @@ import { useParams, Link } from 'react-router';
 import { Card, CardContent } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { courseService, type Gradebook } from '@/services/courses';
+import { isForbidden } from '@/services/api';
+import { AccessDenied } from '@/components/AccessDenied';
 import { Skeleton } from '@/components/ui/Skeleton';
 import { EditableGradeCell } from '@/components/gradebook/EditableGradeCell';
 import { GradingConfigModal } from '@/components/course/GradingConfigModal';
@@ -16,6 +18,7 @@ export function GradebookPage() {
   const [gradebook, setGradebook] = useState<Gradebook | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState('');
+  const [forbidden, setForbidden] = useState(false);
   const [showConfigModal, setShowConfigModal] = useState(false);
 
   useEffect(() => {
@@ -30,8 +33,12 @@ export function GradebookPage() {
       const data = await courseService.getGradebook(code!);
       setGradebook(data);
     } catch (err) {
-      setError('Failed to load gradebook');
-      console.error(err);
+      if (isForbidden(err)) {
+        setForbidden(true);
+      } else {
+        setError('Failed to load gradebook');
+        console.error(err);
+      }
     } finally {
       setIsLoading(false);
     }
@@ -115,6 +122,10 @@ export function GradebookPage() {
         <Skeleton className="h-96 w-full" />
       </div>
     );
+  }
+
+  if (forbidden) {
+    return <AccessDenied />;
   }
 
   if (error || !gradebook) {

@@ -35,22 +35,22 @@ export function LessonPage() {
   const isSavingRef = useRef(false);
 
   // Check if current user is the instructor
-  const isInstructor = course && user && course.instructor.id === user.id;
+  const isCourseOwner = course && user && course.instructor.id === user.id;
 
   // Refs for cleanup
   const currentLessonRef = useRef<number | null>(null);
-  const isInstructorRef = useRef(false);
+  const isCourseOwnerRef = useRef(false);
 
   // Update refs when values change
   useEffect(() => {
     currentLessonRef.current = lesson?.id || null;
-    isInstructorRef.current = !!isInstructor;
-  }, [lesson?.id, isInstructor]);
+    isCourseOwnerRef.current = !!isCourseOwner;
+  }, [lesson?.id, isCourseOwner]);
 
   // Reset instructor progress when leaving the lesson
   useEffect(() => {
     return () => {
-      if (isInstructorRef.current && currentLessonRef.current) {
+      if (isCourseOwnerRef.current && currentLessonRef.current) {
         courseService.resetLessonProgress(currentLessonRef.current).catch(() => {
           // Silent fail
         });

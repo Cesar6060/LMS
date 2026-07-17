@@ -6,6 +6,8 @@ import { Input } from '@/components/ui/Input';
 import { Skeleton } from '@/components/ui/Skeleton';
 import { courseService, type CourseDetail } from '@/services/courses';
 import { discussionService } from '@/services/discussions';
+import { isForbidden } from '@/services/api';
+import { AccessDenied } from '@/components/AccessDenied';
 import type { ThreadListItem } from '@/types';
 import { MessageSquare, Pin, Lock, ChevronLeft, Plus, MessageCircle, User } from 'lucide-react';
 import {
@@ -35,6 +37,7 @@ export function DiscussionsPage() {
   const [threads, setThreads] = useState<ThreadListItem[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState('');
+  const [forbidden, setForbidden] = useState(false);
 
   const [showModal, setShowModal] = useState(false);
   const [formData, setFormData] = useState({ title: '', content: '' });
@@ -56,8 +59,12 @@ export function DiscussionsPage() {
       setCourse(courseData);
       setThreads(threadsData);
     } catch (err) {
-      setError('Failed to load discussions');
-      console.error(err);
+      if (isForbidden(err)) {
+        setForbidden(true);
+      } else {
+        setError('Failed to load discussions');
+        console.error(err);
+      }
     } finally {
       setIsLoading(false);
     }
@@ -99,6 +106,10 @@ export function DiscussionsPage() {
         </div>
       </div>
     );
+  }
+
+  if (forbidden) {
+    return <AccessDenied />;
   }
 
   if (error || !course) {
