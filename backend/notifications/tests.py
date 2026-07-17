@@ -272,3 +272,128 @@ class TestNotificationSignals:
         )
         assert notifications.count() == 1
         assert 'resubmit' in notifications.first().message.lower()
+
+
+@pytest.mark.django_db
+class TestNotificationRelatedUrls:
+    """Notification related_url values must point at real frontend routes."""
+
+    def _setup_assignment(self, student, course):
+        from courses.models import Unit
+
+        Enrollment.objects.create(user=student, course=course)
+        Notification.objects.all().delete()
+        unit = Unit.objects.create(course=course, title='Unit 1', order=1)
+        return Assignment.objects.create(unit=unit, title='Assignment 1', max_points=100)
+
+    def test_new_assignment_url_is_course_nested(self, instructor, student, course):
+        assignment = self._setup_assignment(student, course)
+
+        notification = Notification.objects.get(recipient=student, type='new_assignment')
+        assert notification.related_url == f'/courses/{course.code}/assignments/{assignment.id}'
+
+    def test_grade_url_is_course_nested(self, instructor, student, course):
+        assignment = self._setup_assignment(student, course)
+        submission = Submission.objects.create(
+            assignment=assignment,
+            student=student,
+            content='My submission',
+            status='submitted'
+        )
+        Grade.objects.create(submission=submission, grader=instructor, points=85)
+
+        notification = Notification.objects.get(recipient=student, type='grade')
+        assert notification.related_url == f'/courses/{course.code}/assignments/{assignment.id}'
+
+    def test_resubmission_url_is_course_nested(self, instructor, student, course):
+        from notifications.signals import notify_student_resubmission_allowed
+
+        assignment = self._setup_assignment(student, course)
+        submission = Submission.objects.create(
+            assignment=assignment,
+            student=student,
+            content='My submission',
+            status='submitted'
+        )
+
+        notify_student_resubmission_allowed(submission)
+
+        notification = Notification.objects.get(recipient=student, type='resubmission')
+        assert notification.related_url == f'/courses/{course.code}/assignments/{assignment.id}'
+
+    def test_new_lesson_url_uses_learn_path(self, instructor, student, course):
+        from courses.models import Unit, Lesson
+
+        Enrollment.objects.create(user=student, course=course)
+        Notification.objects.all().delete()
+        unit = Unit.objects.create(course=course, title='Unit 1', order=1)
+        lesson = Lesson.objects.create(unit=unit, title='Lesson 1', order=1)
+
+        notification = Notification.objects.get(recipient=student, type='new_lesson')
+        assert notification.related_url == f'/courses/{course.code}/learn/{lesson.id}'
+
+
+@pytest.mark.django_db
+class TestAssignmentUrlDataMigration:
+    """0003_rewrite_assignment_urls rewrites legacy /assignments/<id> URLs."""
+
+    def _run_migration(self):
+        from importlib import import_module
+
+        from django.apps import apps as django_apps
+
+        migration = import_module('notifications.migrations.0003_rewrite_assignment_urls')
+        migration.rewrite_assignment_urls(django_apps, None)
+
+    def test_rewrites_url_for_existing_assignment(self, instructor, student, course):
+        from courses.models import Unit
+
+        unit = Unit.objects.create(course=course, title='Unit 1', order=1)
+        assignment = Assignment.objects.create(unit=unit, title='Assignment 1')
+        Notification.objects.all().delete()
+        notification = Notification.objects.create(
+            recipient=student,
+            type='new_assignment',
+            title='Legacy',
+            message='m',
+            related_url=f'/assignments/{assignment.id}'
+        )
+
+        self._run_migration()
+
+        notification.refresh_from_db()
+        assert notification.related_url == f'/courses/{course.code}/assignments/{assignment.id}'
+
+    def test_clears_url_for_missing_assignment(self, student):
+        notification = Notification.objects.create(
+            recipient=student,
+            type='new_assignment',
+            title='Orphaned',
+            message='m',
+            related_url='/assignments/999999'
+        )
+
+        self._run_migration()
+
+        notification.refresh_from_db()
+        assert notification.related_url == ''
+
+    def test_leaves_other_urls_untouched(self, student):
+        untouched = [
+            '/instructor/assignments/5/grade',
+            '/courses/CS101/assignments/5',
+            '/courses/CS101/lessons/3',
+            '',
+        ]
+        notifications = [
+            Notification.objects.create(
+                recipient=student, type='grade', title='t', message='m', related_url=url
+            )
+            for url in untouched
+        ]
+
+        self._run_migration()
+
+        for notification, url in zip(notifications, untouched):
+            notification.refresh_from_db()
+            assert notification.related_url == url

@@ -28,9 +28,14 @@ api.interceptors.response.use(
   (response) => response,
   (error) => {
     if (error.response?.status === 401) {
-      // Clear token and redirect to login
+      // Clear token and redirect to login. This is a full-page redirect, so
+      // router state is lost — pass the current location as ?next= instead
+      // (LoginPage reads it as a fallback after login).
       localStorage.removeItem('token');
-      window.location.href = '/login';
+      if (window.location.pathname !== '/login') {
+        const next = window.location.pathname + window.location.search;
+        window.location.href = `/login?next=${encodeURIComponent(next)}`;
+      }
     }
     return Promise.reject(error);
   }

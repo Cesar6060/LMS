@@ -1,5 +1,6 @@
-import { Routes, Route, Navigate, useLocation } from 'react-router';
+import { Routes, Route, Navigate, useLocation, useParams, useSearchParams } from 'react-router';
 import { useAuth } from '@/contexts/AuthContext';
+import { AccessDenied } from '@/components/AccessDenied';
 import { Header } from '@/components/layout/Header';
 import { AnimatedBackground } from '@/components/ui/AnimatedBackground';
 import { LoginPage } from '@/pages/auth/LoginPage';
@@ -10,7 +11,6 @@ import { VerifyEmailPage } from '@/pages/auth/VerifyEmailPage';
 import { DashboardPage } from '@/pages/DashboardPage';
 import { CoursesPage } from '@/pages/courses/CoursesPage';
 import { CourseDetailPage } from '@/pages/courses/CourseDetailPage';
-import { LessonPage } from '@/pages/courses/LessonPage';
 import { CoursePlayerPage } from '@/pages/courses/CoursePlayerPage';
 import { CreateCoursePage } from '@/pages/instructor/CreateCoursePage';
 import { ManageCoursePage } from '@/pages/instructor/ManageCoursePage';
@@ -32,6 +32,7 @@ import { Loader2 } from 'lucide-react';
 // Protected route wrapper
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
   const { isAuthenticated, isLoading } = useAuth();
+  const location = useLocation();
 
   if (isLoading) {
     return (
@@ -42,7 +43,7 @@ function ProtectedRoute({ children }: { children: React.ReactNode }) {
   }
 
   if (!isAuthenticated) {
-    return <Navigate to="/login" replace />;
+    return <Navigate to="/login" state={{ from: location }} replace />;
   }
 
   return <>{children}</>;
@@ -70,6 +71,7 @@ function PublicRoute({ children }: { children: React.ReactNode }) {
 // Instructor-only route wrapper
 function InstructorRoute({ children }: { children: React.ReactNode }) {
   const { isAuthenticated, isLoading, user } = useAuth();
+  const location = useLocation();
 
   if (isLoading) {
     return (
@@ -80,14 +82,43 @@ function InstructorRoute({ children }: { children: React.ReactNode }) {
   }
 
   if (!isAuthenticated) {
-    return <Navigate to="/login" replace />;
+    return <Navigate to="/login" state={{ from: location }} replace />;
   }
 
   if (!user?.is_instructor) {
-    return <Navigate to="/dashboard" replace />;
+    return <AccessDenied message="This page is only available to instructors." />;
   }
 
   return <>{children}</>;
+}
+
+// /verify-email: logged-in users legitimately open links carrying a key
+// (verification is optional + login-on-confirmation), so only bounce
+// authenticated visitors when there is no key to consume.
+function VerifyEmailRoute() {
+  const { isAuthenticated, isLoading } = useAuth();
+  const [searchParams] = useSearchParams();
+
+  if (isLoading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center">
+        <Loader2 className="h-8 w-8 animate-spin text-primary" />
+      </div>
+    );
+  }
+
+  if (isAuthenticated && !searchParams.get('key')) {
+    return <Navigate to="/dashboard" replace />;
+  }
+
+  return <VerifyEmailPage />;
+}
+
+// Legacy lesson URL — the standalone lesson page was retired in favor of the
+// course player; old links (and old notification URLs) redirect there.
+function LegacyLessonRedirect() {
+  const { code, lessonId } = useParams();
+  return <Navigate to={`/courses/${code}/learn/${lessonId}`} replace />;
 }
 
 function App() {
@@ -154,7 +185,7 @@ function App() {
           />
           <Route
             path="/verify-email"
-            element={<VerifyEmailPage />}
+            element={<VerifyEmailRoute />}
           />
 
           {/* Protected routes */}
@@ -186,11 +217,7 @@ function App() {
           />
           <Route
             path="/courses/:code/lessons/:lessonId"
-            element={
-              <ProtectedRoute>
-                <LessonPage />
-              </ProtectedRoute>
-            }
+            element={<LegacyLessonRedirect />}
           />
           <Route
             path="/courses/:code/learn"
