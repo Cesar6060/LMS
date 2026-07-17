@@ -16,6 +16,7 @@ urlpatterns = [
     path('api/assignments/', include('assignments.urls')),
     path('api/notifications/', include('notifications.urls')),
     path('api/', include('quizzes.urls')),
+    path('api/', include('discussions.urls')),
 
     # Health check
     path('api/health/', lambda request: __import__('django.http', fromlist=['JsonResponse']).JsonResponse({'status': 'ok'})),

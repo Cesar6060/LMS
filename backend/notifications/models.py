@@ -14,6 +14,7 @@ class Notification(models.Model):
         ('new_assignment', 'New Assignment'),
         ('resubmission', 'Resubmission Allowed'),
         ('announcement', 'New Announcement'),
+        ('reply', 'New Reply'),
     ]
 
     recipient = models.ForeignKey(

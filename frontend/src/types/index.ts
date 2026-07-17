@@ -535,3 +535,37 @@ export interface CalendarResponse {
   end_date: string;
   events: CalendarEvent[];
 }
+
+// Phase 13: Discussion types
+export interface Reply {
+  id: number;
+  author: User;
+  content: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ThreadListItem {
+  id: number;
+  title: string;
+  author: User;
+  author_name: string;
+  is_pinned: boolean;
+  is_locked: boolean;
+  reply_count: number;
+  last_activity: string;
+  created_at: string;
+}
+
+export interface ThreadDetail {
+  id: number;
+  course_code: string;
+  title: string;
+  content: string;
+  author: User;
+  is_pinned: boolean;
+  is_locked: boolean;
+  created_at: string;
+  updated_at: string;
+  replies: Reply[];
+}

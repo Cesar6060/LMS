@@ -283,7 +283,7 @@ export function CoursePlayerPage() {
     }
   };
 
-  const handleVideoProgress = useCallback(async (position: number, _duration: number) => {
+  const handleVideoProgress = useCallback(async (position: number) => {
     if (!currentLesson || isSavingRef.current) return;
 
     const positionDiff = Math.abs(position - lastSavedPositionRef.current);

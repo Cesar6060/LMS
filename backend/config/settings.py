@@ -44,6 +44,7 @@ INSTALLED_APPS = [
     'assignments',
     'notifications',
     'quizzes',
+    'discussions',
 ]
 
 MIDDLEWARE = [
