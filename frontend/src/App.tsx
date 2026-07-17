@@ -20,6 +20,8 @@ import { GradebookPage } from '@/pages/instructor/GradebookPage';
 import { StudentRosterPage } from '@/pages/instructor/StudentRosterPage';
 import { AnnouncementsPage } from '@/pages/announcements/AnnouncementsPage';
 import { AnnouncementDetailPage } from '@/pages/announcements/AnnouncementDetailPage';
+import { DiscussionsPage } from '@/pages/discussions/DiscussionsPage';
+import { ThreadDetailPage } from '@/pages/discussions/ThreadDetailPage';
 import { QuizDetailPage } from '@/pages/quizzes/QuizDetailPage';
 import { QuizEditorPage } from '@/pages/instructor/QuizEditorPage';
 import { MyGradesPage } from '@/pages/student/MyGradesPage';
@@ -219,6 +221,22 @@ function App() {
             element={
               <ProtectedRoute>
                 <AnnouncementDetailPage />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/courses/:code/discussions"
+            element={
+              <ProtectedRoute>
+                <DiscussionsPage />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/courses/:code/discussions/:threadId"
+            element={
+              <ProtectedRoute>
+                <ThreadDetailPage />
               </ProtectedRoute>
             }
           />

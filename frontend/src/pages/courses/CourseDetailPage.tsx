@@ -10,7 +10,7 @@ import type { AssignmentListItem, Quiz } from '@/types';
 import {
   BookOpen, Users, ChevronRight, Play, FileText,
   Lock, CheckCircle, Settings, ClipboardList, Calendar, Megaphone, Pin,
-  FileQuestion, Trophy, XCircle
+  FileQuestion, Trophy, XCircle, MessageSquare
 } from 'lucide-react';
 import { EnrollmentModal } from '@/components/course/EnrollmentModal';
 import { StudentGradeCard } from '@/components/course/StudentGradeCard';
@@ -493,6 +493,33 @@ export function CourseDetailPage() {
               </CardContent>
             </Card>
           )}
+        </div>
+      )}
+
+      {/* Discussions Section */}
+      {canAccessContent && (
+        <div className="mb-8">
+          <div className="flex items-center justify-between mb-4">
+            <h2 className="text-xl font-semibold flex items-center gap-2">
+              <MessageSquare className="h-5 w-5" />
+              Discussions
+            </h2>
+            <Link to={`/courses/${course.code}/discussions`}>
+              <Button variant="link" className="text-sm">
+                {isInstructor ? 'Manage Discussions' : 'View All'}
+                <ChevronRight className="h-4 w-4 ml-1" />
+              </Button>
+            </Link>
+          </div>
+
+          <Card>
+            <CardContent className="py-8 text-center text-muted-foreground">
+              Ask questions and help your classmates.{' '}
+              <Link to={`/courses/${course.code}/discussions`} className="text-primary hover:underline">
+                Open discussions
+              </Link>
+            </CardContent>
+          </Card>
         </div>
       )}
 
