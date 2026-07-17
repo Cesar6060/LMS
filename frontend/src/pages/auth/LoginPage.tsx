@@ -1,5 +1,5 @@
 import { useState, type FormEvent } from 'react';
-import { Link, useNavigate } from 'react-router';
+import { Link, useLocation, useNavigate, useSearchParams } from 'react-router';
 import { useAuth } from '@/contexts/AuthContext';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
@@ -15,6 +15,18 @@ export function LoginPage() {
 
   const { login } = useAuth();
   const navigate = useNavigate();
+  const location = useLocation();
+  const [searchParams] = useSearchParams();
+
+  // Where to land after login: router state from a guard redirect, then the
+  // ?next= param set by the 401 interceptor's full-page redirect. Only accept
+  // relative paths ('/...' but not '//...') to avoid open redirects.
+  const isSafePath = (path: string | null | undefined): path is string =>
+    !!path && path.startsWith('/') && !path.startsWith('//');
+  const from = (location.state as { from?: { pathname: string; search?: string } } | null)?.from;
+  const fromPath = from ? `${from.pathname}${from.search ?? ''}` : null;
+  const nextParam = searchParams.get('next');
+  const redirectTo = [fromPath, nextParam].find(isSafePath) ?? '/dashboard';
 
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();
@@ -23,7 +35,7 @@ export function LoginPage() {
 
     try {
       await login({ email, password });
-      navigate('/dashboard');
+      navigate(redirectTo, { replace: true });
     } catch (err: unknown) {
       const error = err as { response?: { data?: { non_field_errors?: string[]; detail?: string } } };
       if (error.response?.data?.non_field_errors) {

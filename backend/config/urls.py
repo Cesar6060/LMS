@@ -11,6 +11,14 @@ urlpatterns = [
     path('admin/', admin.site.urls),
 
     # API endpoints
+    #
+    # ORDERING DEPENDENCY: the 'api/courses/' include is evaluated before the
+    # bare 'api/' includes below, yet quizzes and discussions serve
+    # 'courses/<code>/quizzes/' and 'courses/<code>/threads/' via those bare
+    # mounts. That only works because the courses app defines no competing
+    # pattern under api/courses/ — a future courses route matching
+    # 'courses/<code>/quizzes/' or 'courses/<code>/threads/' would shadow the
+    # quizzes/discussions views. Guard tests: config/tests/test_url_conf.py.
     path('api/auth/', include('accounts.urls')),
     path('api/courses/', include('courses.urls')),
     path('api/assignments/', include('assignments.urls')),

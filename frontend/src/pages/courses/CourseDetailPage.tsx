@@ -550,7 +550,7 @@ export function CourseDetailPage() {
                       <li key={lesson.id}>
                         {canAccessContent ? (
                           <Link
-                            to={`/courses/${course.code}/lessons/${lesson.id}`}
+                            to={`/courses/${course.code}/learn/${lesson.id}`}
                             className="flex items-center justify-between py-3 hover:bg-muted/50 -mx-6 px-6 transition-colors"
                           >
                             <div className="flex items-center gap-3">

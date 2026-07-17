@@ -35,7 +35,7 @@ def notify_students_on_new_lesson(sender, instance, created, **kwargs):
                 type='new_lesson',
                 title=f'New lesson in {course.code}',
                 message=f'A new lesson "{instance.title}" has been added to {course.title}.',
-                related_url=f'/courses/{course.code}/lessons/{instance.id}'
+                related_url=f'/courses/{course.code}/learn/{instance.id}'
             )
             for enrollment in enrollments
         ]
@@ -64,7 +64,7 @@ def notify_students_on_new_assignment(sender, instance, created, **kwargs):
                 type='new_assignment',
                 title=f'New assignment in {course.code}',
                 message=f'A new assignment "{instance.title}" has been posted.{due_text}',
-                related_url=f'/assignments/{instance.id}'
+                related_url=f'/courses/{course.code}/assignments/{instance.id}'
             )
             for enrollment in enrollments
         ]
@@ -113,7 +113,7 @@ def notify_student_on_grade(sender, instance, created, **kwargs):
         type='grade',
         title=f'{assignment.title} has been graded',
         message=f'You received {instance.points}/{assignment.max_points} points on {assignment.title}.',
-        related_url=f'/assignments/{assignment.id}'
+        related_url=f'/courses/{assignment.course.code}/assignments/{assignment.id}'
     )
 
 
@@ -130,5 +130,5 @@ def notify_student_resubmission_allowed(submission):
         type='resubmission',
         title=f'Resubmission allowed for {assignment.title}',
         message=f'Your instructor has allowed you to resubmit {assignment.title}.',
-        related_url=f'/assignments/{assignment.id}'
+        related_url=f'/courses/{assignment.course.code}/assignments/{assignment.id}'
     )

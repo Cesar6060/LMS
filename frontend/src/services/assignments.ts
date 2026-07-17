@@ -184,7 +184,7 @@ export const assignmentService = {
     score: number;
     passed: boolean;
   }> {
-    const response = await api.post(`/quizzes/quizzes/${quizId}/quick-grade/${studentId}/`, { points });
+    const response = await api.post(`/quizzes/${quizId}/quick-grade/${studentId}/`, { points });
     return response.data;
   },
 };
