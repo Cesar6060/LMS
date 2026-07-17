@@ -91,8 +91,8 @@ A full-stack Learning Management System (LMS) built for video game development e
 
 ```bash
 # Clone the repository
-git clone https://github.com/Cesar6060/dev-learning-platform.git
-cd dev-learning-platform
+git clone https://github.com/Cesar6060/LMS.git
+cd LMS
 
 # Start all services
 docker-compose up
@@ -111,10 +111,14 @@ Seed the database with demo data:
 docker-compose exec backend python manage.py seed_data
 ```
 
+Then log in at http://localhost:5173/login:
+
 | Role | Email | Password |
 |------|-------|----------|
-| Instructor | instructor@demo.com | password123 |
-| Student | student1@demo.com | password123 |
+| Instructor | instructor@demo.com | `Admin123!` |
+| Student | student1@demo.com … student5@demo.com | `Admin123!` |
+
+> All demo accounts (instructor and students 1–5) share the password `Admin123!`.
 
 ## API Overview
 
