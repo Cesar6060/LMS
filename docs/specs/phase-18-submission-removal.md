@@ -199,7 +199,8 @@ Order matters: decouple dependents first, then drop the app.
 - [x] `cd frontend && npx tsc --noEmit` — 0 errors (proves all dead types and
       imports are gone).
 - [x] `cd frontend && npm run lint` — 0 errors.
-- [ ] Run `/verify-stack` and show output.
+- [x] Run `/verify-stack` and show output. (2026-07-18: pytest 192 passed,
+      tsc 0 errors, lint 0 errors / 24 pre-existing warnings)
 - [ ] Manual click-through (instructor): dashboard (no pending submissions),
       manage course (no assignment rows/dialog), gradebook (quiz columns +
       completion + totals, inline quiz grade edit persists), CSV export
