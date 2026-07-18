@@ -1,5 +1,5 @@
 import { useState, useEffect, type FormEvent } from 'react';
-import { useParams, Link } from 'react-router';
+import { useParams, useSearchParams, Link } from 'react-router';
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
@@ -37,6 +37,7 @@ type EditingQuestion = {
 
 export function QuizEditorPage() {
   const { code } = useParams<{ code: string }>();
+  const [searchParams] = useSearchParams();
 
   const [course, setCourse] = useState<CourseDetail | null>(null);
   const [quizzes, setQuizzes] = useState<Quiz[]>([]);
@@ -65,6 +66,16 @@ export function QuizEditorPage() {
       loadData();
     }
   }, [code]);
+
+  // Deep link from the course outline: /instructor/courses/:code/quizzes?quiz={id}
+  useEffect(() => {
+    const quizParam = searchParams.get('quiz');
+    if (quizParam && !isLoading && quizzes.some(q => q.id === Number(quizParam))) {
+      setExpandedQuizId(Number(quizParam));
+      loadQuizDetail(Number(quizParam));
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [searchParams, isLoading, quizzes.length]);
 
   const loadData = async () => {
     try {

@@ -262,8 +262,12 @@ export const courseService = {
     await api.delete(`/courses/lessons/${lessonId}/`);
   },
 
-  async reorderLesson(lessonId: number, order: number): Promise<Lesson> {
-    const response = await api.patch<Lesson>(`/courses/lessons/${lessonId}/reorder/`, { order });
+  async reorderLesson(lessonId: number, order: number, unitId?: number): Promise<Lesson> {
+    const payload: { order: number; unit?: number } = { order };
+    if (unitId !== undefined) {
+      payload.unit = unitId;
+    }
+    const response = await api.patch<Lesson>(`/courses/lessons/${lessonId}/reorder/`, payload);
     return response.data;
   },
 

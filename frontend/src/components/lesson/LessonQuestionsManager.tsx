@@ -2,14 +2,6 @@ import { useState, useEffect } from 'react';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { Card, CardContent } from '@/components/ui/Card';
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogDescription,
-  DialogFooter,
-} from '@/components/ui/Dialog';
 import { courseService } from '@/services/courses';
 import type { LessonQuestion, Lesson } from '@/types';
 import { Plus, Trash2, Edit2, Loader2, CheckCircle, HelpCircle, Settings } from 'lucide-react';
@@ -18,8 +10,6 @@ import { cn } from '@/lib/utils';
 interface LessonQuestionsManagerProps {
   lessonId: number;
   lessonTitle: string;
-  open: boolean;
-  onOpenChange: (open: boolean) => void;
 }
 
 interface EditingQuestion {
@@ -41,12 +31,7 @@ const emptyQuestion: EditingQuestion = {
   ],
 };
 
-export function LessonQuestionsManager({
-  lessonId,
-  lessonTitle,
-  open,
-  onOpenChange,
-}: LessonQuestionsManagerProps) {
+export function LessonQuestionsManager({ lessonId, lessonTitle }: LessonQuestionsManagerProps) {
   const [questions, setQuestions] = useState<LessonQuestion[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
@@ -61,10 +46,8 @@ export function LessonQuestionsManager({
   const [editingQuestion, setEditingQuestion] = useState<EditingQuestion | null>(null);
 
   useEffect(() => {
-    if (open && lessonId) {
-      loadData();
-    }
-  }, [open, lessonId]);
+    loadData();
+  }, [lessonId]);
 
   const loadData = async () => {
     setIsLoading(true);
@@ -224,17 +207,10 @@ export function LessonQuestionsManager({
   };
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-2xl max-h-[90vh] overflow-hidden flex flex-col">
-        <DialogHeader>
-          <DialogTitle className="flex items-center gap-2">
-            <HelpCircle className="h-5 w-5" />
-            Comprehension Questions
-          </DialogTitle>
-          <DialogDescription>
-            Manage questions for "{lessonTitle}". Students must answer all questions correctly to complete the lesson.
-          </DialogDescription>
-        </DialogHeader>
+    <div className="space-y-4">
+        <p className="text-sm text-muted-foreground">
+          Manage questions for "{lessonTitle}". Students must answer all questions correctly to complete the lesson.
+        </p>
 
         {error && (
           <div className="bg-destructive/10 border border-destructive/20 text-destructive rounded-md px-4 py-3 text-sm">
@@ -242,7 +218,7 @@ export function LessonQuestionsManager({
           </div>
         )}
 
-        <div className="flex-1 overflow-y-auto py-4 space-y-4">
+        <div className="space-y-4">
           {/* Quiz Settings */}
           {!showQuestionEditor && (
             <Card>
@@ -430,13 +406,6 @@ export function LessonQuestionsManager({
             </>
           )}
         </div>
-
-        <DialogFooter>
-          <Button variant="outline" onClick={() => onOpenChange(false)}>
-            Done
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
+    </div>
   );
 }

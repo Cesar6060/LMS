@@ -1,14 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import { Button } from '@/components/ui/Button';
 import { Card, CardContent } from '@/components/ui/Card';
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogDescription,
-  DialogFooter,
-} from '@/components/ui/Dialog';
 import { courseService } from '@/services/courses';
 import type { LessonAttachment } from '@/types';
 import { Upload, Trash2, Loader2, FileText, Image, File, Paperclip } from 'lucide-react';
@@ -17,8 +9,6 @@ import { cn } from '@/lib/utils';
 interface AttachmentUploaderProps {
   lessonId: number;
   lessonTitle: string;
-  open: boolean;
-  onOpenChange: (open: boolean) => void;
 }
 
 function formatFileSize(bytes: number): string {
@@ -38,12 +28,7 @@ function getFileIcon(fileType: string) {
   return <File className="h-5 w-5 text-muted-foreground" />;
 }
 
-export function AttachmentUploader({
-  lessonId,
-  lessonTitle,
-  open,
-  onOpenChange,
-}: AttachmentUploaderProps) {
+export function AttachmentUploader({ lessonId, lessonTitle }: AttachmentUploaderProps) {
   const [attachments, setAttachments] = useState<LessonAttachment[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
@@ -51,10 +36,8 @@ export function AttachmentUploader({
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
-    if (open && lessonId) {
-      loadAttachments();
-    }
-  }, [open, lessonId]);
+    loadAttachments();
+  }, [lessonId]);
 
   const loadAttachments = async () => {
     setIsLoading(true);
@@ -121,17 +104,10 @@ export function AttachmentUploader({
   };
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-lg max-h-[80vh] overflow-hidden flex flex-col">
-        <DialogHeader>
-          <DialogTitle className="flex items-center gap-2">
-            <Paperclip className="h-5 w-5" />
-            Lesson Attachments
-          </DialogTitle>
-          <DialogDescription>
-            Upload files for "{lessonTitle}". Students can download these materials.
-          </DialogDescription>
-        </DialogHeader>
+    <div className="space-y-4">
+        <p className="text-sm text-muted-foreground">
+          Upload files for "{lessonTitle}". Students can download these materials.
+        </p>
 
         {error && (
           <div className="bg-destructive/10 border border-destructive/20 text-destructive rounded-md px-4 py-3 text-sm">
@@ -139,7 +115,7 @@ export function AttachmentUploader({
           </div>
         )}
 
-        <div className="flex-1 overflow-y-auto py-4 space-y-4">
+        <div className="space-y-4">
           {/* Upload Zone */}
           <div
             className={cn(
@@ -219,13 +195,6 @@ export function AttachmentUploader({
             </div>
           )}
         </div>
-
-        <DialogFooter>
-          <Button variant="outline" onClick={() => onOpenChange(false)}>
-            Done
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
+    </div>
   );
 }

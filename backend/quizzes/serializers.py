@@ -48,7 +48,7 @@ class QuizListSerializer(serializers.ModelSerializer):
         fields = [
             'id', 'title', 'description', 'passing_score', 'points',
             'max_attempts', 'order', 'question_count', 'best_score',
-            'attempt_count', 'attempts_remaining', 'unit_title', 'course_code', 'created_at'
+            'attempt_count', 'attempts_remaining', 'unit', 'unit_title', 'course_code', 'created_at'
         ]
 
     def get_best_score(self, obj):

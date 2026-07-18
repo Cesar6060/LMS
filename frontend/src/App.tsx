@@ -14,6 +14,7 @@ import { CourseDetailPage } from '@/pages/courses/CourseDetailPage';
 import { CoursePlayerPage } from '@/pages/courses/CoursePlayerPage';
 import { CreateCoursePage } from '@/pages/instructor/CreateCoursePage';
 import { ManageCoursePage } from '@/pages/instructor/ManageCoursePage';
+import { LessonEditorPage } from '@/pages/instructor/LessonEditorPage';
 import { AssignmentDetailPage } from '@/pages/assignments/AssignmentDetailPage';
 import { GradingPage } from '@/pages/instructor/GradingPage';
 import { GradebookPage } from '@/pages/instructor/GradebookPage';
@@ -320,6 +321,14 @@ function App() {
             element={
               <InstructorRoute>
                 <ManageCoursePage />
+              </InstructorRoute>
+            }
+          />
+          <Route
+            path="/instructor/courses/:code/lessons/:lessonId/edit"
+            element={
+              <InstructorRoute>
+                <LessonEditorPage />
               </InstructorRoute>
             }
           />
