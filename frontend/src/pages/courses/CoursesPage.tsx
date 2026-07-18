@@ -8,6 +8,7 @@ import { courseService, type CourseListItem } from '@/services/courses';
 import { Search, BookOpen, Users, Layers, Plus } from 'lucide-react';
 import { EnrollmentModal } from '@/components/course/EnrollmentModal';
 import { Skeleton, SkeletonCard } from '@/components/ui/Skeleton';
+import { PageContainer } from '@/components/layout/PageContainer';
 
 export function CoursesPage() {
   const { user } = useAuth();
@@ -42,7 +43,7 @@ export function CoursesPage() {
 
   if (isLoading) {
     return (
-      <div className="container mx-auto px-4 py-8">
+      <PageContainer>
         <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4 mb-8">
           <div>
             <Skeleton className="h-9 w-32 mb-2" />
@@ -59,12 +60,12 @@ export function CoursesPage() {
           <SkeletonCard />
           <SkeletonCard />
         </div>
-      </div>
+      </PageContainer>
     );
   }
 
   return (
-    <div className="container mx-auto px-4 py-8">
+    <PageContainer>
       <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4 mb-8">
         <div>
           <h1 className="text-3xl font-bold">
@@ -176,6 +177,6 @@ export function CoursesPage() {
           loadCourses();
         }}
       />
-    </div>
+    </PageContainer>
   );
 }

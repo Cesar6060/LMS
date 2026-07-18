@@ -1,8 +1,7 @@
 import { Routes, Route, Navigate, useLocation, useParams, useSearchParams } from 'react-router';
 import { useAuth } from '@/contexts/AuthContext';
 import { AccessDenied } from '@/components/AccessDenied';
-import { Header } from '@/components/layout/Header';
-import { AnimatedBackground } from '@/components/ui/AnimatedBackground';
+import { Layout } from '@/components/layout/Layout';
 import { LoginPage } from '@/pages/auth/LoginPage';
 import { RegisterPage } from '@/pages/auth/RegisterPage';
 import { ForgotPasswordPage } from '@/pages/auth/ForgotPasswordPage';
@@ -123,33 +122,8 @@ function LegacyLessonRedirect() {
 }
 
 function App() {
-  const location = useLocation();
-  const { isAuthenticated } = useAuth();
-
-  // Hide header in learning mode (CoursePlayerPage has its own header)
-  const isLearningMode = location.pathname.match(/\/courses\/[^/]+\/learn/);
-
-  // Auth pages handle their own background
-  const isAuthPage = ['/login', '/register', '/forgot-password', '/reset-password', '/verify-email'].some(
-    path => location.pathname.startsWith(path)
-  );
-
-  // Show animated background for logged-in pages (not auth pages, not learning mode)
-  const showAnimatedBg = isAuthenticated && !isAuthPage && !isLearningMode;
-
   return (
-    <div className="min-h-screen bg-background">
-      {!isLearningMode && <Header />}
-      {showAnimatedBg && (
-        <AnimatedBackground
-          fixed={true}
-          showMouseGlow={false}
-          showParticles={true}
-          showOrbs={true}
-          showGrid={true}
-        />
-      )}
-      <main className="relative z-10">
+    <Layout>
         <Routes>
           {/* Public routes */}
           <Route
@@ -371,8 +345,7 @@ function App() {
           {/* 404 */}
           <Route path="*" element={<NotFoundPage />} />
         </Routes>
-      </main>
-    </div>
+    </Layout>
   );
 }
 
