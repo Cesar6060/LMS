@@ -15,6 +15,7 @@ import {
 import { EnrollmentModal } from '@/components/course/EnrollmentModal';
 import { StudentGradeCard } from '@/components/course/StudentGradeCard';
 import { Skeleton } from '@/components/ui/Skeleton';
+import { PageContainer } from '@/components/layout/PageContainer';
 
 interface CourseProgress {
   total_lessons: number;
@@ -177,7 +178,7 @@ export function CourseDetailPage() {
 
   if (isLoading) {
     return (
-      <div className="container mx-auto px-4 py-8">
+      <PageContainer>
         {/* Header skeleton */}
         <div className="mb-8">
           <Skeleton className="h-4 w-20 mb-2" />
@@ -218,13 +219,13 @@ export function CourseDetailPage() {
             </div>
           ))}
         </div>
-      </div>
+      </PageContainer>
     );
   }
 
   if (error || !course) {
     return (
-      <div className="container mx-auto px-4 py-8">
+      <PageContainer>
         <Card>
           <CardContent className="flex flex-col items-center justify-center py-12">
             <BookOpen className="h-12 w-12 text-muted-foreground mb-4" />
@@ -235,12 +236,12 @@ export function CourseDetailPage() {
             </Link>
           </CardContent>
         </Card>
-      </div>
+      </PageContainer>
     );
   }
 
   return (
-    <div className="container mx-auto px-4 py-8">
+    <PageContainer>
       {/* Course Header */}
       <div className="mb-8">
         <div className="flex items-start justify-between">
@@ -706,6 +707,6 @@ export function CourseDetailPage() {
           loadCourse();
         }}
       />
-    </div>
+    </PageContainer>
   );
 }

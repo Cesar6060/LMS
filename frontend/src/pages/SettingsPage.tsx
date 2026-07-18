@@ -8,6 +8,7 @@ import type { UserPreferences } from '@/types';
 import {
   Settings, User, Bell, Loader2, Camera, Trash2, Check
 } from 'lucide-react';
+import { PageContainer } from '@/components/layout/PageContainer';
 
 type TabType = 'profile' | 'notifications';
 
@@ -131,16 +132,16 @@ export function SettingsPage() {
 
   if (isLoading) {
     return (
-      <div className="container mx-auto px-4 py-8 max-w-4xl">
+      <PageContainer maxWidth="max-w-4xl">
         <div className="flex items-center justify-center py-12">
           <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
         </div>
-      </div>
+      </PageContainer>
     );
   }
 
   return (
-    <div className="container mx-auto px-4 py-8 max-w-4xl">
+    <PageContainer maxWidth="max-w-4xl">
       {/* Header */}
       <div className="mb-8">
         <h1 className="text-3xl font-bold flex items-center gap-3">
@@ -322,7 +323,7 @@ export function SettingsPage() {
         </Card>
       )}
 
-    </div>
+    </PageContainer>
   );
 }
 

@@ -10,6 +10,7 @@ import { Skeleton } from '@/components/ui/Skeleton';
 import { WeekCalendar } from '@/components/dashboard/WeekCalendar';
 import { AddReminderModal } from '@/components/dashboard/AddReminderModal';
 import { MakeAnnouncementModal } from '@/components/dashboard/MakeAnnouncementModal';
+import { PageContainer } from '@/components/layout/PageContainer';
 
 export function DashboardPage() {
   const { user } = useAuth();
@@ -115,7 +116,7 @@ export function DashboardPage() {
 
   if (isLoading) {
     return (
-      <div className="container mx-auto px-4 py-8 max-w-6xl">
+      <PageContainer maxWidth="max-w-6xl">
         <Skeleton className="h-44 rounded-xl mb-6" />
         <div className="grid grid-cols-3 gap-4 mb-8">
           {[1, 2, 3].map((i) => (
@@ -128,12 +129,12 @@ export function DashboardPage() {
             <Skeleton key={i} className="h-20 rounded-lg" />
           ))}
         </div>
-      </div>
+      </PageContainer>
     );
   }
 
   return (
-    <div className="container mx-auto px-4 py-8 max-w-6xl">
+    <PageContainer maxWidth="max-w-6xl">
       {/* Hero: Continue Learning - Students */}
       {hasCourses && !isInstructor && (
         <div className="relative rounded-xl p-8 mb-6 overflow-hidden border border-[#22c55e]/20" style={{ background: 'linear-gradient(135deg, rgba(34, 197, 94, 0.1) 0%, rgba(6, 182, 212, 0.05) 50%, transparent 100%)' }}>
@@ -585,6 +586,6 @@ export function DashboardPage() {
           }}
         />
       )}
-    </div>
+    </PageContainer>
   );
 }
