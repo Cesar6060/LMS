@@ -88,6 +88,7 @@ collapsing the sidebar only widened the margins — the content column stayed
 - [x] `cd frontend && npm run lint` — 0 new errors.
 - [x] `/verify-stack` output shown. (2026-07-18: pytest 192 passed,
       tsc 0 errors, lint 0 errors / 24 pre-existing warnings)
-- [ ] Visual check at `/courses/VGD101/learn/1`: chrome reads balanced at
+- [x] Visual check at `/courses/VGD101/learn/1`: chrome reads balanced at
       desktop width; sidebar collapse/expand still works and persists; footer
-      section dots still navigate.
+      section dots still navigate. (2026-07-18: user reviewed both passes in
+      browser; approved after the fluid-column revision)
