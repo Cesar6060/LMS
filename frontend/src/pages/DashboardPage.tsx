@@ -3,8 +3,8 @@ import { Link } from 'react-router';
 import { useAuth } from '@/contexts/AuthContext';
 import { Button } from '@/components/ui/Button';
 import { courseService, type InstructorCourse } from '@/services/courses';
-import type { Enrollment, EnhancedDashboard, InstructorReminder, UpcomingDeadline, CourseProgressItem } from '@/types';
-import { Plus, Play, BookOpen, Users, CheckCircle2, Clock, AlertCircle, ChevronRight, Megaphone, FileText, CalendarClock, Trophy, Target } from 'lucide-react';
+import type { Enrollment, EnhancedDashboard, InstructorReminder, CourseProgressItem } from '@/types';
+import { Plus, Play, BookOpen, Users, CheckCircle2, Megaphone, Trophy, Target } from 'lucide-react';
 import { EnrollmentModal } from '@/components/course/EnrollmentModal';
 import { Skeleton } from '@/components/ui/Skeleton';
 import { WeekCalendar } from '@/components/dashboard/WeekCalendar';
@@ -61,46 +61,10 @@ export function DashboardPage() {
   // Get continue learning data from enhanced dashboard
   const continueLearning = enhancedData && !enhancedData.is_instructor ? enhancedData.continue_learning : null;
 
-  // Get upcoming deadlines for students
-  const upcomingDeadlines: UpcomingDeadline[] = enhancedData && !enhancedData.is_instructor
-    ? enhancedData.upcoming_deadlines
-    : [];
-
   // Get course progress overview for students
   const courseProgressOverview: CourseProgressItem[] = enhancedData && !enhancedData.is_instructor
     ? enhancedData.course_progress_overview
     : [];
-
-  // Helper to get urgency color based on due date
-  const getDeadlineUrgency = (dueDate: string) => {
-    const now = new Date();
-    const due = new Date(dueDate);
-    const hoursUntilDue = (due.getTime() - now.getTime()) / (1000 * 60 * 60);
-
-    if (hoursUntilDue < 0) return { color: 'text-red-500', bg: 'bg-red-500/10', border: 'border-red-500/30', label: 'Overdue' };
-    if (hoursUntilDue < 24) return { color: 'text-red-500', bg: 'bg-red-500/10', border: 'border-red-500/30', label: 'Due today' };
-    if (hoursUntilDue < 72) return { color: 'text-amber-500', bg: 'bg-amber-500/10', border: 'border-amber-500/30', label: 'Due soon' };
-    return { color: 'text-muted-foreground', bg: 'bg-muted/50', border: 'border-border', label: '' };
-  };
-
-  // Format relative time for deadlines
-  const formatDeadline = (dueDate: string) => {
-    const now = new Date();
-    const due = new Date(dueDate);
-    const diffMs = due.getTime() - now.getTime();
-    const diffHours = Math.floor(diffMs / (1000 * 60 * 60));
-    const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
-
-    if (diffMs < 0) {
-      const overdueDays = Math.abs(diffDays);
-      return overdueDays === 0 ? 'Overdue' : `${overdueDays}d overdue`;
-    }
-    if (diffHours < 1) return 'Less than 1 hour';
-    if (diffHours < 24) return `${diffHours}h left`;
-    if (diffDays === 1) return 'Tomorrow';
-    if (diffDays < 7) return `${diffDays} days left`;
-    return due.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
-  };
 
   const handleAddReminder = (date: string) => {
     setEditingReminder(null);
@@ -204,7 +168,7 @@ export function DashboardPage() {
 
       {/* Student Quick Stats */}
       {hasCourses && !isInstructor && (
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 mb-8">
+        <div className="grid grid-cols-2 sm:grid-cols-3 gap-4 mb-8">
           <div className="card-gaming rounded-xl p-5">
             <div className="flex items-center gap-2 text-muted-foreground mb-2">
               <BookOpen className="h-5 w-5" style={{ color: '#22c55e' }} />
@@ -221,87 +185,12 @@ export function DashboardPage() {
           </div>
           <div className="card-gaming rounded-xl p-5">
             <div className="flex items-center gap-2 text-muted-foreground mb-2">
-              <CalendarClock className="h-5 w-5" style={{ color: '#f59e0b' }} />
-              <span className="text-sm font-medium">Due Soon</span>
-            </div>
-            <p className="text-3xl font-semibold text-gradient-gaming">{upcomingDeadlines.filter(d => {
-              const hours = (new Date(d.due_date).getTime() - Date.now()) / (1000 * 60 * 60);
-              return hours >= 0 && hours < 72;
-            }).length}</p>
-          </div>
-          <div className="card-gaming rounded-xl p-5">
-            <div className="flex items-center gap-2 text-muted-foreground mb-2">
               <Target className="h-5 w-5" style={{ color: '#8b5cf6' }} />
               <span className="text-sm font-medium">Progress</span>
             </div>
             <p className="text-3xl font-semibold text-gradient-gaming">
               {totalLessons > 0 ? Math.round((completedLessons / totalLessons) * 100) : 0}%
             </p>
-          </div>
-        </div>
-      )}
-
-      {/* Upcoming Deadlines - Students */}
-      {hasCourses && !isInstructor && upcomingDeadlines.length > 0 && (
-        <div className="mb-8">
-          <div className="flex items-center justify-between mb-4">
-            <h2 className="text-xl font-semibold flex items-center gap-2">
-              <CalendarClock className="h-5 w-5 text-amber-500" />
-              Upcoming Deadlines
-            </h2>
-            <span className="text-sm text-muted-foreground">
-              {upcomingDeadlines.length} item{upcomingDeadlines.length !== 1 ? 's' : ''}
-            </span>
-          </div>
-          <div className="grid gap-3">
-            {upcomingDeadlines.slice(0, 5).map((deadline) => {
-              const urgency = getDeadlineUrgency(deadline.due_date);
-              return (
-                <Link
-                  key={`${deadline.type}-${deadline.id}`}
-                  to={deadline.type === 'assignment'
-                    ? `/courses/${deadline.course_code}/assignments/${deadline.id}`
-                    : `/courses/${deadline.course_code}/quizzes/${deadline.id}`
-                  }
-                  className={`flex items-center justify-between p-4 card-gaming border ${urgency.border} hover:border-[#22c55e]/50 transition-colors`}
-                >
-                  <div className="flex items-center gap-4">
-                    <div className={`h-10 w-10 rounded-full ${urgency.bg} flex items-center justify-center`}>
-                      {deadline.type === 'assignment' ? (
-                        <FileText className={`h-5 w-5 ${urgency.color}`} />
-                      ) : (
-                        <Trophy className={`h-5 w-5 ${urgency.color}`} />
-                      )}
-                    </div>
-                    <div>
-                      <p className="font-medium">{deadline.title}</p>
-                      <p className="text-sm text-muted-foreground">
-                        {deadline.course_code} · {deadline.max_points} pts
-                        {deadline.has_draft && (
-                          <span className="ml-2 text-amber-500">(Draft saved)</span>
-                        )}
-                      </p>
-                    </div>
-                  </div>
-                  <div className="flex items-center gap-3">
-                    <div className="text-right">
-                      <p className={`text-sm font-medium ${urgency.color}`}>
-                        {formatDeadline(deadline.due_date)}
-                      </p>
-                      <p className="text-xs text-muted-foreground">
-                        {new Date(deadline.due_date).toLocaleDateString('en-US', {
-                          month: 'short',
-                          day: 'numeric',
-                          hour: 'numeric',
-                          minute: '2-digit'
-                        })}
-                      </p>
-                    </div>
-                    <ChevronRight className="h-5 w-5 text-muted-foreground" />
-                  </div>
-                </Link>
-              );
-            })}
           </div>
         </div>
       )}
@@ -347,25 +236,6 @@ export function DashboardPage() {
                     </div>
                   </div>
 
-                  {/* Assignments Progress */}
-                  {course.assignments.total > 0 && (
-                    <div>
-                      <div className="flex items-center justify-between text-sm mb-1">
-                        <span className="text-muted-foreground flex items-center gap-1.5">
-                          <FileText className="h-3.5 w-3.5" />
-                          Assignments
-                        </span>
-                        <span className="font-medium">{course.assignments.completed}/{course.assignments.total}</span>
-                      </div>
-                      <div className="h-2 bg-muted rounded-full overflow-hidden">
-                        <div
-                          className="h-full bg-gradient-to-r from-[#f59e0b] to-[#ef4444] transition-all duration-500"
-                          style={{ width: `${course.assignments.percentage}%` }}
-                        />
-                      </div>
-                    </div>
-                  )}
-
                   {/* Quizzes Progress */}
                   {course.quizzes.total > 0 && (
                     <div>
@@ -402,56 +272,6 @@ export function DashboardPage() {
             </Button>
           </div>
           <WeekCalendar key={calendarKey} onAddReminder={handleAddReminder} onEditReminder={handleEditReminder} />
-        </div>
-      )}
-
-      {/* Pending Submissions - Instructor Only */}
-      {isInstructor && enhancedData?.is_instructor && enhancedData.recent_submissions.length > 0 && (
-        <div className="mb-8">
-          <div className="flex items-center justify-between mb-4">
-            <h2 className="text-xl font-semibold flex items-center gap-2">
-              <AlertCircle className="h-5 w-5 text-amber-500" />
-              Needs Grading
-            </h2>
-            <span className="text-sm text-muted-foreground">
-              {enhancedData.recent_submissions.length} pending
-            </span>
-          </div>
-          <div className="space-y-3">
-            {enhancedData.recent_submissions.slice(0, 3).map((submission) => (
-              <Link
-                key={submission.id}
-                to={`/instructor/assignments/${submission.assignment_id}/grade`}
-                className="flex items-center justify-between p-4 card-gaming hover:border-amber-500/50 transition-colors"
-              >
-                <div className="flex items-center gap-4">
-                  <div className="h-10 w-10 rounded-full bg-amber-500/10 flex items-center justify-center">
-                    <Clock className="h-5 w-5 text-amber-500" />
-                  </div>
-                  <div>
-                    <p className="font-medium">{submission.assignment_title}</p>
-                    <p className="text-sm text-muted-foreground">
-                      {submission.student_name} · {submission.course_code}
-                      {submission.is_late && (
-                        <span className="ml-2 text-red-500">(Late)</span>
-                      )}
-                    </p>
-                  </div>
-                </div>
-                <div className="flex items-center gap-3">
-                  <span className="text-sm text-muted-foreground">
-                    {submission.submitted_at && new Date(submission.submitted_at).toLocaleDateString('en-US', {
-                      month: 'short',
-                      day: 'numeric',
-                      hour: 'numeric',
-                      minute: '2-digit'
-                    })}
-                  </span>
-                  <ChevronRight className="h-5 w-5 text-muted-foreground" />
-                </div>
-              </Link>
-            ))}
-          </div>
         </div>
       )}
 

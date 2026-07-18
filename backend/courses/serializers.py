@@ -496,16 +496,15 @@ class GradingConfigSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = CourseGradingConfig
-        fields = ['assignments_weight', 'quizzes_weight', 'participation_weight']
+        fields = ['quizzes_weight', 'participation_weight']
 
     def validate(self, data):
         # Get existing values for fields not being updated
         instance = self.instance
-        assignments = data.get('assignments_weight', instance.assignments_weight if instance else 50)
         quizzes = data.get('quizzes_weight', instance.quizzes_weight if instance else 50)
-        participation = data.get('participation_weight', instance.participation_weight if instance else 0)
+        participation = data.get('participation_weight', instance.participation_weight if instance else 50)
 
-        total = float(assignments) + float(quizzes) + float(participation)
+        total = float(quizzes) + float(participation)
         if total != 100:
             raise serializers.ValidationError(f'Weights must sum to 100%. Current total: {total}%')
         return data

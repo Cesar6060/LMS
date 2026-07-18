@@ -481,16 +481,9 @@ def dashboard_stats(request):
 
     if user.is_instructor:
         # Instructor stats
-        from assignments.models import Submission
 
         # Get courses taught by this instructor
         instructor_courses = Course.objects.filter(instructor=user)
-
-        # Count pending submissions (submitted but not graded)
-        pending_grades = Submission.objects.filter(
-            assignment__unit__course__in=instructor_courses,
-            status='submitted'
-        ).count()
 
         # Total students across all courses (active enrollments only)
         total_students = Enrollment.objects.filter(
@@ -498,13 +491,11 @@ def dashboard_stats(request):
         ).count()
 
         return Response({
-            'pending_grades': pending_grades,
             'total_students': total_students,
             'course_count': instructor_courses.count()
         })
     else:
         # Student stats
-        from assignments.models import Assignment, Submission
 
         # Get actively enrolled courses
         enrolled_course_ids = Enrollment.objects.filter(
@@ -517,22 +508,8 @@ def dashboard_stats(request):
             completed=True
         ).count()
 
-        # Assignments due in next 7 days
-        now = timezone.now()
-        week_from_now = now + timedelta(days=7)
-
-        assignments_due = Assignment.objects.filter(
-            unit__course_id__in=enrolled_course_ids,
-            due_date__gte=now,
-            due_date__lte=week_from_now
-        ).exclude(
-            submissions__student=user,
-            submissions__status__in=['submitted', 'graded']
-        ).count()
-
         return Response({
             'lessons_completed': lessons_completed,
-            'assignments_due': assignments_due,
             'course_count': len(enrolled_course_ids)
         })
 
@@ -546,46 +523,17 @@ def enhanced_dashboard(request):
 
     For Students:
     - continue_learning: most recently accessed course with current lesson info
-    - upcoming_deadlines: next 3 assignments/quizzes due
     - course_progress_overview: progress bars for each enrolled course
 
     For Instructors:
-    - recent_submissions: last 5 submissions needing review
     - course_progress_overview: summary of each course taught
     """
-    from assignments.models import Assignment, Submission
-    from quizzes.models import Quiz, QuizAttempt
+    from quizzes.models import QuizAttempt
 
     user = request.user
-    now = timezone.now()
 
     if user.is_instructor:
         # Instructor Dashboard
-
-        # Get courses taught by this instructor
-        instructor_courses = Course.objects.filter(instructor=user)
-
-        # Recent submissions needing review (submitted but not graded)
-        recent_submissions = Submission.objects.filter(
-            assignment__unit__course__in=instructor_courses,
-            status='submitted'
-        ).select_related(
-            'student', 'assignment', 'assignment__unit__course'
-        ).order_by('-submitted_at')[:5]
-
-        recent_submissions_data = []
-        for sub in recent_submissions:
-            recent_submissions_data.append({
-                'id': sub.id,
-                'assignment_id': sub.assignment.id,
-                'student_name': sub.student.get_full_name() or sub.student.email,
-                'student_email': sub.student.email,
-                'assignment_title': sub.assignment.title,
-                'course_code': sub.assignment.unit.course.code,
-                'course_title': sub.assignment.unit.course.title,
-                'submitted_at': sub.submitted_at.isoformat() if sub.submitted_at else None,
-                'is_late': sub.is_late,
-            })
 
         # Course progress overview for instructor's courses
         # Use annotations to avoid N+1 queries
@@ -597,10 +545,6 @@ def enhanced_dashboard(request):
             total_students=Count(
                 'enrollments',
                 filter=Q(enrollments__is_active=True)
-            ),
-            pending_submissions=Count(
-                'units__assignments__submissions',
-                filter=Q(units__assignments__submissions__status='submitted')
             )
         )
 
@@ -609,13 +553,11 @@ def enhanced_dashboard(request):
                 'course_code': course.code,
                 'course_title': course.title,
                 'student_count': course.total_students,
-                'pending_submissions': course.pending_submissions,
             }
             for course in instructor_courses_annotated
         ]
 
         return Response({
-            'recent_submissions': recent_submissions_data,
             'course_progress_overview': course_progress,
             'is_instructor': True,
         })
@@ -676,43 +618,6 @@ def enhanced_dashboard(request):
                 'last_activity_at': most_recent_enrollment.last_activity_at.isoformat() if most_recent_enrollment.last_activity_at else None,
             }
 
-        # Upcoming deadlines: next 3 assignments/quizzes due
-        enrolled_course_ids = enrollments.values_list('course_id', flat=True)
-
-        # Get IDs of assignments the user has already submitted/graded
-        submitted_assignment_ids = Submission.objects.filter(
-            student=user,
-            status__in=['submitted', 'graded']
-        ).values_list('assignment_id', flat=True)
-
-        # Get assignments with due dates in the future, excluding already submitted
-        upcoming_assignments = Assignment.objects.filter(
-            unit__course_id__in=enrolled_course_ids,
-            due_date__gte=now
-        ).exclude(
-            id__in=submitted_assignment_ids
-        ).select_related('unit__course').order_by('due_date')[:3]
-
-        upcoming_deadlines = []
-        for assignment in upcoming_assignments:
-            # Check if student has a draft submission
-            has_draft = Submission.objects.filter(
-                assignment=assignment,
-                student=user,
-                status='draft'
-            ).exists()
-
-            upcoming_deadlines.append({
-                'id': assignment.id,
-                'type': 'assignment',
-                'title': assignment.title,
-                'course_code': assignment.unit.course.code,
-                'course_title': assignment.unit.course.title,
-                'due_date': assignment.due_date.isoformat(),
-                'max_points': assignment.max_points,
-                'has_draft': has_draft,
-            })
-
         # Course progress overview - optimized to reduce N+1 queries
         from django.db.models import Count, Q
 
@@ -722,9 +627,8 @@ def enhanced_dashboard(request):
         # Bulk fetch totals per course using annotations
         course_totals = Course.objects.filter(id__in=course_ids).annotate(
             total_lessons=Count('units__lessons', distinct=True),
-            total_assignments=Count('units__assignments', distinct=True),
             total_quizzes=Count('units__quizzes', distinct=True),
-        ).values('id', 'code', 'title', 'total_lessons', 'total_assignments', 'total_quizzes')
+        ).values('id', 'code', 'title', 'total_lessons', 'total_quizzes')
 
         # Build lookup dict
         totals_by_course = {c['id']: c for c in course_totals}
@@ -738,17 +642,6 @@ def enhanced_dashboard(request):
             ).values('lesson__unit__course_id').annotate(
                 count=Count('id')
             ).values_list('lesson__unit__course_id', 'count')
-        )
-
-        # Bulk fetch user's completed assignments per course
-        completed_assignments_by_course = dict(
-            Submission.objects.filter(
-                student=user,
-                assignment__unit__course_id__in=course_ids,
-                status__in=['submitted', 'graded']
-            ).values('assignment__unit__course_id').annotate(
-                count=Count('id')
-            ).values_list('assignment__unit__course_id', 'count')
         )
 
         # Bulk fetch user's passed quizzes per course
@@ -769,22 +662,19 @@ def enhanced_dashboard(request):
             totals = totals_by_course.get(course_id, {})
 
             total_lessons = totals.get('total_lessons', 0)
-            total_assignments = totals.get('total_assignments', 0)
             total_quizzes = totals.get('total_quizzes', 0)
 
             completed_lessons = completed_lessons_by_course.get(course_id, 0)
-            completed_assignments = completed_assignments_by_course.get(course_id, 0)
             passed_quizzes = passed_quizzes_by_course.get(course_id, 0)
 
             lesson_percentage = round((completed_lessons / total_lessons) * 100, 1) if total_lessons > 0 else 0
-            assignment_percentage = round((completed_assignments / total_assignments) * 100, 1) if total_assignments > 0 else 0
             quiz_percentage = round((passed_quizzes / total_quizzes) * 100, 1) if total_quizzes > 0 else 0
 
             # Overall progress (weighted average)
-            total_items = total_lessons + total_assignments + total_quizzes
+            total_items = total_lessons + total_quizzes
             if total_items > 0:
                 overall_percentage = round(
-                    ((completed_lessons + completed_assignments + passed_quizzes) / total_items) * 100, 1
+                    ((completed_lessons + passed_quizzes) / total_items) * 100, 1
                 )
             else:
                 overall_percentage = 0
@@ -798,11 +688,6 @@ def enhanced_dashboard(request):
                     'total': total_lessons,
                     'percentage': lesson_percentage,
                 },
-                'assignments': {
-                    'completed': completed_assignments,
-                    'total': total_assignments,
-                    'percentage': assignment_percentage,
-                },
                 'quizzes': {
                     'passed': passed_quizzes,
                     'total': total_quizzes,
@@ -812,7 +697,6 @@ def enhanced_dashboard(request):
 
         return Response({
             'continue_learning': continue_learning,
-            'upcoming_deadlines': upcoming_deadlines,
             'course_progress_overview': course_progress,
             'is_instructor': False,
         })
@@ -982,15 +866,39 @@ def calculate_letter_grade(percentage):
         return 'F'
 
 
+def calculate_weighted_grade(quiz_pct, participation_pct, grading_config):
+    """
+    Weighted overall percentage from the quiz and participation components.
+    Components that are None (nothing gradable yet) are skipped and the
+    remaining weights renormalized. Without a config, the default 50/50
+    weights apply. Returns None when no component is available.
+    """
+    quizzes_weight = float(grading_config.quizzes_weight) if grading_config else 50.0
+    participation_weight = float(grading_config.participation_weight) if grading_config else 50.0
+
+    weighted_total = 0.0
+    weight_sum = 0.0
+    if quiz_pct is not None and quizzes_weight > 0:
+        weighted_total += quiz_pct * quizzes_weight
+        weight_sum += quizzes_weight
+    if participation_pct is not None and participation_weight > 0:
+        weighted_total += participation_pct * participation_weight
+        weight_sum += participation_weight
+
+    if weight_sum == 0:
+        return None
+    return round(weighted_total / weight_sum, 1)
+
+
 @api_view(['GET'])
 @perm_classes([IsAuthenticated])
 def gradebook(request, course_code):
     """
     Get the full gradebook for a course (instructor only).
-    Returns a matrix of students × gradebook items (assignments + quizzes) with grades.
-    Uses weighted grades if CourseGradingConfig exists.
+    Returns a matrix of students × quizzes (best attempt per quiz) with a
+    lesson-completion (participation) column and a weighted overall grade.
     """
-    from assignments.models import Assignment, Submission
+    from django.db.models import Count
     from quizzes.models import Quiz, QuizAttempt
     from .models import CourseGradingConfig
 
@@ -1006,11 +914,6 @@ def gradebook(request, course_code):
     except CourseGradingConfig.DoesNotExist:
         grading_config = None
 
-    # Get all assignments for the course, ordered by unit and then order
-    assignments = Assignment.objects.filter(
-        unit__course=course
-    ).select_related('unit').order_by('unit__order', 'order')
-
     # Get all quizzes for the course, ordered by unit and then order
     quizzes = Quiz.objects.filter(
         unit__course=course
@@ -1021,16 +924,6 @@ def gradebook(request, course_code):
         course=course,
         is_active=True
     ).select_related('user').order_by('user__last_name', 'user__first_name')
-
-    # Get all submissions for this course
-    submissions = Submission.objects.filter(
-        assignment__unit__course=course
-    ).select_related('grade')
-
-    # Build submission lookup: {(student_id, assignment_id): submission}
-    submission_lookup = {
-        (s.student_id, s.assignment_id): s for s in submissions
-    }
 
     # Get all quiz attempts and build best score lookup
     quiz_attempts = QuizAttempt.objects.filter(
@@ -1044,103 +937,37 @@ def gradebook(request, course_code):
         if key not in quiz_best_lookup or attempt.score > quiz_best_lookup[key].score:
             quiz_best_lookup[key] = attempt
 
-    # Build combined gradebook items list (assignments + quizzes)
-    gradebook_items = []
-
-    for assignment in assignments:
-        gradebook_items.append({
-            'id': assignment.id,
-            'title': assignment.title,
-            'unit_title': assignment.unit.title,
-            'max_points': assignment.max_points,
-            'due_date': assignment.due_date.isoformat() if assignment.due_date else None,
-            'type': 'assignment',
-        })
-
-    for quiz in quizzes:
-        gradebook_items.append({
+    gradebook_items = [
+        {
             'id': quiz.id,
             'title': quiz.title,
             'unit_title': quiz.unit.title,
             'max_points': quiz.points,
-            'due_date': None,
             'type': 'quiz',
-        })
+        }
+        for quiz in quizzes
+    ]
 
-    # Calculate total possible points (assignments + quizzes)
-    total_possible = sum(a.max_points for a in assignments) + sum(q.points for q in quizzes)
+    total_possible = sum(q.points for q in quizzes)
+
+    # Lesson completion (participation), bulk-fetched per student
+    total_lessons = Lesson.objects.filter(unit__course=course).count()
+    completed_lessons_by_student = dict(
+        LessonProgress.objects.filter(
+            lesson__unit__course=course,
+            completed=True
+        ).values('user_id').annotate(count=Count('id')).values_list('user_id', 'count')
+    )
 
     # Build students data with grades
     students_data = []
     for enrollment in enrollments:
         student = enrollment.user
         grades = []
-        total_earned = 0
-        graded_possible = 0
-
-        # Track category totals for weighted grading
-        assignment_earned = 0
-        assignment_possible = 0
         quiz_earned = 0
         quiz_possible = 0
 
-        # Process assignment grades
-        for assignment in assignments:
-            submission = submission_lookup.get((student.id, assignment.id))
-
-            if submission:
-                if submission.status == 'graded' and hasattr(submission, 'grade'):
-                    # Apply late penalty to get final grade
-                    raw_points = submission.grade.points
-                    late_penalty = float(submission.late_penalty_applied or 0)
-                    final_points = max(0, raw_points - late_penalty)
-                    grades.append({
-                        'item_id': assignment.id,
-                        'item_type': 'assignment',
-                        'points_earned': final_points,
-                        'status': 'graded',
-                        'is_late': submission.is_late,
-                        'late_penalty': late_penalty if late_penalty > 0 else None,
-                    })
-                    total_earned += final_points
-                    graded_possible += assignment.max_points
-                    # Track for weighted calculation
-                    assignment_earned += final_points
-                    assignment_possible += assignment.max_points
-                elif submission.status == 'submitted':
-                    grades.append({
-                        'item_id': assignment.id,
-                        'item_type': 'assignment',
-                        'points_earned': None,
-                        'status': 'submitted',
-                        'is_late': submission.is_late,
-                    })
-                else:
-                    # Draft - treat as missing
-                    is_late = False
-                    if assignment.due_date and timezone.now() > assignment.due_date:
-                        is_late = True
-                    grades.append({
-                        'item_id': assignment.id,
-                        'item_type': 'assignment',
-                        'points_earned': None,
-                        'status': 'missing' if is_late else 'not_started',
-                        'is_late': is_late,
-                    })
-            else:
-                # No submission at all
-                is_late = False
-                if assignment.due_date and timezone.now() > assignment.due_date:
-                    is_late = True
-                grades.append({
-                    'item_id': assignment.id,
-                    'item_type': 'assignment',
-                    'points_earned': None,
-                    'status': 'missing' if is_late else 'not_started',
-                    'is_late': is_late,
-                })
-
-        # Process quiz grades
+        # Process quiz grades (a cell is either a score or empty)
         for quiz in quizzes:
             best_attempt = quiz_best_lookup.get((student.id, quiz.id))
             if best_attempt:
@@ -1150,13 +977,9 @@ def gradebook(request, course_code):
                     'item_type': 'quiz',
                     'points_earned': points_earned,
                     'status': 'graded',
-                    'is_late': False,
                     'passed': best_attempt.passed,
                     'score_percentage': float(best_attempt.score),
                 })
-                total_earned += points_earned
-                graded_possible += quiz.points
-                # Track for weighted calculation
                 quiz_earned += points_earned
                 quiz_possible += quiz.points
             else:
@@ -1165,64 +988,28 @@ def gradebook(request, course_code):
                     'item_type': 'quiz',
                     'points_earned': None,
                     'status': 'not_started',
-                    'is_late': False,
                 })
 
-        # Calculate category percentages
-        assignment_pct = round((assignment_earned / assignment_possible * 100), 1) if assignment_possible > 0 else None
         quiz_pct = round((quiz_earned / quiz_possible * 100), 1) if quiz_possible > 0 else None
 
-        # Calculate participation (lesson completion)
-        total_lessons = Lesson.objects.filter(unit__course=course).count()
+        # Participation = lesson completion percentage
         if total_lessons > 0:
-            completed_lessons = LessonProgress.objects.filter(
-                user=student,
-                lesson__unit__course=course,
-                completed=True
-            ).count()
+            completed_lessons = completed_lessons_by_student.get(student.id, 0)
             participation_pct = round((completed_lessons / total_lessons) * 100, 1)
         else:
             participation_pct = None
 
-        # Calculate percentage - use weighted if config exists
-        if grading_config:
-            # Calculate weighted average
-            weighted_total = 0
-            weight_sum = 0
-
-            if assignment_pct is not None and float(grading_config.assignments_weight) > 0:
-                weighted_total += assignment_pct * float(grading_config.assignments_weight)
-                weight_sum += float(grading_config.assignments_weight)
-
-            if quiz_pct is not None and float(grading_config.quizzes_weight) > 0:
-                weighted_total += quiz_pct * float(grading_config.quizzes_weight)
-                weight_sum += float(grading_config.quizzes_weight)
-
-            if participation_pct is not None and float(grading_config.participation_weight) > 0:
-                weighted_total += participation_pct * float(grading_config.participation_weight)
-                weight_sum += float(grading_config.participation_weight)
-
-            if weight_sum > 0:
-                percentage = round(weighted_total / weight_sum, 1)
-            else:
-                percentage = None
-        else:
-            # Simple percentage based on graded items only
-            if graded_possible > 0:
-                percentage = round((total_earned / graded_possible) * 100, 1)
-            else:
-                percentage = None
+        percentage = calculate_weighted_grade(quiz_pct, participation_pct, grading_config)
 
         students_data.append({
             'id': student.id,
             'name': f"{student.first_name} {student.last_name}",
             'email': student.email,
             'grades': grades,
-            'total_earned': round(total_earned, 2),
-            'total_possible': graded_possible,  # Only count graded items
+            'total_earned': round(quiz_earned, 2),
+            'total_possible': quiz_possible,  # Only count attempted quizzes
             'percentage': percentage,
             'letter_grade': calculate_letter_grade(percentage) if percentage is not None else None,
-            'assignments_percentage': assignment_pct,
             'quizzes_percentage': quiz_pct,
             'participation_percentage': participation_pct,
         })
@@ -1236,9 +1023,7 @@ def gradebook(request, course_code):
         'students': students_data,
         'total_possible': total_possible,
         'has_quizzes': quizzes.exists(),
-        'has_assignments': assignments.exists(),
         'grading_config': {
-            'assignments_weight': float(grading_config.assignments_weight),
             'quizzes_weight': float(grading_config.quizzes_weight),
             'participation_weight': float(grading_config.participation_weight),
         } if grading_config else None,
@@ -1250,10 +1035,12 @@ def gradebook(request, course_code):
 def gradebook_export(request, course_code):
     """
     Export gradebook as CSV (instructor only).
-    Includes both assignments and quizzes.
+    Columns match the gradebook matrix: one per quiz, lesson completion,
+    weighted overall percentage and letter grade.
     """
-    from assignments.models import Assignment, Submission
+    from django.db.models import Count
     from quizzes.models import Quiz, QuizAttempt
+    from .models import CourseGradingConfig
 
     course = get_object_or_404(Course, code=course_code)
 
@@ -1262,10 +1049,10 @@ def gradebook_export(request, course_code):
         "Only the course instructor can export the gradebook."
     )
 
-    # Get all assignments for the course
-    assignments = Assignment.objects.filter(
-        unit__course=course
-    ).select_related('unit').order_by('unit__order', 'order')
+    try:
+        grading_config = course.grading_config
+    except CourseGradingConfig.DoesNotExist:
+        grading_config = None
 
     # Get all quizzes for the course
     quizzes = Quiz.objects.filter(
@@ -1278,15 +1065,6 @@ def gradebook_export(request, course_code):
         is_active=True
     ).select_related('user').order_by('user__last_name', 'user__first_name')
 
-    # Get all submissions
-    submissions = Submission.objects.filter(
-        assignment__unit__course=course
-    ).select_related('grade')
-
-    submission_lookup = {
-        (s.student_id, s.assignment_id): s for s in submissions
-    }
-
     # Get all quiz attempts and build best score lookup
     quiz_attempts = QuizAttempt.objects.filter(
         quiz__unit__course=course
@@ -1298,6 +1076,15 @@ def gradebook_export(request, course_code):
         if key not in quiz_best_lookup or attempt.score > quiz_best_lookup[key].score:
             quiz_best_lookup[key] = attempt
 
+    # Lesson completion (participation)
+    total_lessons = Lesson.objects.filter(unit__course=course).count()
+    completed_lessons_by_student = dict(
+        LessonProgress.objects.filter(
+            lesson__unit__course=course,
+            completed=True
+        ).values('user_id').annotate(count=Count('id')).values_list('user_id', 'count')
+    )
+
     # Create CSV response
     response = HttpResponse(content_type='text/csv')
     response['Content-Disposition'] = f'attachment; filename="{course.code}_gradebook.csv"'
@@ -1306,11 +1093,9 @@ def gradebook_export(request, course_code):
 
     # Header row
     header = ['Student Name', 'Email']
-    for assignment in assignments:
-        header.append(f"[A] {assignment.title} ({assignment.max_points})")
     for quiz in quizzes:
-        header.append(f"[Q] {quiz.title} ({quiz.points})")
-    header.extend(['Total Earned', 'Total Possible', 'Percentage', 'Letter Grade'])
+        header.append(f"{quiz.title} ({quiz.points})")
+    header.extend(['Quiz Total', 'Quiz %', 'Lesson Completion %', 'Weighted %', 'Letter Grade'])
     writer.writerow(header)
 
     # Data rows
@@ -1318,43 +1103,37 @@ def gradebook_export(request, course_code):
         student = enrollment.user
         row = [f"{student.first_name} {student.last_name}", student.email]
 
-        total_earned = 0
-        graded_possible = 0
+        quiz_earned = 0
+        quiz_possible = 0
 
-        # Process assignments
-        for assignment in assignments:
-            submission = submission_lookup.get((student.id, assignment.id))
-
-            if submission and submission.status == 'graded' and hasattr(submission, 'grade'):
-                points = submission.grade.points
-                row.append(points)
-                total_earned += points
-                graded_possible += assignment.max_points
-            elif submission and submission.status == 'submitted':
-                row.append('Pending')
-            else:
-                is_late = assignment.due_date and timezone.now() > assignment.due_date
-                row.append('Missing' if is_late else '-')
-
-        # Process quizzes
         for quiz in quizzes:
             best_attempt = quiz_best_lookup.get((student.id, quiz.id))
             if best_attempt:
                 points = float(best_attempt.points_earned)
                 row.append(points)
-                total_earned += points
-                graded_possible += quiz.points
+                quiz_earned += points
+                quiz_possible += quiz.points
             else:
                 row.append('-')
 
-        if graded_possible > 0:
-            percentage = round((total_earned / graded_possible) * 100, 1)
-            letter = calculate_letter_grade(percentage)
-        else:
-            percentage = '-'
-            letter = '-'
+        quiz_pct = round((quiz_earned / quiz_possible) * 100, 1) if quiz_possible > 0 else None
 
-        row.extend([total_earned, graded_possible, percentage, letter])
+        if total_lessons > 0:
+            completed_lessons = completed_lessons_by_student.get(student.id, 0)
+            participation_pct = round((completed_lessons / total_lessons) * 100, 1)
+        else:
+            participation_pct = None
+
+        percentage = calculate_weighted_grade(quiz_pct, participation_pct, grading_config)
+        letter = calculate_letter_grade(percentage) if percentage is not None else '-'
+
+        row.extend([
+            quiz_earned,
+            quiz_pct if quiz_pct is not None else '-',
+            participation_pct if participation_pct is not None else '-',
+            percentage if percentage is not None else '-',
+            letter,
+        ])
         writer.writerow(row)
 
     return response
@@ -1518,9 +1297,8 @@ def course_grading_config(request, course_code):
     config, created = CourseGradingConfig.objects.get_or_create(
         course=course,
         defaults={
-            'assignments_weight': 50,
             'quizzes_weight': 50,
-            'participation_weight': 0,
+            'participation_weight': 50,
         }
     )
 
@@ -1541,10 +1319,9 @@ def course_grading_config(request, course_code):
 def student_grade_summary(request, course_code):
     """
     Get current user's grade summary for a course.
-    Returns category grades, weighted average, and letter grade.
+    Returns quiz and participation grades, weighted average, and letter grade.
     """
     from .models import CourseGradingConfig
-    from assignments.models import Assignment, Submission
     from quizzes.models import Quiz, QuizAttempt
 
     course = get_object_or_404(Course, code=course_code)
@@ -1560,41 +1337,45 @@ def student_grade_summary(request, course_code):
     except CourseGradingConfig.DoesNotExist:
         config = None
 
-    # Calculate assignment grades
-    assignments = Assignment.objects.filter(unit__course=course)
-    submissions = Submission.objects.filter(
-        assignment__in=assignments,
-        student=request.user,
-        status='graded'
-    ).select_related('grade', 'assignment')
+    # Calculate quiz grades and build per-quiz grade items
+    all_quizzes = Quiz.objects.filter(
+        unit__course=course
+    ).select_related('unit').order_by('unit__order', 'order')
 
-    assignment_earned = 0
-    assignment_possible = 0
-    for sub in submissions:
-        if hasattr(sub, 'grade') and sub.grade:
-            raw_points = sub.grade.points
-            penalty = float(sub.late_penalty_applied or 0)
-            assignment_earned += max(0, raw_points - penalty)
-            assignment_possible += sub.assignment.max_points
-
-    assignment_percentage = (
-        round((assignment_earned / assignment_possible) * 100, 1)
-        if assignment_possible > 0 else None
-    )
-
-    # Calculate quiz grades
-    quizzes = Quiz.objects.filter(unit__course=course)
     quiz_earned = 0
     quiz_possible = 0
+    grade_items = []
 
-    for quiz in quizzes:
+    for quiz in all_quizzes:
         best_attempt = QuizAttempt.objects.filter(
             quiz=quiz, student=request.user
         ).order_by('-score').first()
 
         if best_attempt:
-            quiz_earned += float(best_attempt.points_earned)
+            points_earned = float(best_attempt.points_earned)
+            quiz_earned += points_earned
             quiz_possible += quiz.points
+            grade_items.append({
+                'id': quiz.id,
+                'type': 'quiz',
+                'title': quiz.title,
+                'unit_title': quiz.unit.title,
+                'max_points': quiz.points,
+                'points_earned': points_earned,
+                'status': 'graded',
+                'passed': best_attempt.passed,
+            })
+        else:
+            grade_items.append({
+                'id': quiz.id,
+                'type': 'quiz',
+                'title': quiz.title,
+                'unit_title': quiz.unit.title,
+                'max_points': quiz.points,
+                'points_earned': None,
+                'status': 'not_started',
+                'passed': None,
+            })
 
     quiz_percentage = (
         round((quiz_earned / quiz_possible) * 100, 1)
@@ -1615,143 +1396,17 @@ def student_grade_summary(request, course_code):
     )
 
     # Calculate weighted average
-    weighted_percentage = None
-    if config:
-        weighted_total = 0
-        weight_sum = 0
-
-        if assignment_percentage is not None and float(config.assignments_weight) > 0:
-            weighted_total += assignment_percentage * float(config.assignments_weight)
-            weight_sum += float(config.assignments_weight)
-
-        if quiz_percentage is not None and float(config.quizzes_weight) > 0:
-            weighted_total += quiz_percentage * float(config.quizzes_weight)
-            weight_sum += float(config.quizzes_weight)
-
-        if participation_percentage is not None and float(config.participation_weight) > 0:
-            weighted_total += participation_percentage * float(config.participation_weight)
-            weight_sum += float(config.participation_weight)
-
-        if weight_sum > 0:
-            weighted_percentage = round(weighted_total / weight_sum, 1)
-    else:
-        # Default: simple average of available categories
-        percentages = [p for p in [assignment_percentage, quiz_percentage] if p is not None]
-        if percentages:
-            weighted_percentage = round(sum(percentages) / len(percentages), 1)
+    weighted_percentage = calculate_weighted_grade(
+        quiz_percentage, participation_percentage, config
+    )
 
     # Calculate letter grade
     letter_grade = calculate_letter_grade(weighted_percentage) if weighted_percentage is not None else None
-
-    # Build individual grade items for display
-    grade_items = []
-
-    # Get all assignments with their submission status
-    all_assignments = Assignment.objects.filter(
-        unit__course=course
-    ).select_related('unit').order_by('unit__order', 'order')
-
-    submission_lookup = {}
-    all_submissions = Submission.objects.filter(
-        assignment__unit__course=course,
-        student=request.user
-    ).select_related('grade', 'assignment')
-    for sub in all_submissions:
-        submission_lookup[sub.assignment_id] = sub
-
-    now = timezone.now()
-    for assignment in all_assignments:
-        # Skip assignments that aren't available yet (available_from in future)
-        if assignment.available_from and assignment.available_from > now:
-            continue
-
-        sub = submission_lookup.get(assignment.id)
-        if sub:
-            # Has a submission
-            if sub.status == 'graded' and hasattr(sub, 'grade') and sub.grade:
-                points = sub.grade.points
-                penalty = float(sub.late_penalty_applied or 0)
-                final_points = max(0, points - penalty)
-                item_status = 'graded'
-            elif sub.status == 'submitted':
-                final_points = None
-                item_status = 'submitted'
-            else:
-                # Draft status
-                final_points = None
-                item_status = 'not_started'
-            is_late = sub.is_late
-        else:
-            # No submission
-            final_points = None
-            is_late = False
-            # Check if past due date OR past available_until
-            past_due = assignment.due_date and assignment.due_date < now
-            past_available = assignment.available_until and assignment.available_until < now
-            if past_due or past_available:
-                item_status = 'missing'
-            else:
-                item_status = 'not_started'
-
-        grade_items.append({
-            'id': assignment.id,
-            'type': 'assignment',
-            'title': assignment.title,
-            'unit_title': assignment.unit.title,
-            'max_points': assignment.max_points,
-            'points_earned': round(final_points, 2) if final_points is not None else None,
-            'status': item_status,
-            'is_late': is_late,
-            'due_date': assignment.due_date.isoformat() if assignment.due_date else None,
-        })
-
-    # Get all quizzes with their best attempt
-    all_quizzes = Quiz.objects.filter(
-        unit__course=course
-    ).select_related('unit').order_by('unit__order', 'order')
-
-    for quiz in all_quizzes:
-        best_attempt = QuizAttempt.objects.filter(
-            quiz=quiz, student=request.user
-        ).order_by('-score').first()
-
-        if best_attempt:
-            grade_items.append({
-                'id': quiz.id,
-                'type': 'quiz',
-                'title': quiz.title,
-                'unit_title': quiz.unit.title,
-                'max_points': quiz.points,
-                'points_earned': float(best_attempt.points_earned),
-                'status': 'graded',
-                'is_late': False,  # Quizzes don't have due dates currently
-                'due_date': None,
-                'passed': best_attempt.passed,
-            })
-        else:
-            grade_items.append({
-                'id': quiz.id,
-                'type': 'quiz',
-                'title': quiz.title,
-                'unit_title': quiz.unit.title,
-                'max_points': quiz.points,
-                'points_earned': None,
-                'status': 'not_started',
-                'is_late': False,
-                'due_date': None,
-                'passed': None,
-            })
 
     return Response({
         'course': {
             'code': course.code,
             'title': course.title,
-        },
-        'assignments': {
-            'earned': round(assignment_earned, 2),
-            'possible': assignment_possible,
-            'percentage': assignment_percentage,
-            'weight': float(config.assignments_weight) if config else None,
         },
         'quizzes': {
             'earned': round(quiz_earned, 2),
@@ -2500,16 +2155,14 @@ class InstructorReminderViewSet(viewsets.ModelViewSet):
 def instructor_calendar(request):
     """
     Get calendar events for the instructor's dashboard.
-    Returns assignments, quizzes, and custom reminders for a date range.
-    
+    Returns custom reminders for a date range.
+
     Query params:
     - start_date: YYYY-MM-DD (defaults to today)
     - end_date: YYYY-MM-DD (defaults to 7 days from start)
     """
     from datetime import datetime, timedelta
     from django.utils import timezone
-    from assignments.models import Assignment
-    from quizzes.models import Quiz
 
     if not request.user.is_instructor:
         raise PermissionDenied("Only instructors can access this endpoint.")
@@ -2541,32 +2194,7 @@ def instructor_calendar(request):
     else:
         end_date = start_date + timedelta(days=6)
 
-    # Get instructor's courses
-    courses = Course.objects.filter(instructor=request.user)
-
     events = []
-
-    # Get assignments with due dates in range
-    assignments = Assignment.objects.filter(
-        unit__course__in=courses,
-        due_date__date__gte=start_date,
-        due_date__date__lte=end_date
-    ).select_related('unit__course')
-
-    for assignment in assignments:
-        events.append({
-            'id': f'assignment-{assignment.id}',
-            'type': 'assignment',
-            'title': assignment.title,
-            'course_code': assignment.unit.course.code,
-            'date': assignment.due_date.date().isoformat(),
-            'time': assignment.due_date.time().strftime('%H:%M') if assignment.due_date else None,
-            'color': 'green',
-            'url': f'/instructor/assignments/{assignment.id}/grade',
-        })
-
-    # Get quizzes - they don't have due dates typically, so skip unless we add that field
-    # For now, just reminders and assignments
 
     # Get custom reminders
     reminders = InstructorReminder.objects.filter(

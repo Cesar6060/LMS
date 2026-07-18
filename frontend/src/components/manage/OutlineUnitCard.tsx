@@ -14,12 +14,11 @@ import {
   DropdownMenuSeparator,
 } from '@/components/ui/DropdownMenu';
 import type { LessonListItem } from '@/services/courses';
-import type { AssignmentListItem, Quiz } from '@/types';
+import type { Quiz } from '@/types';
 import { cn } from '@/lib/utils';
 import {
   GripVertical, ChevronDown, ChevronRight, MoreVertical, Trash2,
-  Pencil, Play, FileText, ClipboardList, FileQuestion, Plus,
-  GraduationCap,
+  Pencil, Play, FileText, FileQuestion, Plus,
 } from 'lucide-react';
 
 export interface OutlineUnit {
@@ -31,10 +30,9 @@ export interface OutlineUnit {
 interface InlineAddRowProps {
   onAddLesson: (title: string) => Promise<void>;
   onAddQuiz: (title: string) => Promise<void>;
-  onAddAssignment: () => void;
 }
 
-function InlineAddRow({ onAddLesson, onAddQuiz, onAddAssignment }: InlineAddRowProps) {
+function InlineAddRow({ onAddLesson, onAddQuiz }: InlineAddRowProps) {
   const [mode, setMode] = useState<'lesson' | 'quiz' | null>(null);
   const [title, setTitle] = useState('');
   const [isCreating, setIsCreating] = useState(false);
@@ -107,14 +105,6 @@ function InlineAddRow({ onAddLesson, onAddQuiz, onAddAssignment }: InlineAddRowP
         onClick={() => setMode('lesson')}
       >
         lesson
-      </button>
-      <span>·</span>
-      <button
-        type="button"
-        className="hover:text-foreground hover:underline"
-        onClick={onAddAssignment}
-      >
-        assignment
       </button>
       <span>·</span>
       <button
@@ -281,38 +271,30 @@ interface OutlineUnitCardProps {
   unit: OutlineUnit;
   courseCode: string;
   collapsed: boolean;
-  assignments: AssignmentListItem[];
   quizzes: Quiz[];
   onToggleCollapse: (unitId: number) => void;
   onRenameUnit: (unitId: number, title: string) => void;
   onDeleteUnit: (unitId: number) => void;
   onRenameLesson: (lessonId: number, title: string) => void;
   onDeleteLesson: (lessonId: number) => void;
-  onEditAssignment: (assignment: AssignmentListItem) => void;
-  onDeleteAssignment: (assignmentId: number) => void;
   onDeleteQuiz: (quizId: number) => void;
   onAddLesson: (unitId: number, title: string) => Promise<void>;
   onAddQuiz: (unitId: number, title: string) => Promise<void>;
-  onAddAssignment: (unitId: number) => void;
 }
 
 export function OutlineUnitCard({
   unit,
   courseCode,
   collapsed,
-  assignments,
   quizzes,
   onToggleCollapse,
   onRenameUnit,
   onDeleteUnit,
   onRenameLesson,
   onDeleteLesson,
-  onEditAssignment,
-  onDeleteAssignment,
   onDeleteQuiz,
   onAddLesson,
   onAddQuiz,
-  onAddAssignment,
 }: OutlineUnitCardProps) {
   const [editingTitle, setEditingTitle] = useState(false);
   const {
@@ -321,7 +303,7 @@ export function OutlineUnitCard({
 
   const { setNodeRef: setDropRef } = useDroppable({ id: `unitdrop-${unit.id}` });
 
-  const itemCount = unit.lessons.length + assignments.length + quizzes.length;
+  const itemCount = unit.lessons.length + quizzes.length;
 
   return (
     <Card
@@ -397,7 +379,7 @@ export function OutlineUnitCard({
         <CardContent className="pt-0 pb-3" ref={setDropRef}>
           {itemCount === 0 && (
             <p className="text-sm text-muted-foreground px-2 py-2">
-              No lessons yet — add a lesson, assignment, or quiz.
+              No lessons yet — add a lesson or quiz.
             </p>
           )}
           <SortableContext
@@ -416,69 +398,6 @@ export function OutlineUnitCard({
               ))}
             </ul>
           </SortableContext>
-
-          {assignments.length > 0 && (
-            <ul>
-              {assignments.map(assignment => (
-                <li
-                  key={assignment.id}
-                  className="group flex items-center gap-2 rounded-md px-2 py-1.5 hover:bg-muted/50"
-                >
-                  <span className="w-4" />
-                  <ClipboardList className="h-4 w-4 text-muted-foreground flex-shrink-0" />
-                  <button
-                    type="button"
-                    className="flex-1 min-w-0 text-left"
-                    onClick={() => onEditAssignment(assignment)}
-                  >
-                    <span className="text-sm hover:underline truncate block">
-                      {assignment.title}
-                    </span>
-                  </button>
-                  <span className="text-xs text-muted-foreground whitespace-nowrap">
-                    {assignment.max_points} pts
-                    {assignment.due_date && (
-                      <> · due {new Date(assignment.due_date).toLocaleDateString()}</>
-                    )}
-                  </span>
-                  <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 focus-within:opacity-100">
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      className="h-7 w-7 p-0"
-                      title="Edit assignment"
-                      onClick={() => onEditAssignment(assignment)}
-                    >
-                      <Pencil className="h-3.5 w-3.5" />
-                    </Button>
-                    <DropdownMenu>
-                      <DropdownMenuTrigger asChild>
-                        <Button variant="ghost" size="sm" className="h-7 w-7 p-0" title="More actions">
-                          <MoreVertical className="h-3.5 w-3.5" />
-                        </Button>
-                      </DropdownMenuTrigger>
-                      <DropdownMenuContent align="end">
-                        <DropdownMenuItem asChild>
-                          <Link to={`/instructor/assignments/${assignment.id}/grade`}>
-                            <GraduationCap className="h-4 w-4" />
-                            Grade submissions
-                          </Link>
-                        </DropdownMenuItem>
-                        <DropdownMenuSeparator />
-                        <DropdownMenuItem
-                          className="text-destructive focus:text-destructive"
-                          onSelect={() => onDeleteAssignment(assignment.id)}
-                        >
-                          <Trash2 className="h-4 w-4" />
-                          Delete
-                        </DropdownMenuItem>
-                      </DropdownMenuContent>
-                    </DropdownMenu>
-                  </div>
-                </li>
-              ))}
-            </ul>
-          )}
 
           {quizzes.length > 0 && (
             <ul>
@@ -529,7 +448,6 @@ export function OutlineUnitCard({
           <InlineAddRow
             onAddLesson={(title) => onAddLesson(unit.id, title)}
             onAddQuiz={(title) => onAddQuiz(unit.id, title)}
-            onAddAssignment={() => onAddAssignment(unit.id)}
           />
         </CardContent>
       )}

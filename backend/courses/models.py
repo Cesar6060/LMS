@@ -52,7 +52,7 @@ class Course(models.Model):
 class Unit(models.Model):
     """
     A unit/module within a course.
-    Contains lessons and assignments.
+    Contains lessons and quizzes.
     """
     course = models.ForeignKey(
         Course,
@@ -244,16 +244,12 @@ class CourseGradingConfig(models.Model):
         on_delete=models.CASCADE,
         related_name='grading_config'
     )
-    assignments_weight = models.DecimalField(
-        max_digits=5, decimal_places=2, default=50,
-        help_text='Weight percentage for assignments (0-100)'
-    )
     quizzes_weight = models.DecimalField(
         max_digits=5, decimal_places=2, default=50,
         help_text='Weight percentage for quizzes (0-100)'
     )
     participation_weight = models.DecimalField(
-        max_digits=5, decimal_places=2, default=0,
+        max_digits=5, decimal_places=2, default=50,
         help_text='Weight percentage for participation/lesson completion (0-100)'
     )
     created_at = models.DateTimeField(auto_now_add=True)
@@ -268,7 +264,7 @@ class CourseGradingConfig(models.Model):
 
     def clean(self):
         from django.core.exceptions import ValidationError
-        total = (self.assignments_weight or 0) + (self.quizzes_weight or 0) + (self.participation_weight or 0)
+        total = (self.quizzes_weight or 0) + (self.participation_weight or 0)
         if total != 100:
             raise ValidationError(f'Weights must sum to 100%. Current total: {total}%')
 
@@ -445,7 +441,6 @@ class LessonAttachment(models.Model):
 class InstructorReminder(models.Model):
     """
     Custom reminders/events created by instructors for their calendar.
-    These appear alongside assignment/quiz due dates on the dashboard.
     """
     instructor = models.ForeignKey(
         settings.AUTH_USER_MODEL,

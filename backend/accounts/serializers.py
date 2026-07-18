@@ -14,9 +14,6 @@ class UserPreferencesSerializer(serializers.ModelSerializer):
             'timezone',
             'avatar_url',
             'email_announcements',
-            'email_grades',
-            'email_submissions',
-            'email_due_reminders',
         ]
 
     def get_avatar_url(self, obj):

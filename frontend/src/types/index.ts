@@ -4,9 +4,6 @@ export interface UserPreferences {
   timezone: string;
   avatar_url: string | null;
   email_announcements: boolean;
-  email_grades: boolean;
-  email_submissions: boolean;
-  email_due_reminders: boolean;
 }
 
 export interface User {
@@ -122,108 +119,11 @@ export interface LessonProgress {
   lesson_questions_status?: LessonQuestionsStatus | null;
 }
 
-// Phase 4: Assignment types
-export interface AssignmentListItem {
-  id: number;
-  title: string;
-  max_points: number;
-  due_date: string | null;
-  order: number;
-  unit: number;
-  course_code: string;
-  unit_title: string;
-  submission_status: {
-    status: 'draft' | 'submitted' | 'graded';
-    grade: number | null;
-  } | null;
-  // Phase 10: Availability fields
-  available_from: string | null;
-  available_until: string | null;
-  is_available: boolean;
-  is_closed: boolean;
-}
-
-export interface Assignment {
-  id: number;
-  title: string;
-  description: string;
-  max_points: number;
-  due_date: string | null;
-  order: number;
-  allow_late: boolean;
-  course_code: string;
-  unit_title: string;
-  my_submission: Submission | null;
-  submission_count?: number;
-  graded_count?: number;
-  is_instructor: boolean;
-  created_at: string;
-  updated_at: string;
-  // Phase 10: Availability fields
-  available_from: string | null;
-  available_until: string | null;
-  is_available: boolean;
-  is_closed: boolean;
-  // Phase 10: Late penalty fields
-  late_penalty_percent: number | null;
-  late_penalty_interval: 'day' | 'hour';
-  max_late_penalty: number | null;
-}
-
-export interface Grade {
-  id: number;
-  points: number;
-  feedback: string;
-  grader: number;
-  grader_name: string | null;
-  percentage: number;
-  graded_at: string;
-  updated_at: string;
-}
-
-export interface SubmissionFile {
-  id: number;
-  filename: string;
-  url: string;
-  uploaded_at: string;
-}
-
-export interface SubmissionHistory {
-  id: number;
-  content: string;
-  files_info: string[];
-  submitted_at: string;
-  grade_points: number | null;
-  grade_feedback: string;
-  archived_at: string;
-}
-
-export interface Submission {
-  id: number;
-  assignment: number;
-  student: number;
-  student_name: string;
-  student_email: string;
-  content: string;
-  file: string | null;
-  files: SubmissionFile[];
-  status: 'draft' | 'submitted' | 'graded';
-  is_late: boolean;
-  submitted_at: string | null;
-  created_at: string;
-  updated_at: string;
-  grade: Grade | null;
-  history?: SubmissionHistory[];
-  // Phase 10: Late penalty fields
-  late_penalty_applied: number;
-  final_grade: number | null;
-}
-
 // Phase 5: Notification types
 export interface Notification {
   id: number;
   recipient: number;
-  type: 'enrollment' | 'submission' | 'grade' | 'new_lesson' | 'new_assignment' | 'resubmission' | 'announcement';
+  type: 'enrollment' | 'new_lesson' | 'announcement' | 'reply';
   title: string;
   message: string;
   is_read: boolean;
@@ -296,50 +196,38 @@ export interface GradebookItem {
   title: string;
   unit_title: string;
   max_points: number;
-  due_date: string | null;
-  type: 'assignment' | 'quiz';
+  type: 'quiz';
 }
 
 export interface StudentGradeItem {
   item_id: number;
-  item_type: 'assignment' | 'quiz';
+  item_type: 'quiz';
   points_earned: number | null;
-  status: 'graded' | 'submitted' | 'missing' | 'not_started';
-  is_late: boolean;
-  late_penalty?: number;
-  passed?: boolean;  // Only for quizzes
-  score_percentage?: number;  // Only for quizzes
+  status: 'graded' | 'not_started';
+  passed?: boolean;  // Only when graded
+  score_percentage?: number;  // Only when graded
 }
 
 export interface GradingConfig {
-  assignments_weight: number;
   quizzes_weight: number;
   participation_weight: number;
 }
 
 export interface StudentGradeDetailItem {
   id: number;
-  type: 'assignment' | 'quiz';
+  type: 'quiz';
   title: string;
   unit_title: string;
   max_points: number;
   points_earned: number | null;
-  status: 'graded' | 'submitted' | 'missing' | 'not_started';
-  is_late: boolean;
-  due_date: string | null;
-  passed?: boolean;  // Only for quizzes
+  status: 'graded' | 'not_started';
+  passed?: boolean | null;
 }
 
 export interface GradeSummary {
   course?: {
     code: string;
     title: string;
-  };
-  assignments: {
-    earned: number;
-    possible: number;
-    percentage: number | null;
-    weight: number | null;
   };
   quizzes: {
     earned: number;
@@ -376,27 +264,11 @@ export interface ContinueLearning {
   last_activity_at: string | null;
 }
 
-export interface UpcomingDeadline {
-  id: number;
-  type: 'assignment' | 'quiz';
-  title: string;
-  course_code: string;
-  course_title: string;
-  due_date: string;
-  max_points: number;
-  has_draft?: boolean;
-}
-
 export interface CourseProgressItem {
   course_code: string;
   course_title: string;
   overall_percentage: number;
   lessons: {
-    completed: number;
-    total: number;
-    percentage: number;
-  };
-  assignments: {
     completed: number;
     total: number;
     percentage: number;
@@ -408,34 +280,19 @@ export interface CourseProgressItem {
   };
 }
 
-export interface RecentSubmission {
-  id: number;
-  assignment_id: number;
-  student_name: string;
-  student_email: string;
-  assignment_title: string;
-  course_code: string;
-  course_title: string;
-  submitted_at: string | null;
-  is_late: boolean;
-}
-
 export interface InstructorCourseProgress {
   course_code: string;
   course_title: string;
   student_count: number;
-  pending_submissions: number;
 }
 
 export interface EnhancedDashboardStudent {
   continue_learning: ContinueLearning | null;
-  upcoming_deadlines: UpcomingDeadline[];
   course_progress_overview: CourseProgressItem[];
   is_instructor: false;
 }
 
 export interface EnhancedDashboardInstructor {
-  recent_submissions: RecentSubmission[];
   course_progress_overview: InstructorCourseProgress[];
   is_instructor: true;
 }
@@ -520,7 +377,7 @@ export interface InstructorReminder {
 
 export interface CalendarEvent {
   id: string;
-  type: 'assignment' | 'quiz' | 'reminder';
+  type: 'reminder';
   title: string;
   description?: string;
   course_code: string | null;

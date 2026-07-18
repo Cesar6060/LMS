@@ -84,6 +84,17 @@ export const quizzesService = {
     const response = await api.get<QuizAttempt[]>(`/quizzes/${quizId}/attempts/`);
     return response.data;
   },
+
+  // Quick grade quiz from gradebook
+  async quickGradeQuiz(quizId: number, studentId: number, points: number): Promise<{
+    success: boolean;
+    points: number;
+    score: number;
+    passed: boolean;
+  }> {
+    const response = await api.post(`/quizzes/${quizId}/quick-grade/${studentId}/`, { points });
+    return response.data;
+  },
 };
 
 export default quizzesService;

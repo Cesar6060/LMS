@@ -4,7 +4,6 @@ from rest_framework import status
 from rest_framework.test import APIClient
 from accounts.models import User
 from .models import Course, Unit, Lesson, Enrollment, LessonProgress, Announcement
-from assignments.models import Assignment, Submission, Grade
 from notifications.models import Notification
 
 
@@ -496,13 +495,13 @@ class TestAnnouncements:
 
 
 @pytest.fixture
-def assignment(unit):
-    return Assignment.objects.create(
+def quiz(unit):
+    from quizzes.models import Quiz
+    return Quiz.objects.create(
         unit=unit,
-        title='Test Assignment',
-        description='Test description',
-        max_points=100,
-        order=1
+        title='Test Quiz',
+        points=100,
+        passing_score=70
     )
 
 
@@ -524,8 +523,8 @@ class TestGradebook:
         response = api_client.get(f'/api/courses/courses/{course.code}/gradebook/')
         assert response.status_code == status.HTTP_403_FORBIDDEN
 
-    def test_gradebook_returns_structure(self, api_client, instructor, course, unit, assignment, student, enrollment):
-        """Gradebook returns correct structure."""
+    def test_gradebook_returns_structure(self, api_client, instructor, course, unit, quiz, student, enrollment):
+        """Gradebook returns the quizzes + completion matrix structure."""
         api_client.force_authenticate(user=instructor)
         response = api_client.get(f'/api/courses/courses/{course.code}/gradebook/')
         assert response.status_code == status.HTTP_200_OK
@@ -533,15 +532,14 @@ class TestGradebook:
         assert 'gradebook_items' in response.data
         assert 'students' in response.data
         assert response.data['course']['code'] == course.code
-
-    def test_gradebook_shows_assignments(self, api_client, instructor, course, unit, assignment):
-        """Gradebook shows all assignments."""
-        api_client.force_authenticate(user=instructor)
-        response = api_client.get(f'/api/courses/courses/{course.code}/gradebook/')
-        assignment_items = [i for i in response.data['gradebook_items'] if i['type'] == 'assignment']
-        assert len(assignment_items) == 1
-        assert assignment_items[0]['title'] == 'Test Assignment'
-        assert assignment_items[0]['max_points'] == 100
+        # Items are quizzes only
+        assert all(i['type'] == 'quiz' for i in response.data['gradebook_items'])
+        # Each student row has completion and weighted-total columns
+        student_data = response.data['students'][0]
+        assert 'participation_percentage' in student_data
+        assert 'quizzes_percentage' in student_data
+        assert 'percentage' in student_data
+        assert 'letter_grade' in student_data
 
     def test_gradebook_shows_students(self, api_client, instructor, course, unit, student, enrollment):
         """Gradebook shows enrolled students."""
@@ -550,83 +548,96 @@ class TestGradebook:
         assert len(response.data['students']) == 1
         assert response.data['students'][0]['email'] == student.email
 
-    def test_gradebook_shows_grades(self, api_client, instructor, course, unit, assignment, student, enrollment):
-        """Gradebook shows graded submissions."""
+    def test_gradebook_matrix_cells(self, api_client, instructor, course, unit, quiz, student, enrollment):
+        """A quiz cell is either a score (best attempt) or empty."""
+        from quizzes.models import QuizAttempt
+
+        QuizAttempt.objects.create(quiz=quiz, student=student, score=85.00, passed=True)
+
         api_client.force_authenticate(user=instructor)
-
-        # Create and grade a submission
-        submission = Submission.objects.create(
-            assignment=assignment,
-            student=student,
-            content='My answer',
-            status='submitted'
-        )
-        Grade.objects.create(
-            submission=submission,
-            grader=instructor,
-            points=85
-        )
-        submission.status = 'graded'
-        submission.save()
-
         response = api_client.get(f'/api/courses/courses/{course.code}/gradebook/')
-        assert response.status_code == status.HTTP_200_OK
         student_data = response.data['students'][0]
-        assert student_data['grades'][0]['points_earned'] == 85
-        assert student_data['grades'][0]['status'] == 'graded'
-        assert student_data['total_earned'] == 85
-        assert student_data['percentage'] == 85.0
+        cell = student_data['grades'][0]
+        assert cell['item_id'] == quiz.id
+        assert cell['item_type'] == 'quiz'
+        assert cell['status'] == 'graded'
+        assert cell['points_earned'] == 85.0
+        assert student_data['quizzes_percentage'] == 85.0
+
+    def test_gradebook_empty_cell_without_attempt(self, api_client, instructor, course, unit, quiz, student, enrollment):
+        """No attempt means an empty cell, not a missing/late status."""
+        api_client.force_authenticate(user=instructor)
+        response = api_client.get(f'/api/courses/courses/{course.code}/gradebook/')
+        cell = response.data['students'][0]['grades'][0]
+        assert cell['status'] == 'not_started'
+        assert cell['points_earned'] is None
+
+    def test_gradebook_completion_column(self, api_client, instructor, course, unit, quiz, lesson, student, enrollment):
+        """Participation column reflects lesson completion percentage."""
+        Lesson.objects.create(unit=unit, title='Second Lesson', order=2)
+        LessonProgress.objects.create(user=student, lesson=lesson, completed=True)
+
+        api_client.force_authenticate(user=instructor)
+        response = api_client.get(f'/api/courses/courses/{course.code}/gradebook/')
+        student_data = response.data['students'][0]
+        assert student_data['participation_percentage'] == 50.0
+
+    def test_gradebook_weighted_total(self, api_client, instructor, course, unit, quiz, lesson, student, enrollment):
+        """Weighted total combines quiz % and completion % via config weights."""
+        from quizzes.models import QuizAttempt
+        from courses.models import CourseGradingConfig
+
+        CourseGradingConfig.objects.create(
+            course=course, quizzes_weight=60, participation_weight=40
+        )
+        # Quiz: 80%
+        QuizAttempt.objects.create(quiz=quiz, student=student, score=80.00, passed=True)
+        # Completion: 100% (only lesson completed)
+        LessonProgress.objects.create(user=student, lesson=lesson, completed=True)
+
+        api_client.force_authenticate(user=instructor)
+        response = api_client.get(f'/api/courses/courses/{course.code}/gradebook/')
+        student_data = response.data['students'][0]
+        # (80 * 60 + 100 * 40) / 100 = 88
+        assert student_data['percentage'] == 88.0
         assert student_data['letter_grade'] == 'B'
+        assert response.data['grading_config'] == {
+            'quizzes_weight': 60.0,
+            'participation_weight': 40.0,
+        }
 
-    def test_gradebook_shows_pending(self, api_client, instructor, course, unit, assignment, student, enrollment):
-        """Gradebook shows pending (submitted but not graded) submissions."""
-        api_client.force_authenticate(user=instructor)
-
-        Submission.objects.create(
-            assignment=assignment,
-            student=student,
-            content='My answer',
-            status='submitted'
-        )
-
-        response = api_client.get(f'/api/courses/courses/{course.code}/gradebook/')
-        student_data = response.data['students'][0]
-        assert student_data['grades'][0]['status'] == 'submitted'
-        assert student_data['grades'][0]['points_earned'] is None
-
-    def test_gradebook_calculates_letter_grades(self, api_client, instructor, course, unit, student, enrollment):
-        """Gradebook calculates correct letter grades."""
-        api_client.force_authenticate(user=instructor)
-
-        # Create multiple assignments
-        a1 = Assignment.objects.create(unit=unit, title='A1', max_points=100, order=1)
-        a2 = Assignment.objects.create(unit=unit, title='A2', max_points=100, order=2)
-
-        # Grade both: 90 + 80 = 170/200 = 85% = B
-        s1 = Submission.objects.create(assignment=a1, student=student, status='submitted')
-        Grade.objects.create(submission=s1, grader=instructor, points=90)
-        s1.status = 'graded'
-        s1.save()
-
-        s2 = Submission.objects.create(assignment=a2, student=student, status='submitted')
-        Grade.objects.create(submission=s2, grader=instructor, points=80)
-        s2.status = 'graded'
-        s2.save()
-
-        response = api_client.get(f'/api/courses/courses/{course.code}/gradebook/')
-        student_data = response.data['students'][0]
-        assert student_data['total_earned'] == 170
-        assert student_data['total_possible'] == 200
-        assert student_data['percentage'] == 85.0
-        assert student_data['letter_grade'] == 'B'
-
-    def test_gradebook_export_csv(self, api_client, instructor, course, unit, assignment, student, enrollment):
-        """Gradebook export returns CSV file."""
+    def test_gradebook_export_csv(self, api_client, instructor, course, unit, quiz, student, enrollment):
+        """Gradebook export returns CSV with quiz + completion columns."""
         api_client.force_authenticate(user=instructor)
         response = api_client.get(f'/api/courses/courses/{course.code}/gradebook/export/')
         assert response.status_code == status.HTTP_200_OK
         assert response['Content-Type'] == 'text/csv'
         assert f'{course.code}_gradebook.csv' in response['Content-Disposition']
+
+        header = response.content.decode().splitlines()[0]
+        assert 'Student Name' in header
+        assert 'Email' in header
+        assert 'Test Quiz (100)' in header
+        assert 'Lesson Completion %' in header
+        assert 'Weighted %' in header
+        assert 'Letter Grade' in header
+        assert 'assignment' not in header.lower()
+
+    def test_gradebook_export_values(self, api_client, instructor, course, unit, quiz, lesson, student, enrollment):
+        """CSV row carries the same numbers as the gradebook matrix."""
+        from quizzes.models import QuizAttempt
+
+        QuizAttempt.objects.create(quiz=quiz, student=student, score=80.00, passed=True)
+        LessonProgress.objects.create(user=student, lesson=lesson, completed=True)
+
+        api_client.force_authenticate(user=instructor)
+        response = api_client.get(f'/api/courses/courses/{course.code}/gradebook/export/')
+        row = response.content.decode().splitlines()[1]
+        # quiz score, quiz %, completion %, weighted % (default 50/50 → 90), letter
+        assert '80.0' in row
+        assert '100.0' in row
+        assert '90.0' in row
+        assert row.strip().endswith('A')
 
     def test_gradebook_export_student_forbidden(self, api_client, student, course, enrollment):
         """Students cannot export gradebook."""
@@ -634,7 +645,7 @@ class TestGradebook:
         response = api_client.get(f'/api/courses/courses/{course.code}/gradebook/export/')
         assert response.status_code == status.HTTP_403_FORBIDDEN
 
-    def test_gradebook_multiple_students(self, api_client, instructor, course, unit, assignment, student, second_student, enrollment):
+    def test_gradebook_multiple_students(self, api_client, instructor, course, unit, quiz, student, second_student, enrollment):
         """Gradebook shows multiple students."""
         # Enroll second student
         Enrollment.objects.create(user=second_student, course=course)
@@ -687,17 +698,17 @@ class TestStudentRoster:
         assert enrollment.is_active is False
 
     def test_remove_student_preserves_grades(self, api_client, instructor, course, unit, student, enrollment):
-        """Removing student preserves their grades."""
-        # Create an assignment and grade
-        assignment = Assignment.objects.create(unit=unit, title='Test', max_points=100, order=1)
-        submission = Submission.objects.create(assignment=assignment, student=student, status='submitted')
-        Grade.objects.create(submission=submission, grader=instructor, points=90)
+        """Removing student preserves their quiz attempts (grades)."""
+        from quizzes.models import Quiz, QuizAttempt
+
+        quiz = Quiz.objects.create(unit=unit, title='Test', points=10, passing_score=70)
+        attempt = QuizAttempt.objects.create(quiz=quiz, student=student, score=90.00, passed=True)
 
         api_client.force_authenticate(user=instructor)
         api_client.delete(f'/api/courses/courses/{course.code}/students/{enrollment.id}/')
 
-        # Grade should still exist
-        assert Grade.objects.filter(submission=submission).exists()
+        # Quiz attempt should still exist
+        assert QuizAttempt.objects.filter(pk=attempt.pk).exists()
 
     def test_student_cannot_remove_others(self, api_client, student, course, enrollment):
         """Students cannot remove other students."""
@@ -842,16 +853,9 @@ class TestGradebookWithQuizzes:
         assert quiz_grade['points_earned'] == 9.0  # 90% of 10 points
         assert quiz_grade['score_percentage'] == 90.0
 
-    def test_gradebook_total_includes_quizzes(self, api_client, instructor, student, course, unit, enrollment):
-        """Test that total possible points includes quiz points."""
+    def test_gradebook_total_is_quiz_points(self, api_client, instructor, student, course, unit, enrollment):
+        """Total possible points is the sum of quiz points."""
         from quizzes.models import Quiz
-        from assignments.models import Assignment
-
-        Assignment.objects.create(
-            unit=unit,
-            title='Test Assignment',
-            max_points=100
-        )
 
         Quiz.objects.create(
             unit=unit,
@@ -859,11 +863,17 @@ class TestGradebookWithQuizzes:
             points=20,
             passing_score=70
         )
+        Quiz.objects.create(
+            unit=unit,
+            title='Second Quiz',
+            points=30,
+            passing_score=70
+        )
 
         api_client.force_authenticate(user=instructor)
         response = api_client.get(f'/api/courses/courses/{course.code}/gradebook/')
 
-        assert response.data['total_possible'] == 120  # 100 + 20
+        assert response.data['total_possible'] == 50  # 20 + 30
 
 
 @pytest.mark.django_db
@@ -876,12 +886,10 @@ class TestGradingConfig:
         response = api_client.get(f'/api/courses/courses/{course.code}/grading-config/')
 
         assert response.status_code == 200
-        assert 'assignments_weight' in response.data
-        assert 'quizzes_weight' in response.data
-        assert 'participation_weight' in response.data
+        assert set(response.data.keys()) == {'quizzes_weight', 'participation_weight'}
         # Default values
-        assert float(response.data['assignments_weight']) == 50
         assert float(response.data['quizzes_weight']) == 50
+        assert float(response.data['participation_weight']) == 50
 
     def test_get_grading_config_enrolled_student(self, api_client, student, course, enrollment):
         """Test enrolled student can get grading config."""
@@ -901,9 +909,8 @@ class TestGradingConfig:
         """Test instructor can update grading config."""
         api_client.force_authenticate(user=instructor)
         data = {
-            'assignments_weight': 60,
-            'quizzes_weight': 30,
-            'participation_weight': 10,
+            'quizzes_weight': 60,
+            'participation_weight': 40,
         }
         response = api_client.put(
             f'/api/courses/courses/{course.code}/grading-config/',
@@ -912,14 +919,13 @@ class TestGradingConfig:
         )
 
         assert response.status_code == 200
-        assert float(response.data['assignments_weight']) == 60
-        assert float(response.data['quizzes_weight']) == 30
-        assert float(response.data['participation_weight']) == 10
+        assert float(response.data['quizzes_weight']) == 60
+        assert float(response.data['participation_weight']) == 40
 
     def test_update_grading_config_student_forbidden(self, api_client, student, course, enrollment):
         """Test student cannot update grading config."""
         api_client.force_authenticate(user=student)
-        data = {'assignments_weight': 100, 'quizzes_weight': 0, 'participation_weight': 0}
+        data = {'quizzes_weight': 100, 'participation_weight': 0}
         response = api_client.put(
             f'/api/courses/courses/{course.code}/grading-config/',
             data,
@@ -932,13 +938,23 @@ class TestGradingConfig:
         """Test that weights must sum to 100."""
         api_client.force_authenticate(user=instructor)
         data = {
-            'assignments_weight': 50,
-            'quizzes_weight': 30,
-            'participation_weight': 10,  # Total = 90, not 100
+            'quizzes_weight': 50,
+            'participation_weight': 40,  # Total = 90, not 100
         }
         response = api_client.put(
             f'/api/courses/courses/{course.code}/grading-config/',
             data,
+            format='json'
+        )
+
+        assert response.status_code == 400
+
+    def test_partial_update_validates_against_existing_weight(self, api_client, instructor, course):
+        """Updating one weight alone must still satisfy the sum-to-100 rule."""
+        api_client.force_authenticate(user=instructor)
+        response = api_client.put(
+            f'/api/courses/courses/{course.code}/grading-config/',
+            {'quizzes_weight': 70},  # existing participation 50 → total 120
             format='json'
         )
 
@@ -955,7 +971,7 @@ class TestStudentGradeSummary:
         response = api_client.get(f'/api/courses/courses/{course.code}/my-grades/')
 
         assert response.status_code == 200
-        assert 'assignments' in response.data
+        assert 'assignments' not in response.data
         assert 'quizzes' in response.data
         assert 'participation' in response.data
         assert 'overall' in response.data
@@ -967,36 +983,6 @@ class TestStudentGradeSummary:
         response = api_client.get(f'/api/courses/courses/{course.code}/my-grades/')
 
         assert response.status_code == 403
-
-    def test_my_grades_with_assignment(self, api_client, student, course, unit, enrollment):
-        """Test grade summary includes assignment grades."""
-        from assignments.models import Assignment, Submission, Grade
-
-        assignment = Assignment.objects.create(
-            unit=unit,
-            title='Test Assignment',
-            max_points=100
-        )
-
-        submission = Submission.objects.create(
-            assignment=assignment,
-            student=student,
-            status='graded'
-        )
-
-        Grade.objects.create(
-            submission=submission,
-            grader=course.instructor,
-            points=85
-        )
-
-        api_client.force_authenticate(user=student)
-        response = api_client.get(f'/api/courses/courses/{course.code}/my-grades/')
-
-        assert response.status_code == 200
-        assert response.data['assignments']['earned'] == 85
-        assert response.data['assignments']['possible'] == 100
-        assert response.data['assignments']['percentage'] == 85.0
 
     def test_my_grades_with_quiz(self, api_client, student, course, unit, enrollment):
         """Test grade summary includes quiz grades."""
@@ -1024,28 +1010,24 @@ class TestStudentGradeSummary:
         assert response.data['quizzes']['possible'] == 20
         assert response.data['quizzes']['percentage'] == 90.0
 
-    def test_my_grades_weighted_calculation(self, api_client, student, course, unit, enrollment):
-        """Test weighted grade calculation."""
-        from assignments.models import Assignment, Submission, Grade
+    def test_my_grades_weighted_calculation(self, api_client, student, course, unit, lesson, enrollment):
+        """Test weighted grade calculation from quizzes + participation."""
         from quizzes.models import Quiz, QuizAttempt
         from courses.models import CourseGradingConfig
 
-        # Set up weights: 60% assignments, 40% quizzes
+        # Set up weights: 60% quizzes, 40% participation
         CourseGradingConfig.objects.create(
             course=course,
-            assignments_weight=60,
-            quizzes_weight=40,
-            participation_weight=0
+            quizzes_weight=60,
+            participation_weight=40
         )
 
-        # Assignment: 80%
-        assignment = Assignment.objects.create(unit=unit, title='Test', max_points=100)
-        submission = Submission.objects.create(assignment=assignment, student=student, status='graded')
-        Grade.objects.create(submission=submission, grader=course.instructor, points=80)
-
-        # Quiz: 100%
+        # Quiz: 80%
         quiz = Quiz.objects.create(unit=unit, title='Test Quiz', points=10, passing_score=70)
-        QuizAttempt.objects.create(quiz=quiz, student=student, score=100.00, passed=True)
+        QuizAttempt.objects.create(quiz=quiz, student=student, score=80.00, passed=True)
+
+        # Participation: 100% (single lesson completed)
+        LessonProgress.objects.create(user=student, lesson=lesson, completed=True)
 
         api_client.force_authenticate(user=student)
         response = api_client.get(f'/api/courses/courses/{course.code}/my-grades/')
@@ -1053,7 +1035,63 @@ class TestStudentGradeSummary:
         assert response.status_code == 200
         # Weighted: (80 * 60 + 100 * 40) / 100 = 88
         assert response.data['overall']['percentage'] == 88.0
+        assert response.data['overall']['letter_grade'] == 'B'
         assert response.data['is_weighted'] is True
+
+    def test_my_grades_items_are_quizzes_only(self, api_client, student, course, unit, enrollment):
+        """grade_items contains only quiz entries."""
+        from quizzes.models import Quiz
+
+        Quiz.objects.create(unit=unit, title='Test Quiz', points=10, passing_score=70)
+
+        api_client.force_authenticate(user=student)
+        response = api_client.get(f'/api/courses/courses/{course.code}/my-grades/')
+
+        assert response.status_code == 200
+        assert len(response.data['grade_items']) == 1
+        assert all(item['type'] == 'quiz' for item in response.data['grade_items'])
+
+
+@pytest.mark.django_db
+class TestGradingConfigWeightMigration:
+    """0014_two_weight_grading_config rescales surviving weights to sum 100."""
+
+    def _run_migration(self):
+        from importlib import import_module
+
+        from django.apps import apps as django_apps
+
+        migration = import_module('courses.migrations.0014_two_weight_grading_config')
+        migration.redistribute_weights(django_apps, None)
+
+    def test_redistributes_proportionally(self, course):
+        from courses.models import CourseGradingConfig
+
+        # Old 50/40/10 (assignments/quizzes/participation) row arrives with
+        # quizzes=40, participation=10 once assignments_weight is dropped.
+        CourseGradingConfig.objects.create(
+            course=course, quizzes_weight=40, participation_weight=10
+        )
+
+        self._run_migration()
+
+        config = CourseGradingConfig.objects.get(course=course)
+        assert float(config.quizzes_weight) == 80.0
+        assert float(config.participation_weight) == 20.0
+
+    def test_all_assignments_config_becomes_fifty_fifty(self, course):
+        from courses.models import CourseGradingConfig
+
+        # A config that was 100% assignments has both surviving weights at 0.
+        CourseGradingConfig.objects.create(
+            course=course, quizzes_weight=0, participation_weight=0
+        )
+
+        self._run_migration()
+
+        config = CourseGradingConfig.objects.get(course=course)
+        assert float(config.quizzes_weight) == 50.0
+        assert float(config.participation_weight) == 50.0
 
 
 @pytest.mark.django_db

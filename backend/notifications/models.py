@@ -8,11 +8,7 @@ class Notification(models.Model):
     """
     TYPE_CHOICES = [
         ('enrollment', 'New Enrollment'),
-        ('submission', 'New Submission'),
-        ('grade', 'Assignment Graded'),
         ('new_lesson', 'New Lesson'),
-        ('new_assignment', 'New Assignment'),
-        ('resubmission', 'Resubmission Allowed'),
         ('announcement', 'New Announcement'),
         ('reply', 'New Reply'),
     ]

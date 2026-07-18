@@ -8,13 +8,10 @@ This command:
 """
 from django.core.management.base import BaseCommand
 from django.contrib.auth import get_user_model
-from django.utils import timezone
-from datetime import timedelta
 from courses.models import (
     Course, Unit, Lesson, LessonSection, LessonQuestion, LessonQuestionChoice
 )
 from quizzes.models import Quiz, Question, Choice
-from assignments.models import Assignment
 
 User = get_user_model()
 
@@ -110,46 +107,41 @@ class Command(BaseCommand):
         return course
 
     def _clear_course_content(self, course):
-        """Delete all existing units, lessons, quizzes, and assignments."""
+        """Delete all existing units, lessons, and quizzes."""
         # Delete units (cascades to lessons, sections, questions)
         deleted = course.units.all().delete()
         self.stdout.write(f'Cleared existing content: {deleted}')
 
     def _create_course_content(self, course):
-        """Create all units, lessons, sections, quizzes, and assignments."""
+        """Create all units, lessons, sections, and quizzes."""
         # Unit 1: Getting Started (4 lessons)
         unit1 = Unit.objects.create(course=course, title='Getting Started', order=0)
         self._create_unit1_getting_started_lessons(unit1)
         self._create_unit1_quiz(unit1)
-        self._create_unit1_assignment(unit1)
 
         # Unit 2: Variables & Operators (4 lessons: 2 variables + 2 operators)
         unit2 = Unit.objects.create(course=course, title='Variables & Operators', order=1)
         self._create_unit2_variables_lessons(unit2)
         self._create_unit2_operators_lessons(unit2)
         self._create_unit2_quiz(unit2)
-        self._create_unit2_assignment(unit2)
 
         # Unit 3: Strings & User Input (3 lessons)
         unit3 = Unit.objects.create(course=course, title='Strings & User Input', order=2)
         self._create_unit3_text_lessons(unit3)
         self._create_unit3_quiz(unit3)
-        self._create_unit3_assignment(unit3)
 
         # Unit 4: Control Flow (7 lessons: 3 conditionals + 4 loops)
         unit4 = Unit.objects.create(course=course, title='Control Flow', order=3)
         self._create_unit4_conditionals_lessons(unit4)
         self._create_unit4_loops_lessons(unit4)
         self._create_unit4_quiz(unit4)
-        self._create_unit4_assignment(unit4)
 
         # Unit 5: Methods & Functions (2 lessons)
         unit5 = Unit.objects.create(course=course, title='Methods & Functions', order=4)
         self._create_unit5_methods_lessons(unit5)
         self._create_unit5_quiz(unit5)
-        self._create_unit5_assignment(unit5)
 
-        self.stdout.write('Created 5 units with lessons, quizzes, and assignments')
+        self.stdout.write('Created 5 units with lessons and quizzes')
 
     # ================== UNIT 1: Getting Started ==================
     def _create_unit1_getting_started_lessons(self, unit):
@@ -681,40 +673,6 @@ const float GRAVITY = 9.81f;
         ]
         self._create_quiz_questions(quiz, questions)
 
-    def _create_unit1_assignment(self, unit):
-        Assignment.objects.create(
-            unit=unit,
-            title='ASCII Art Creator',
-            description='''# ASCII Art Creator
-
-Create a C# program that displays ASCII art in the console!
-
-## Requirements
-1. Create at least 3 different ASCII art designs
-2. Use `Console.WriteLine()` to display your art
-3. Include comments explaining your code
-4. Follow proper naming conventions
-
-## Example Output
-```
-  /\\_/\\
- ( o.o )
-  > ^ <
-```
-
-## Grading Criteria
-- **Code Compiles (5 pts)**: Your program runs without errors
-- **3+ ASCII Designs (10 pts)**: Creative and well-formatted art
-- **Comments (5 pts)**: Explain what your code does
-- **Code Style (5 pts)**: Proper indentation and naming
-
-## Submission
-Submit your `.cs` file with your ASCII art program.''',
-            max_points=25,
-            due_date=timezone.now() + timedelta(days=7),
-            order=0
-        )
-
     # ================== UNIT 2: Variables & Operators ==================
     def _create_unit2_variables_lessons(self, unit):
         # Lesson 1: Number Types
@@ -1076,47 +1034,6 @@ Console.WriteLine($"Accuracy: {accuracy:P0}");  // 70%
             },
         ]
         self._create_quiz_questions(quiz, questions)
-
-    def _create_unit2_assignment(self, unit):
-        Assignment.objects.create(
-            unit=unit,
-            title='Character Sheet Generator',
-            description='''# Character Sheet Generator
-
-Create a program that displays a game character's stats!
-
-## Requirements
-1. Create variables for character stats:
-   - Name (string)
-   - Class (string)
-   - Level (int)
-   - Health (int)
-   - Mana (float)
-   - Critical Chance (double)
-   - Is Alive (bool)
-2. Display all stats in a formatted output
-
-## Example Output
-```
-=== CHARACTER SHEET ===
-Name: Aragorn
-Class: Warrior
-Level: 25
-Health: 150
-Mana: 35.5
-Critical Chance: 12.5%
-Status: Alive
-=======================
-```
-
-## Grading
-- All variable types used correctly (15 pts)
-- Formatted output (10 pts)
-- Code style and comments (5 pts)''',
-            max_points=30,
-            due_date=timezone.now() + timedelta(days=10),
-            order=0
-        )
 
     # Operators lessons (part of Unit 2)
     def _create_unit2_operators_lessons(self, unit):
@@ -1761,46 +1678,6 @@ else
         ]
         self._create_quiz_questions(quiz, questions)
 
-    def _create_unit3_assignment(self, unit):
-        Assignment.objects.create(
-            unit=unit,
-            title='Profile Formatter',
-            description='''# Profile Formatter
-
-Create an interactive program that formats user profile information!
-
-## Requirements
-1. Ask the user for their:
-   - Name
-   - Age
-   - Favorite game
-2. Format and display a profile card using string interpolation
-
-## Example Interaction
-```
-=== PROFILE CREATOR ===
-Enter your name: Alex
-Enter your age: 16
-Enter your favorite game: Minecraft
-
-=== YOUR PROFILE ===
-Name: ALEX
-Age: 16 years old
-Favorite Game: Minecraft
-Name Length: 4 characters
-========================
-```
-
-## Grading
-- User input works correctly (10 pts)
-- String interpolation used (10 pts)
-- At least 2 string methods used (5 pts)
-- Clean formatting (5 pts)''',
-            max_points=30,
-            due_date=timezone.now() + timedelta(days=21),
-            order=0
-        )
-
     # ================== UNIT 4: Control Flow ==================
     def _create_unit4_conditionals_lessons(self, unit):
         lesson1 = Lesson.objects.create(
@@ -2309,54 +2186,6 @@ switch (grade)
             },
         ]
         self._create_quiz_questions(quiz, questions)
-
-    def _create_unit4_assignment(self, unit):
-        Assignment.objects.create(
-            unit=unit,
-            title='Rock Paper Scissors Game',
-            description='''# Rock Paper Scissors
-
-Create an interactive Rock Paper Scissors game!
-
-## Requirements
-1. Ask the user to choose rock, paper, or scissors
-2. Generate a random computer choice
-3. Determine the winner using if statements
-4. Display the result
-
-## Game Rules
-- Rock beats Scissors
-- Scissors beats Paper
-- Paper beats Rock
-
-## Example Output
-```
-=== ROCK PAPER SCISSORS ===
-Choose (rock/paper/scissors): rock
-
-You chose: Rock
-Computer chose: Scissors
-
-YOU WIN! Rock beats Scissors!
-===========================
-```
-
-## Hints
-- Use `Random` for computer choice:
-```csharp
-Random rand = new Random();
-int choice = rand.Next(1, 4); // 1, 2, or 3
-```
-
-## Grading
-- User input works (10 pts)
-- Computer makes random choice (10 pts)
-- Winner determined correctly (15 pts)
-- Clean output (5 pts)''',
-            max_points=40,
-            due_date=timezone.now() + timedelta(days=28),
-            order=0
-        )
 
     # Loops lessons (part of Unit 4: Control Flow)
     def _create_unit4_loops_lessons(self, unit):
@@ -3374,61 +3203,6 @@ class CombatGame
             },
         ]
         self._create_quiz_questions(quiz, questions)
-
-    def _create_unit5_assignment(self, unit):
-        Assignment.objects.create(
-            unit=unit,
-            title='Character Battle System',
-            description='''# Character Battle System - Final Project
-
-Create a complete turn-based combat system using methods!
-
-## Requirements
-
-### Core Methods to Create
-1. `DisplayStats(string name, int health, int maxHealth)` - Show character HP
-2. `CalculateDamage(int baseDamage)` - Return random damage with variance
-3. `TakeDamage(int currentHealth, int damage)` - Return new health after damage
-4. `IsAlive(int health)` - Return true if health > 0
-5. `DetermineWinner(int playerHealth, int enemyHealth)` - Display winner
-
-### Game Flow
-1. Player and enemy start with health
-2. Each turn: player attacks, then enemy attacks
-3. Game ends when someone's health reaches 0
-4. Display winner
-
-## Example Output
-```
-=== BATTLE START ===
-Hero: ❤️ 100/100
-Goblin: ❤️ 50/50
-
---- Turn 1 ---
-You attack for 15 damage!
-Goblin: ❤️ 35/50
-Goblin attacks for 8 damage!
-Hero: ❤️ 92/100
-
---- Turn 2 ---
-...
-
-=== VICTORY! ===
-You defeated the Goblin!
-```
-
-## Grading
-- All 5 methods implemented (25 pts)
-- Game loop works correctly (10 pts)
-- Random damage calculation (5 pts)
-- Clean, formatted output (5 pts)
-
-## Bonus Challenge (+10 pts)
-Add a "special attack" that costs mana and deals extra damage.''',
-            max_points=45,
-            due_date=timezone.now() + timedelta(days=35),
-            order=0
-        )
 
     # ================== Helper Methods ==================
     def _create_sections(self, lesson, sections_data):

@@ -5,7 +5,7 @@ import { Button } from '@/components/ui/Button';
 import { courseService } from '@/services/courses';
 import type { GradeSummary } from '@/types';
 import {
-  ClipboardList, FileQuestion, BookOpen,
+  FileQuestion, BookOpen,
   Loader2, TrendingUp, ChevronRight
 } from 'lucide-react';
 
@@ -84,7 +84,7 @@ export function StudentGradeCard({ courseCode }: StudentGradeCardProps) {
     );
   }
 
-  const hasAnyGrades = grades.assignments.possible > 0 || grades.quizzes.possible > 0;
+  const hasAnyGrades = grades.quizzes.possible > 0 || grades.participation.total > 0;
 
   if (!hasAnyGrades) {
     return (
@@ -97,7 +97,7 @@ export function StudentGradeCard({ courseCode }: StudentGradeCardProps) {
         </CardHeader>
         <CardContent>
           <p className="text-sm text-muted-foreground mb-4">
-            No graded assignments or quizzes yet.
+            No quizzes or lessons to grade yet.
           </p>
           <Link to={`/courses/${courseCode}/grades`}>
             <Button variant="outline" className="w-full justify-between">
@@ -154,34 +154,13 @@ export function StudentGradeCard({ courseCode }: StudentGradeCardProps) {
 
         {/* Category Breakdown */}
         <div className="space-y-3">
-          {/* Assignments */}
-          {grades.assignments.possible > 0 && (
-            <div className="flex items-center justify-between text-sm">
-              <div className="flex items-center gap-2 text-muted-foreground">
-                <ClipboardList className="h-4 w-4 text-blue-500" />
-                <span>Assignments</span>
-                {grades.assignments.weight && (
-                  <span className="text-xs">({grades.assignments.weight}%)</span>
-                )}
-              </div>
-              <div className="font-medium">
-                {grades.assignments.percentage !== null
-                  ? `${grades.assignments.percentage}%`
-                  : '--'}
-                <span className="text-xs text-muted-foreground ml-1">
-                  ({grades.assignments.earned}/{grades.assignments.possible} pts)
-                </span>
-              </div>
-            </div>
-          )}
-
           {/* Quizzes */}
           {grades.quizzes.possible > 0 && (
             <div className="flex items-center justify-between text-sm">
               <div className="flex items-center gap-2 text-muted-foreground">
                 <FileQuestion className="h-4 w-4 text-purple-500" />
                 <span>Quizzes</span>
-                {grades.quizzes.weight && (
+                {grades.quizzes.weight !== null && (
                   <span className="text-xs">({grades.quizzes.weight}%)</span>
                 )}
               </div>
@@ -197,12 +176,14 @@ export function StudentGradeCard({ courseCode }: StudentGradeCardProps) {
           )}
 
           {/* Participation */}
-          {grades.participation.total > 0 && grades.participation.weight && grades.participation.weight > 0 && (
+          {grades.participation.total > 0 && (
             <div className="flex items-center justify-between text-sm">
               <div className="flex items-center gap-2 text-muted-foreground">
                 <BookOpen className="h-4 w-4 text-green-500" />
                 <span>Participation</span>
-                <span className="text-xs">({grades.participation.weight}%)</span>
+                {grades.participation.weight !== null && (
+                  <span className="text-xs">({grades.participation.weight}%)</span>
+                )}
               </div>
               <div className="font-medium">
                 {grades.participation.percentage !== null

@@ -109,18 +109,6 @@ class UserPreferences(models.Model):
         default=True,
         help_text='Receive email notifications for course announcements'
     )
-    email_grades = models.BooleanField(
-        default=True,
-        help_text='Receive email notifications when assignments are graded'
-    )
-    email_submissions = models.BooleanField(
-        default=True,
-        help_text='Receive email notifications for student submissions (instructors only)'
-    )
-    email_due_reminders = models.BooleanField(
-        default=True,
-        help_text='Receive email reminders before assignment due dates'
-    )
 
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)

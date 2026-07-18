@@ -1,4 +1,4 @@
-import { X, Pencil, Trash2, Bell, FileText, Clock, BookOpen, Calendar, ExternalLink } from 'lucide-react';
+import { X, Pencil, Trash2, Bell, Clock, BookOpen, Calendar } from 'lucide-react';
 import { Button } from '@/components/ui/Button';
 import type { CalendarEvent } from '@/types';
 
@@ -46,7 +46,6 @@ export function EventDetailPopup({
     return colors[color] || colors.blue;
   };
 
-  const isReminder = event.type === 'reminder';
   const colorStyles = getColorStyles(event.color);
 
   return (
@@ -75,17 +74,13 @@ export function EventDetailPopup({
           <div className="flex items-start gap-4">
             {/* Icon */}
             <div className={`p-3 rounded-xl ${colorStyles.bgLight} ${colorStyles.border} border`}>
-              {isReminder ? (
-                <Bell className={`h-6 w-6 ${colorStyles.text}`} />
-              ) : (
-                <FileText className={`h-6 w-6 ${colorStyles.text}`} />
-              )}
+              <Bell className={`h-6 w-6 ${colorStyles.text}`} />
             </div>
 
             {/* Title & Type */}
             <div className="flex-1 min-w-0 pr-8">
               <div className={`inline-flex items-center px-2 py-0.5 rounded-md text-xs font-medium ${colorStyles.bgLight} ${colorStyles.text} mb-1.5`}>
-                {isReminder ? 'Reminder' : event.type === 'quiz' ? 'Quiz' : 'Assignment'}
+                Reminder
               </div>
               <h3 className="text-xl font-semibold text-foreground leading-tight truncate">
                 {event.title}
@@ -146,45 +141,28 @@ export function EventDetailPopup({
         </div>
 
         {/* Actions footer */}
-        {isReminder && (
-          <div className="flex items-center justify-between px-6 py-4 border-t border-border/50 bg-muted/20">
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={onDelete}
-              disabled={isDeleting}
-              className="text-red-400 hover:text-red-300 hover:bg-red-500/10"
-            >
-              <Trash2 className="h-4 w-4 mr-2" />
-              {isDeleting ? 'Deleting...' : 'Delete'}
-            </Button>
-            <Button
-              variant="default"
-              size="sm"
-              onClick={onEdit}
-              disabled={isDeleting}
-              className={`${colorStyles.bg} hover:opacity-90`}
-            >
-              <Pencil className="h-4 w-4 mr-2" />
-              Edit Reminder
-            </Button>
-          </div>
-        )}
-
-        {/* Assignment/Quiz link */}
-        {!isReminder && event.url && (
-          <div className="flex items-center justify-end px-6 py-4 border-t border-border/50 bg-muted/20">
-            <Button
-              variant="default"
-              size="sm"
-              onClick={() => window.location.href = event.url!}
-              className={`${colorStyles.bg} hover:opacity-90`}
-            >
-              <ExternalLink className="h-4 w-4 mr-2" />
-              View {event.type === 'quiz' ? 'Quiz' : 'Submissions'}
-            </Button>
-          </div>
-        )}
+        <div className="flex items-center justify-between px-6 py-4 border-t border-border/50 bg-muted/20">
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={onDelete}
+            disabled={isDeleting}
+            className="text-red-400 hover:text-red-300 hover:bg-red-500/10"
+          >
+            <Trash2 className="h-4 w-4 mr-2" />
+            {isDeleting ? 'Deleting...' : 'Delete'}
+          </Button>
+          <Button
+            variant="default"
+            size="sm"
+            onClick={onEdit}
+            disabled={isDeleting}
+            className={`${colorStyles.bg} hover:opacity-90`}
+          >
+            <Pencil className="h-4 w-4 mr-2" />
+            Edit Reminder
+          </Button>
+        </div>
       </div>
     </div>
   );

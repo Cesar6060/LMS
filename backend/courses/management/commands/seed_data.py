@@ -7,12 +7,10 @@ Usage: python manage.py seed_data
 from django.core.management.base import BaseCommand
 from django.utils import timezone
 from datetime import timedelta
-from decimal import Decimal
 
 from accounts.models import User
 from allauth.account.models import EmailAddress
 from courses.models import Course, Unit, Lesson, Enrollment, LessonProgress, CourseGradingConfig
-from assignments.models import Assignment, Submission, Grade
 from quizzes.models import Quiz, Question, Choice, QuizAttempt, AttemptAnswer
 
 
@@ -41,13 +39,11 @@ class Command(BaseCommand):
         course = self.create_course(instructor)
         units = self.create_units(course)
         lessons = self.create_lessons(units)
-        assignments = self.create_assignments(units)
         quizzes = self.create_quizzes(units)
 
         # Enroll students and create activity for main course
         self.enroll_students(students, course)
         self.create_progress(students, lessons)
-        self.create_submissions(students, assignments, instructor)
         self.create_quiz_attempts(students, quizzes)
 
         # Create additional courses (minimal content for demo variety)
@@ -85,12 +81,9 @@ class Command(BaseCommand):
         Choice.objects.all().delete()
         Question.objects.all().delete()
         Quiz.objects.all().delete()
-        Grade.objects.all().delete()
-        Submission.objects.all().delete()
         LessonProgress.objects.all().delete()
         Enrollment.objects.all().delete()
         Lesson.objects.all().delete()
-        Assignment.objects.all().delete()
         Unit.objects.all().delete()
         CourseGradingConfig.objects.all().delete()
         Course.objects.all().delete()
@@ -193,9 +186,8 @@ No prior programming experience required!''',
             # Create grading config
             CourseGradingConfig.objects.create(
                 course=course,
-                assignments_weight=50,
-                quizzes_weight=40,
-                participation_weight=10,
+                quizzes_weight=80,
+                participation_weight=20,
             )
         else:
             self.stdout.write(f'  Course exists: {course.code}')
@@ -226,9 +218,8 @@ Students interested in understanding how computers work and how to think like a 
             self.stdout.write(f'  Created course: {course.code}')
             CourseGradingConfig.objects.create(
                 course=course,
-                assignments_weight=40,
-                quizzes_weight=50,
-                participation_weight=10,
+                quizzes_weight=85,
+                participation_weight=15,
             )
             # Create units
             units_data = [
@@ -278,9 +269,8 @@ Students interested in understanding how computers work and how to think like a 
             self.stdout.write(f'  Created course: {course.code}')
             CourseGradingConfig.objects.create(
                 course=course,
-                assignments_weight=60,
-                quizzes_weight=25,
-                participation_weight=15,
+                quizzes_weight=60,
+                participation_weight=40,
             )
             # Create units
             units_data = [
@@ -336,7 +326,7 @@ Students interested in understanding how computers work and how to think like a 
 Thank you for joining this video game development course. Over the next few weeks, you'll learn everything you need to create your own games.
 
 ## Course Structure
-Each unit contains lessons and assignments. Complete the lessons first, then work on the assignments.
+Each unit contains lessons and quizzes. Complete the lessons first, then take the quizzes.
 
 ## Getting Help
 If you have questions, don't hesitate to reach out!''', 'youtube', 'dQw4w9WgXcQ'),
@@ -473,88 +463,6 @@ func _physics_process(delta):
                     self.stdout.write(f'      Created lesson: {title}')
 
         return all_lessons
-
-    def create_assignments(self, units):
-        """Create demo assignments."""
-        now = timezone.now()
-        assignments_data = {
-            1: [  # Getting Started
-                ('Environment Setup', 'Submit a screenshot showing Godot installed and running on your computer.', 10, now + timedelta(days=7), True),
-            ],
-            2: [  # Game Design Basics
-                ('Game Analysis', '''Choose a game you enjoy and write a 300-word analysis covering:
-
-1. What are the core mechanics?
-2. What makes it fun?
-3. What could be improved?''', 25, now + timedelta(days=14), True),
-            ],
-            3: [  # Programming Fundamentals
-                ('Variable Practice', '''Create a GDScript file that:
-
-1. Declares variables of at least 4 different types
-2. Performs operations on them
-3. Prints the results
-
-Submit your .gd file.''', 30, now + timedelta(days=21), True),
-            ],
-            4: [  # Building Your First Game
-                ('Final Project: Simple Game', '''Create a simple game with:
-
-1. Player movement (arrow keys or WASD)
-2. At least one collectible
-3. A win condition
-4. Basic UI (score or health)
-
-Submit your project folder as a zip file.''', 100, now + timedelta(days=30), True),
-            ],
-        }
-
-        # Add a past-due assignment for testing
-        past_due_data = ('Past Due Practice', 'This assignment is past due for testing.', 20, now - timedelta(days=3), False)
-
-        all_assignments = []
-        for unit in units:
-            unit_assignments = assignments_data.get(unit.order, [])
-            for order, (title, description, max_points, due_date, allow_late) in enumerate(unit_assignments, 1):
-                assignment, created = Assignment.objects.get_or_create(
-                    unit=unit,
-                    title=title,
-                    defaults={
-                        'description': description,
-                        'max_points': max_points,
-                        'due_date': due_date,
-                        'order': order,
-                        'allow_late': allow_late,
-                        'available_from': now - timedelta(days=7),
-                        'late_penalty_percent': Decimal('10') if allow_late else None,
-                        'late_penalty_interval': 'day',
-                        'max_late_penalty': Decimal('50') if allow_late else None,
-                    }
-                )
-                all_assignments.append(assignment)
-                if created:
-                    self.stdout.write(f'      Created assignment: {title}')
-
-        # Add past-due assignment to first unit
-        if units:
-            title, description, max_points, due_date, allow_late = past_due_data
-            assignment, created = Assignment.objects.get_or_create(
-                unit=units[0],
-                title=title,
-                defaults={
-                    'description': description,
-                    'max_points': max_points,
-                    'due_date': due_date,
-                    'order': 99,
-                    'allow_late': allow_late,
-                    'available_from': now - timedelta(days=14),
-                }
-            )
-            if created:
-                all_assignments.append(assignment)
-                self.stdout.write(f'      Created assignment: {title} (past due)')
-
-        return all_assignments
 
     def create_quizzes(self, units):
         """Create quizzes for units."""
@@ -751,168 +659,6 @@ Submit your project folder as a zip file.''', 100, now + timedelta(days=30), Tru
                     progress.save()
 
         self.stdout.write('  Created lesson progress with varied completion rates')
-
-    def create_submissions(self, students, assignments, instructor):
-        """Create demo submissions with diverse statuses reflecting student profiles."""
-        now = timezone.now()
-
-        # Emma (0): Star student - all graded with A/A+ grades
-        # James (1): Good student - most submitted, awaiting grades, one late
-        # Sofia (2): Average - some graded (B/C grades), some submitted, one draft
-        # Marcus (3): Behind - drafts and missing work, one graded (low score)
-        # Aria (4): New - only first assignment submitted
-
-        for idx, assignment in enumerate(assignments):
-            is_past_due = assignment.due_date and assignment.due_date < now
-
-            # Emma - star student, all A grades
-            sub, created = Submission.objects.get_or_create(
-                assignment=assignment,
-                student=students[0],
-                defaults={
-                    'content': f'''## {assignment.title} Submission
-
-I've completed all the requirements for this assignment. Here are the key points:
-
-1. Followed all instructions carefully
-2. Added extra features for bonus points
-3. Tested thoroughly before submitting
-
-Looking forward to your feedback!''',
-                    'status': 'graded',
-                    'submitted_at': (assignment.due_date or now) - timedelta(days=3),
-                }
-            )
-            if created:
-                # High grades: 90-100%
-                score_percent = 0.90 + (idx % 3) * 0.03
-                Grade.objects.create(
-                    submission=sub,
-                    grader=instructor,
-                    points=int(assignment.max_points * score_percent),
-                    feedback='Excellent work, Emma! Your attention to detail is impressive. Keep it up!',
-                )
-
-            # James - good student, mix of graded and pending
-            if not is_past_due:
-                if idx < 2:  # First two graded
-                    sub, created = Submission.objects.get_or_create(
-                        assignment=assignment,
-                        student=students[1],
-                        defaults={
-                            'content': f'Here is my submission for {assignment.title}. Let me know if anything needs revision.',
-                            'status': 'graded',
-                            'submitted_at': (assignment.due_date or now) - timedelta(days=1),
-                        }
-                    )
-                    if created:
-                        Grade.objects.create(
-                            submission=sub,
-                            grader=instructor,
-                            points=int(assignment.max_points * 0.85),
-                            feedback='Good work, James. A few minor improvements could push this to an A.',
-                        )
-                elif idx == 2 and assignment.allow_late:  # One late
-                    sub, created = Submission.objects.get_or_create(
-                        assignment=assignment,
-                        student=students[1],
-                        defaults={
-                            'content': f'Apologies for the late submission. Had some technical issues.',
-                            'status': 'graded',
-                            'submitted_at': (assignment.due_date or now) + timedelta(days=1),
-                            'late_penalty_applied': Decimal('10.00'),
-                        }
-                    )
-                    if created:
-                        Grade.objects.create(
-                            submission=sub,
-                            grader=instructor,
-                            points=int(assignment.max_points * 0.80),
-                            feedback='Solid work. Please try to submit on time next time. 10% late penalty applied.',
-                        )
-                else:  # Rest awaiting grade
-                    Submission.objects.get_or_create(
-                        assignment=assignment,
-                        student=students[1],
-                        defaults={
-                            'content': f'Completed {assignment.title}. Ready for review.',
-                            'status': 'submitted',
-                            'submitted_at': now - timedelta(hours=6),
-                        }
-                    )
-
-            # Sofia - average student, B/C grades, some still working
-            if idx < 3 and not is_past_due:
-                if idx < 2:  # First two graded with B/C
-                    sub, created = Submission.objects.get_or_create(
-                        assignment=assignment,
-                        student=students[2],
-                        defaults={
-                            'content': f'My attempt at {assignment.title}. I think I understood most of it.',
-                            'status': 'graded',
-                            'submitted_at': (assignment.due_date or now) - timedelta(hours=12),
-                        }
-                    )
-                    if created:
-                        score_percent = 0.72 + (idx * 0.05)
-                        Grade.objects.create(
-                            submission=sub,
-                            grader=instructor,
-                            points=int(assignment.max_points * score_percent),
-                            feedback='Good effort, Sofia. Review the feedback and consider visiting office hours for clarification.',
-                        )
-                else:  # Still working
-                    Submission.objects.get_or_create(
-                        assignment=assignment,
-                        student=students[2],
-                        defaults={
-                            'content': 'Still working on this... almost done.',
-                            'status': 'draft',
-                        }
-                    )
-
-            # Marcus - behind, mostly drafts and missing
-            if idx == 0:  # Only first assignment graded (low score)
-                sub, created = Submission.objects.get_or_create(
-                    assignment=assignment,
-                    student=students[3],
-                    defaults={
-                        'content': 'Here is what I have so far.',
-                        'status': 'graded',
-                        'submitted_at': (assignment.due_date or now) - timedelta(hours=2),
-                    }
-                )
-                if created:
-                    Grade.objects.create(
-                        submission=sub,
-                        grader=instructor,
-                        points=int(assignment.max_points * 0.65),
-                        feedback='Marcus, this is incomplete. Please see me during office hours to discuss how to improve.',
-                    )
-            elif idx == 1 and not is_past_due:  # One draft
-                Submission.objects.get_or_create(
-                    assignment=assignment,
-                    student=students[3],
-                    defaults={
-                        'content': 'Started working on this...',
-                        'status': 'draft',
-                    }
-                )
-            # Rest are missing for Marcus
-
-            # Aria - new student, only first assignment
-            if idx == 0:
-                Submission.objects.get_or_create(
-                    assignment=assignment,
-                    student=students[4],
-                    defaults={
-                        'content': 'This is my first assignment! Excited to learn game development.',
-                        'status': 'submitted',
-                        'submitted_at': now - timedelta(hours=18),
-                    }
-                )
-
-        self.stdout.write('  Created diverse submissions and grades')
 
     def create_quiz_attempts(self, students, quizzes):
         """Create quiz attempts matching student profiles."""

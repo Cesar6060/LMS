@@ -21,7 +21,6 @@ urlpatterns = [
     # quizzes/discussions views. Guard tests: config/tests/test_url_conf.py.
     path('api/auth/', include('accounts.urls')),
     path('api/courses/', include('courses.urls')),
-    path('api/assignments/', include('assignments.urls')),
     path('api/notifications/', include('notifications.urls')),
     path('api/', include('quizzes.urls')),
     path('api/', include('discussions.urls')),

@@ -95,8 +95,6 @@ export function Header() {
       // Add sub-page if we're deeper
       if (path.includes('/grades')) {
         parts.push({ label: 'Grades' });
-      } else if (path.includes('/assignments')) {
-        parts.push({ label: 'Assignments' });
       } else if (path.includes('/quizzes')) {
         parts.push({ label: 'Quizzes' });
       } else if (path.includes('/learn')) {
@@ -110,12 +108,6 @@ export function Header() {
       } else if (path.includes('/gradebook')) {
         parts.push({ label: 'Gradebook' });
       }
-      return parts;
-    }
-
-    // Instructor grading route
-    if (path.includes('/instructor/assignments/')) {
-      parts.push({ label: 'Grading' });
       return parts;
     }
 

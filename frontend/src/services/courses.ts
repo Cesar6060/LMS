@@ -81,31 +81,21 @@ export interface Announcement {
   updated_at: string;
 }
 
-export interface GradebookAssignment {
-  id: number;
-  title: string;
-  unit_title: string;
-  max_points: number;
-  due_date: string | null;
-}
-
 export interface GradebookItem {
   id: number;
   title: string;
   unit_title: string;
   max_points: number;
-  due_date: string | null;
-  type: 'assignment' | 'quiz';
+  type: 'quiz';
 }
 
 export interface StudentGrade {
-  assignment_id?: number;
   item_id: number;
-  item_type: 'assignment' | 'quiz';
+  item_type: 'quiz';
   points_earned: number | null;
-  status: 'graded' | 'submitted' | 'missing' | 'not_started';
-  is_late: boolean;
+  status: 'graded' | 'not_started';
   passed?: boolean | null;
+  score_percentage?: number;
 }
 
 export interface GradebookStudent {
@@ -117,7 +107,6 @@ export interface GradebookStudent {
   total_possible: number;
   percentage: number | null;
   letter_grade: string | null;
-  assignments_percentage: number | null;
   quizzes_percentage: number | null;
   participation_percentage: number | null;
 }
@@ -127,10 +116,11 @@ export interface Gradebook {
     code: string;
     title: string;
   };
-  assignments: GradebookAssignment[];
   gradebook_items: GradebookItem[];
   students: GradebookStudent[];
   total_possible: number;
+  has_quizzes: boolean;
+  grading_config: GradingConfig | null;
 }
 
 export interface RosterStudent {
@@ -299,11 +289,9 @@ export const courseService = {
   // Dashboard stats
   async getDashboardStats(): Promise<{
     // Instructor stats
-    pending_grades?: number;
     total_students?: number;
     // Student stats
     lessons_completed?: number;
-    assignments_due?: number;
     // Common
     course_count: number;
   }> {
