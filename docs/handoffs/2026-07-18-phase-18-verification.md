@@ -29,9 +29,10 @@ the `/verify-stack` item with evidence) — not yet committed.
 1. Do the two manual click-throughs (stack is already up via
    `docker compose up -d`; frontend at http://localhost:5173) and check them
    off in the spec.
-2. Commit the spec/handoff docs (`docs:` conventional commit) on
-   `feat/phase-18-submission-removal`.
-3. Open/update the PR to `main` for phase 18 (push to remote `lms`).
+2. ~~Commit the spec/handoff docs~~ Done (`68393d0`).
+3. ~~Open/update the PR to `main` for phase 18~~ Done: branch pushed to `lms`,
+   PR open at https://github.com/Cesar6060/LMS/pull/7. Merge after the
+   click-throughs pass.
 4. Next candidate phase after merge: Instructor Analytics Dashboard (per spec's
    out-of-scope note).
 
