@@ -1,10 +1,10 @@
-# Handoff: Phase 17 Navigation Modernization — implemented
+# Handoff: Phase 17 Navigation Modernization — implemented, PR #6 open
 
 ## Current state
 Phase 17 complete, committed (6395fdf) on
-`feat/phase-17-navigation-modernization` (cut from unmerged
-`feat/phase-16-course-management-ui` per spec's branching note; PR #5
-with phases 15+16 still open). Not yet pushed.
+`feat/phase-17-navigation-modernization`, pushed, and **PR #6 open to
+`lms/main`** (https://github.com/Cesar6060/LMS/pull/6). PR #5 (phases
+15+16) merged to main via merge commit, so PR #6 shows only phase 17.
 - New: `components/ui/Sheet.tsx`, `components/layout/Layout.tsx`,
   `components/layout/PageContainer.tsx`.
 - Rebuilt: `components/layout/Header.tsx` (80px bar, pill+neon active
@@ -19,13 +19,13 @@ with phases 15+16 still open). Not yet pushed.
   /login) plus badge/mark-all-read check. Spec checklist fully checked.
 
 ## In progress / not done
-- Branch not pushed, no PR yet. Nothing half-finished.
+- Nothing half-finished. PR #6 awaits review/merge.
 
 ## Next steps
-1. Push branch; open PR after PR #5 merges (or stack on it).
-2. After merges: `git checkout main && git pull lms main`, delete
-   merged branches.
-3. Next phase candidate (deferred from phase 16): PLAN.md ~line 1485
+1. Merge PR #6, then `git checkout main && git pull lms main`; delete
+   `feat/phase-16-course-management-ui` and
+   `feat/phase-17-navigation-modernization`.
+2. Next phase candidate (deferred from phase 16): PLAN.md ~line 1485
    "Instructor Analytics Dashboard" — run `/start-phase` to spec it.
 
 ## Decisions made
