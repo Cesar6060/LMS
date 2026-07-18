@@ -545,12 +545,11 @@ export function CoursePlayerPage() {
   return (
     <div className="h-screen flex flex-col bg-background animate-in fade-in duration-300">
       {/* Learning Mode Header */}
-      <div className="h-14 border-b bg-card/95 backdrop-blur supports-[backdrop-filter]:bg-card/80 flex items-center px-4 gap-4">
+      <div className="h-16 border-b bg-card/95 backdrop-blur supports-[backdrop-filter]:bg-card/80 flex items-center px-6 gap-4">
         {/* Exit Learning Mode */}
         <Link to={`/courses/${code}`}>
           <Button
             variant="outline"
-            size="sm"
             className="gap-2 border-primary/50 text-primary hover:bg-primary hover:text-primary-foreground transition-colors"
           >
             <ChevronLeft className="h-4 w-4" />
@@ -560,7 +559,7 @@ export function CoursePlayerPage() {
 
         {/* Course Title */}
         <div className="flex-1 min-w-0 text-center">
-          <h1 className="font-semibold truncate text-sm sm:text-base">{course.title}</h1>
+          <h1 className="font-semibold truncate text-base sm:text-lg">{course.title}</h1>
         </div>
 
         {/* Progress */}
@@ -569,13 +568,13 @@ export function CoursePlayerPage() {
             <span className="text-muted-foreground hidden sm:inline">
               {completedCount}/{totalCount}
             </span>
-            <div className="w-20 sm:w-28 h-2 bg-muted rounded-full overflow-hidden">
+            <div className="w-28 sm:w-40 h-2.5 bg-muted rounded-full overflow-hidden">
               <div
                 className="h-full bg-primary transition-all duration-300"
                 style={{ width: `${progressPercentage}%` }}
               />
             </div>
-            <span className="text-xs font-medium text-primary">{Math.round(progressPercentage)}%</span>
+            <span className="text-sm font-medium text-primary">{Math.round(progressPercentage)}%</span>
           </div>
         </div>
       </div>
@@ -604,10 +603,10 @@ export function CoursePlayerPage() {
             <>
               {/* Lesson content */}
               <div className="flex-1 overflow-y-auto">
-                <div className="max-w-4xl mx-auto p-6">
+                <div className="max-w-4xl mx-auto p-6 lg:p-8">
                   {/* Lesson header */}
                   <div className="mb-6">
-                    <h2 className="text-2xl font-bold mb-2">{currentLesson.title}</h2>
+                    <h2 className="text-3xl font-bold mb-2">{currentLesson.title}</h2>
 
                     {/* Section title (only show if section has a title) */}
                     {hasSections && totalSections > 1 && currentSection?.title && (
@@ -715,10 +714,9 @@ export function CoursePlayerPage() {
               </div>
 
               {/* Navigation footer */}
-              <div className="h-14 border-t bg-card flex items-center justify-between px-4 sm:px-6">
+              <div className="h-16 border-t bg-card flex items-center justify-between px-6">
                 <Button
                   variant="ghost"
-                  size="sm"
                   onClick={() => {
                     if (hasSections && currentSectionIndex > 0) {
                       handleSectionChange(currentSectionIndex - 1);
@@ -743,9 +741,9 @@ export function CoursePlayerPage() {
                           <button
                             key={i}
                             onClick={() => handleSectionChange(i)}
-                            className={`w-2 h-2 rounded-full transition-all ${
+                            className={`w-2.5 h-2.5 rounded-full transition-all ${
                               i === currentSectionIndex
-                                ? 'bg-primary w-3'
+                                ? 'bg-primary w-4'
                                 : i < currentSectionIndex
                                   ? 'bg-primary/50'
                                   : 'bg-muted-foreground/30 hover:bg-muted-foreground/50'
@@ -757,9 +755,9 @@ export function CoursePlayerPage() {
                         {hasQuiz && (
                           <button
                             onClick={() => handleSectionChange(totalSections - 1)}
-                            className={`w-2 h-2 rounded-sm transition-all ${
+                            className={`w-2.5 h-2.5 rounded-sm transition-all ${
                               isOnQuizSection
-                                ? 'bg-amber-500 w-3'
+                                ? 'bg-amber-500 w-4'
                                 : currentSectionIndex < totalSections - 1
                                   ? 'bg-amber-500/30 hover:bg-amber-500/50'
                                   : 'bg-amber-500/50'
@@ -768,12 +766,12 @@ export function CoursePlayerPage() {
                           />
                         )}
                       </div>
-                      <span className="text-xs text-muted-foreground">
+                      <span className="text-sm text-muted-foreground">
                         {currentSectionIndex + 1}/{totalSections}
                       </span>
                     </>
                   ) : (
-                    <span className="text-xs text-muted-foreground hidden sm:block">
+                    <span className="text-sm text-muted-foreground hidden sm:block">
                       ← → to navigate
                     </span>
                   )}
@@ -781,7 +779,6 @@ export function CoursePlayerPage() {
 
                 <Button
                   variant="ghost"
-                  size="sm"
                   onClick={() => {
                     if (hasSections && currentSectionIndex < totalSections - 1) {
                       handleSectionChange(currentSectionIndex + 1);
