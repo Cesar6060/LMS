@@ -466,7 +466,7 @@ export function CoursePlayerPage() {
         <>
           {/* Video - currently only YouTube is supported */}
           {currentLesson?.video_type === 'youtube' && currentLesson.video_id && (
-            <div className="mb-8">
+            <div className="mb-8 mx-auto w-full max-w-[calc((100vh-15rem)*1.7778)]">
               <VideoPlayer
                 videoType="youtube"
                 videoId={currentLesson.video_id}
@@ -509,7 +509,7 @@ export function CoursePlayerPage() {
 
         {/* Section video */}
         {currentSection.video_type === 'youtube' && currentSection.video_id && (
-          <div className="mb-8">
+          <div className="mb-8 mx-auto w-full max-w-[calc((100vh-15rem)*1.7778)]">
             <VideoPlayer
               videoType="youtube"
               videoId={currentSection.video_id}
@@ -603,7 +603,7 @@ export function CoursePlayerPage() {
             <>
               {/* Lesson content */}
               <div className="flex-1 overflow-y-auto">
-                <div className="max-w-4xl mx-auto p-6 lg:p-8">
+                <div className="w-full px-6 py-6 lg:px-10 lg:py-8">
                   {/* Lesson header */}
                   <div className="mb-6">
                     <h2 className="text-3xl font-bold mb-2">{currentLesson.title}</h2>

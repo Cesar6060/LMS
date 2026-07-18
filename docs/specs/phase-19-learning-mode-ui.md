@@ -25,6 +25,20 @@ Screenshot reference: student view of `/courses/VGD101/learn/1` (2026-07-18).
 - Lesson content column keeps `max-w-4xl`; only its padding breathes a bit
   more. The point is balance, not a content redesign.
 
+## Revision (2026-07-18, after first visual review)
+
+The `max-w-4xl` centered column left large dead margins on wide screens, and
+collapsing the sidebar only widened the margins — the content column stayed
+896px. Revised decisions:
+
+- The content column becomes fluid: full width of the content area with
+  moderate padding, no `max-w`/`mx-auto` cap. Because the column lives inside
+  the `flex-1` area next to the sidebar, it now automatically absorbs the
+  space freed when the sidebar collapses.
+- Videos are capped by viewport height (16:9 width derived from
+  `100vh - chrome`) and centered, so a full-width column can't produce a
+  video taller than the screen. Text/quiz content runs full width.
+
 ## Out of scope
 
 - Mobile/responsive rework beyond keeping existing `sm:` breakpoints sane.
@@ -43,6 +57,12 @@ Screenshot reference: student view of `/courses/VGD101/learn/1` (2026-07-18).
       percentage label `text-xs` → `text-sm`.
 - [x] Lesson header: title `text-2xl` → `text-3xl`; content wrapper padding
       `p-6` → `p-6 lg:p-8`.
+- [x] (Revision) Content wrapper: `max-w-4xl mx-auto p-6 lg:p-8` →
+      `w-full px-6 py-6 lg:px-10 lg:py-8` so the column fills the content
+      area and expands when the sidebar collapses.
+- [x] (Revision) Both video wrappers (legacy lesson + section): add
+      `mx-auto w-full max-w-[calc((100vh-15rem)*1.7778)]` to cap the 16:9
+      player at viewport height while staying centered.
 - [x] Navigation footer: `h-14` → `h-16`, `px-4 sm:px-6` → `px-6`;
       Previous/Next buttons `size="sm"` → default; section dots
       `w-2 h-2` → `w-2.5 h-2.5` (active `w-3` → `w-4`); helper/counter text
