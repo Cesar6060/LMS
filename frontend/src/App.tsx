@@ -14,8 +14,6 @@ import { CoursePlayerPage } from '@/pages/courses/CoursePlayerPage';
 import { CreateCoursePage } from '@/pages/instructor/CreateCoursePage';
 import { ManageCoursePage } from '@/pages/instructor/ManageCoursePage';
 import { LessonEditorPage } from '@/pages/instructor/LessonEditorPage';
-import { AssignmentDetailPage } from '@/pages/assignments/AssignmentDetailPage';
-import { GradingPage } from '@/pages/instructor/GradingPage';
 import { GradebookPage } from '@/pages/instructor/GradebookPage';
 import { StudentRosterPage } from '@/pages/instructor/StudentRosterPage';
 import { AnnouncementsPage } from '@/pages/announcements/AnnouncementsPage';
@@ -251,16 +249,6 @@ function App() {
             }
           />
 
-          {/* Assignment routes - nested under course */}
-          <Route
-            path="/courses/:code/assignments/:assignmentId"
-            element={
-              <ProtectedRoute>
-                <AssignmentDetailPage />
-              </ProtectedRoute>
-            }
-          />
-
           {/* Quiz routes - nested under course */}
           <Route
             path="/courses/:code/quizzes/:quizId"
@@ -303,14 +291,6 @@ function App() {
             element={
               <InstructorRoute>
                 <LessonEditorPage />
-              </InstructorRoute>
-            }
-          />
-          <Route
-            path="/instructor/assignments/:assignmentId/grade"
-            element={
-              <InstructorRoute>
-                <GradingPage />
               </InstructorRoute>
             }
           />

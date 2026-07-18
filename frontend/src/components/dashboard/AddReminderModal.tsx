@@ -293,7 +293,7 @@ export function AddReminderModal({
               type="text"
               value={title}
               onChange={(e) => setTitle(e.target.value)}
-              placeholder="e.g., Grade assignments, Parent meeting..."
+              placeholder="e.g., Review quiz scores, Parent meeting..."
               className="w-full px-3 py-2 rounded-lg border border-border bg-background focus:outline-none focus:ring-2 focus:ring-[#22c55e]/50 focus:border-[#22c55e]/50"
               autoFocus
               disabled={isSubmitting}

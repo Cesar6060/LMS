@@ -298,26 +298,6 @@ export function SettingsPage() {
                 checked={preferences.email_announcements}
                 onChange={(v) => handleUpdatePreference('email_announcements', v)}
               />
-              <ToggleSetting
-                label="Grade Notifications"
-                description="Receive email notifications when your assignments are graded"
-                checked={preferences.email_grades}
-                onChange={(v) => handleUpdatePreference('email_grades', v)}
-              />
-              {user?.is_instructor && (
-                <ToggleSetting
-                  label="Student Submissions"
-                  description="Receive email notifications when students submit assignments"
-                  checked={preferences.email_submissions}
-                  onChange={(v) => handleUpdatePreference('email_submissions', v)}
-                />
-              )}
-              <ToggleSetting
-                label="Due Date Reminders"
-                description="Receive email reminders before assignment due dates"
-                checked={preferences.email_due_reminders}
-                onChange={(v) => handleUpdatePreference('email_due_reminders', v)}
-              />
             </div>
           </CardContent>
         </Card>

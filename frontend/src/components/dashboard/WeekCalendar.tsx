@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { ChevronLeft, ChevronRight, Plus, FileText, Bell } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Plus, Bell } from 'lucide-react';
 import { Button } from '@/components/ui/Button';
 import { courseService } from '@/services/courses';
 import { EventDetailPopup } from './EventDetailPopup';
@@ -142,10 +142,8 @@ export function WeekCalendar({ onAddReminder, onEditReminder }: WeekCalendarProp
     }
   };
 
-  const getEventIcon = (type: string) => {
+  const getEventIcon = (type: CalendarEvent['type']) => {
     switch (type) {
-      case 'assignment':
-        return <FileText className="h-3 w-3" />;
       case 'reminder':
         return <Bell className="h-3 w-3" />;
       default:

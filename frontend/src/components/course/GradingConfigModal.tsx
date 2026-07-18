@@ -1,7 +1,6 @@
 import { useState, useEffect } from 'react';
 import { Button } from '@/components/ui/Button';
 import { courseService } from '@/services/courses';
-import type { GradingConfig } from '@/types';
 import { Loader2, X, Scale } from 'lucide-react';
 
 interface GradingConfigModalProps {
@@ -10,15 +9,18 @@ interface GradingConfigModalProps {
   onClose: () => void;
 }
 
+const SLIDER_CLASS = 'w-full h-2 bg-muted rounded-full appearance-none cursor-pointer [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:h-4 [&::-webkit-slider-thumb]:w-4 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-primary [&::-webkit-slider-thumb]:shadow-md [&::-webkit-slider-thumb]:cursor-pointer [&::-webkit-slider-thumb]:transition-transform [&::-webkit-slider-thumb]:hover:scale-110';
+
+const clampWeight = (value: number): number => Math.min(100, Math.max(0, Math.round(value)));
+
 export function GradingConfigModal({ courseCode, isOpen, onClose }: GradingConfigModalProps) {
-  const [config, setConfig] = useState<GradingConfig>({
-    assignments_weight: 50,
-    quizzes_weight: 50,
-    participation_weight: 0,
-  });
+  // Single source of truth: participation is always 100 - quizzes
+  const [quizzesWeight, setQuizzesWeight] = useState(50);
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
   const [error, setError] = useState('');
+
+  const participationWeight = 100 - quizzesWeight;
 
   useEffect(() => {
     if (isOpen) {
@@ -29,12 +31,9 @@ export function GradingConfigModal({ courseCode, isOpen, onClose }: GradingConfi
   const loadConfig = async () => {
     try {
       setIsLoading(true);
+      setError('');
       const data = await courseService.getGradingConfig(courseCode);
-      setConfig({
-        assignments_weight: Number(data.assignments_weight) || 0,
-        quizzes_weight: Number(data.quizzes_weight) || 0,
-        participation_weight: Number(data.participation_weight) || 0,
-      });
+      setQuizzesWeight(clampWeight(Number(data.quizzes_weight) || 0));
     } catch (err) {
       console.error('Failed to load config:', err);
       setError('Failed to load grading configuration');
@@ -43,21 +42,19 @@ export function GradingConfigModal({ courseCode, isOpen, onClose }: GradingConfi
     }
   };
 
-  const total = config.assignments_weight + config.quizzes_weight + config.participation_weight;
-  const isValid = total === 100;
-
   const handleSave = async () => {
-    if (!isValid) return;
-
     setIsSaving(true);
     setError('');
 
     try {
-      await courseService.updateGradingConfig(courseCode, config);
+      await courseService.updateGradingConfig(courseCode, {
+        quizzes_weight: quizzesWeight,
+        participation_weight: participationWeight,
+      });
       onClose();
     } catch (err) {
       console.error('Failed to save config:', err);
-      setError('Failed to save. Weights must sum to 100%.');
+      setError('Failed to save grading weights.');
     } finally {
       setIsSaving(false);
     }
@@ -77,7 +74,7 @@ export function GradingConfigModal({ courseCode, isOpen, onClose }: GradingConfi
             </div>
             <div>
               <h2 className="font-semibold">Grade Weights</h2>
-              <p className="text-xs text-muted-foreground">Configure category weights</p>
+              <p className="text-xs text-muted-foreground">Quizzes and participation always total 100%</p>
             </div>
           </div>
           <button
@@ -97,37 +94,20 @@ export function GradingConfigModal({ courseCode, isOpen, onClose }: GradingConfi
           ) : (
             <>
               <div className="space-y-5">
-                {/* Assignments */}
-                <div>
-                  <div className="flex justify-between items-center mb-2">
-                    <label className="text-sm font-medium">Assignments</label>
-                    <span className="text-sm tabular-nums font-semibold">{config.assignments_weight}%</span>
-                  </div>
-                  <input
-                    type="range"
-                    min="0"
-                    max="100"
-                    step="5"
-                    value={config.assignments_weight}
-                    onChange={(e) => setConfig({ ...config, assignments_weight: Number(e.target.value) })}
-                    className="w-full h-2 bg-muted rounded-full appearance-none cursor-pointer [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:h-4 [&::-webkit-slider-thumb]:w-4 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-primary [&::-webkit-slider-thumb]:shadow-md [&::-webkit-slider-thumb]:cursor-pointer [&::-webkit-slider-thumb]:transition-transform [&::-webkit-slider-thumb]:hover:scale-110"
-                  />
-                </div>
-
                 {/* Quizzes */}
                 <div>
                   <div className="flex justify-between items-center mb-2">
                     <label className="text-sm font-medium">Quizzes</label>
-                    <span className="text-sm tabular-nums font-semibold">{config.quizzes_weight}%</span>
+                    <span className="text-sm tabular-nums font-semibold">{quizzesWeight}%</span>
                   </div>
                   <input
                     type="range"
                     min="0"
                     max="100"
                     step="5"
-                    value={config.quizzes_weight}
-                    onChange={(e) => setConfig({ ...config, quizzes_weight: Number(e.target.value) })}
-                    className="w-full h-2 bg-muted rounded-full appearance-none cursor-pointer [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:h-4 [&::-webkit-slider-thumb]:w-4 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-primary [&::-webkit-slider-thumb]:shadow-md [&::-webkit-slider-thumb]:cursor-pointer [&::-webkit-slider-thumb]:transition-transform [&::-webkit-slider-thumb]:hover:scale-110"
+                    value={quizzesWeight}
+                    onChange={(e) => setQuizzesWeight(clampWeight(Number(e.target.value)))}
+                    className={SLIDER_CLASS}
                   />
                 </div>
 
@@ -135,32 +115,27 @@ export function GradingConfigModal({ courseCode, isOpen, onClose }: GradingConfi
                 <div>
                   <div className="flex justify-between items-center mb-2">
                     <label className="text-sm font-medium">Participation</label>
-                    <span className="text-sm tabular-nums font-semibold">{config.participation_weight}%</span>
+                    <span className="text-sm tabular-nums font-semibold">{participationWeight}%</span>
                   </div>
                   <input
                     type="range"
                     min="0"
                     max="100"
                     step="5"
-                    value={config.participation_weight}
-                    onChange={(e) => setConfig({ ...config, participation_weight: Number(e.target.value) })}
-                    className="w-full h-2 bg-muted rounded-full appearance-none cursor-pointer [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:h-4 [&::-webkit-slider-thumb]:w-4 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-primary [&::-webkit-slider-thumb]:shadow-md [&::-webkit-slider-thumb]:cursor-pointer [&::-webkit-slider-thumb]:transition-transform [&::-webkit-slider-thumb]:hover:scale-110"
+                    value={participationWeight}
+                    onChange={(e) => setQuizzesWeight(clampWeight(100 - Number(e.target.value)))}
+                    className={SLIDER_CLASS}
                   />
                   <p className="text-xs text-muted-foreground mt-1.5">Based on lesson completion</p>
                 </div>
               </div>
 
               {/* Total */}
-              <div className={`mt-6 p-3 rounded-lg border ${
-                isValid
-                  ? 'bg-emerald-500/5 border-emerald-500/20 text-emerald-600 dark:text-emerald-400'
-                  : 'bg-red-500/5 border-red-500/20 text-red-600 dark:text-red-400'
-              }`}>
+              <div className="mt-6 p-3 rounded-lg border bg-emerald-500/5 border-emerald-500/20 text-emerald-600 dark:text-emerald-400">
                 <div className="flex items-center justify-between">
                   <span className="text-sm font-medium">Total</span>
                   <span className="text-sm font-bold tabular-nums">
-                    {total}%
-                    {!isValid && <span className="font-normal ml-1">(must equal 100%)</span>}
+                    {quizzesWeight + participationWeight}%
                   </span>
                 </div>
               </div>
@@ -180,7 +155,7 @@ export function GradingConfigModal({ courseCode, isOpen, onClose }: GradingConfi
             </Button>
             <Button
               onClick={handleSave}
-              disabled={!isValid || isSaving}
+              disabled={isSaving}
               className="flex-1"
             >
               {isSaving ? (

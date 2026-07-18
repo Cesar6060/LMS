@@ -4,12 +4,11 @@ import { useAuth } from '@/contexts/AuthContext';
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { courseService, type CourseDetail, type AnnouncementListItem } from '@/services/courses';
-import { assignmentService } from '@/services/assignments';
 import { quizzesService } from '@/services/quizzes';
-import type { AssignmentListItem, Quiz } from '@/types';
+import type { Quiz } from '@/types';
 import {
   BookOpen, Users, ChevronRight, Play, FileText,
-  Lock, CheckCircle, Settings, ClipboardList, Calendar, Megaphone, Pin,
+  Lock, CheckCircle, Settings, Megaphone, Pin,
   FileQuestion, Trophy, XCircle, MessageSquare
 } from 'lucide-react';
 import { EnrollmentModal } from '@/components/course/EnrollmentModal';
@@ -45,7 +44,6 @@ export function CourseDetailPage() {
 
   const [course, setCourse] = useState<CourseDetail | null>(null);
   const [progress, setProgress] = useState<CourseProgress | null>(null);
-  const [assignments, setAssignments] = useState<AssignmentListItem[]>([]);
   const [announcements, setAnnouncements] = useState<AnnouncementListItem[]>([]);
   const [quizzes, setQuizzes] = useState<Quiz[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -144,21 +142,19 @@ export function CourseDetailPage() {
       const data = await courseService.getCourse(code!);
       setCourse(data);
 
-      // Load progress, assignments, announcements, and quizzes if enrolled or instructor
+      // Load progress, announcements, and quizzes if enrolled or instructor
       if (data.is_enrolled || user?.id === data.instructor.id) {
         try {
-          const [progressData, assignmentsData, announcementsData, quizzesData] = await Promise.all([
+          const [progressData, announcementsData, quizzesData] = await Promise.all([
             courseService.getCourseProgress(code!),
-            assignmentService.getCourseAssignments(code!),
             courseService.getCourseAnnouncements(code!),
             quizzesService.getCourseQuizzes(code!),
           ]);
           setProgress(progressData);
-          setAssignments(assignmentsData);
           setAnnouncements(announcementsData);
           setQuizzes(quizzesData);
         } catch {
-          // Progress/assignments/announcements/quizzes might not exist yet
+          // Progress/announcements/quizzes might not exist yet
         }
 
         // Track activity for enrolled students (not instructors)
@@ -585,65 +581,6 @@ export function CourseDetailPage() {
           ))
         )}
       </div>
-
-      {/* Assignments Section */}
-      {canAccessContent && assignments.length > 0 && (
-        <div className="mt-8 space-y-4">
-          <h2 className="text-xl font-semibold flex items-center gap-2">
-            <ClipboardList className="h-5 w-5" />
-            Assignments
-          </h2>
-
-          <Card>
-            <CardContent className="pt-6">
-              <ul className="divide-y">
-                {assignments.map((assignment) => (
-                  <li key={assignment.id}>
-                    <Link
-                      to={`/courses/${code}/assignments/${assignment.id}`}
-                      className="flex items-center justify-between py-3 hover:bg-muted/50 -mx-6 px-6 transition-colors"
-                    >
-                      <div className="flex items-center gap-3">
-                        <ClipboardList className="h-4 w-4 text-muted-foreground" />
-                        <div>
-                          <span className="font-medium">{assignment.title}</span>
-                          <div className="text-sm text-muted-foreground">
-                            {assignment.unit_title} • {assignment.max_points} pts
-                          </div>
-                        </div>
-                      </div>
-                      <div className="flex items-center gap-4">
-                        {assignment.due_date && (
-                          <div className="text-sm text-muted-foreground flex items-center gap-1">
-                            <Calendar className="h-3 w-3" />
-                            {new Date(assignment.due_date).toLocaleDateString()}
-                          </div>
-                        )}
-                        {assignment.submission_status && (
-                          <span
-                            className={`text-xs px-2 py-1 rounded ${
-                              assignment.submission_status.status === 'graded'
-                                ? 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200'
-                                : assignment.submission_status.status === 'submitted'
-                                ? 'bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200'
-                                : 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-200'
-                            }`}
-                          >
-                            {assignment.submission_status.status === 'graded'
-                              ? `${assignment.submission_status.grade}/${assignment.max_points}`
-                              : assignment.submission_status.status}
-                          </span>
-                        )}
-                        <ChevronRight className="h-4 w-4 text-muted-foreground" />
-                      </div>
-                    </Link>
-                  </li>
-                ))}
-              </ul>
-            </CardContent>
-          </Card>
-        </div>
-      )}
 
       {/* Quizzes Section */}
       {canAccessContent && quizzes.length > 0 && (

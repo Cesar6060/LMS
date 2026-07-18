@@ -105,16 +105,8 @@ export function NotificationBell() {
     switch (type) {
       case 'enrollment':
         return '👋';
-      case 'submission':
-        return '📝';
-      case 'grade':
-        return '⭐';
       case 'new_lesson':
         return '📚';
-      case 'new_assignment':
-        return '📋';
-      case 'resubmission':
-        return '🔄';
       case 'announcement':
         return '📢';
       default:

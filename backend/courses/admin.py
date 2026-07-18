@@ -67,7 +67,7 @@ class LessonProgressAdmin(admin.ModelAdmin):
 
 @admin.register(CourseGradingConfig)
 class CourseGradingConfigAdmin(admin.ModelAdmin):
-    list_display = ['course', 'assignments_weight', 'quizzes_weight', 'participation_weight', 'updated_at']
+    list_display = ['course', 'quizzes_weight', 'participation_weight', 'updated_at']
     list_filter = ['updated_at']
     search_fields = ['course__code', 'course__title']
     readonly_fields = ['created_at', 'updated_at']

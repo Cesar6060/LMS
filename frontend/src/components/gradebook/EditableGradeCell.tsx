@@ -1,26 +1,22 @@
 import { useState, useRef, useEffect } from 'react';
-import { assignmentService } from '@/services/assignments';
+import { quizzesService } from '@/services/quizzes';
 import { Loader2 } from 'lucide-react';
 
 interface EditableGradeCellProps {
-  itemId: number;
-  itemType: 'assignment' | 'quiz';
+  quizId: number;
   studentId: number;
   currentPoints: number | null;
   maxPoints: number;
   status: string;
-  isLate: boolean;
   onUpdate: (newPoints: number) => void;
 }
 
 export function EditableGradeCell({
-  itemId,
-  itemType,
+  quizId,
   studentId,
   currentPoints,
   maxPoints,
   status,
-  isLate,
   onUpdate,
 }: EditableGradeCellProps) {
   const [isEditing, setIsEditing] = useState(false);
@@ -36,11 +32,7 @@ export function EditableGradeCell({
     }
   }, [isEditing]);
 
-  // Both assignments and quizzes can be quick-graded
-  const canEdit = true;
-
   const handleClick = () => {
-    if (!canEdit) return;
     setInputValue(currentPoints?.toString() ?? '');
     setError('');
     setIsEditing(true);
@@ -76,11 +68,7 @@ export function EditableGradeCell({
     setError('');
 
     try {
-      if (itemType === 'quiz') {
-        await assignmentService.quickGradeQuiz(itemId, studentId, points);
-      } else {
-        await assignmentService.quickGrade(itemId, studentId, points);
-      }
+      await quizzesService.quickGradeQuiz(quizId, studentId, points);
       onUpdate(points);
       setIsEditing(false);
     } catch (err) {
@@ -136,29 +124,15 @@ export function EditableGradeCell({
     );
   }
 
-  // Display mode
-  const displayValue = status === 'graded' && currentPoints !== null
-    ? `${currentPoints}/${maxPoints}`
-    : status === 'submitted'
-    ? 'Pending'
-    : status === 'missing'
-    ? 'Missing'
-    : '-';
-
-  const bgColor = status === 'graded'
-    ? 'bg-emerald-50 dark:bg-emerald-950'
-    : status === 'submitted'
-    ? 'bg-sky-50 dark:bg-sky-950'
-    : status === 'missing'
-    ? 'bg-rose-50 dark:bg-rose-950'
-    : '';
+  // Display mode: a cell is either a score or empty
+  const isGraded = status === 'graded' && currentPoints !== null;
+  const displayValue = isGraded ? `${currentPoints}/${maxPoints}` : '-';
+  const bgColor = isGraded ? 'bg-emerald-50 dark:bg-emerald-950' : '';
 
   return (
     <div
       onClick={handleClick}
-      className={`px-2 py-1 rounded text-sm ${bgColor} ${
-        canEdit ? 'cursor-pointer hover:ring-2 hover:ring-primary/50' : ''
-      } ${isLate ? 'ring-1 ring-amber-400' : ''}`}
+      className={`px-2 py-1 rounded text-sm cursor-pointer hover:ring-2 hover:ring-primary/50 ${bgColor}`}
       title="Click to edit grade"
     >
       {displayValue}

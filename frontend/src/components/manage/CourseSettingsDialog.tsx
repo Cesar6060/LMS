@@ -164,7 +164,7 @@ export function CourseSettingsDialog({
           <div>
             <h4 className="text-sm font-semibold text-destructive">Danger zone</h4>
             <p className="text-xs text-muted-foreground mt-1">
-              Deleting a course permanently removes all its units, lessons, assignments,
+              Deleting a course permanently removes all its units, lessons,
               quizzes, and enrollments. Type <span className="font-mono font-semibold">{course.code}</span> to confirm.
             </p>
           </div>

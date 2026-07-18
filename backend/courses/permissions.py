@@ -4,7 +4,7 @@ from rest_framework.exceptions import PermissionDenied
 
 # ==================== Shared permission helpers ====================
 # Single source of truth for authorization checks. All apps (courses,
-# assignments, quizzes, discussions) import from here instead of defining
+# quizzes, discussions) import from here instead of defining
 # their own copies.
 
 def is_course_instructor(user, course):

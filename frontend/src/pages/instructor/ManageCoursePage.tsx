@@ -21,14 +21,12 @@ import { Card, CardContent } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { courseService, type CourseDetail } from '@/services/courses';
-import { assignmentService } from '@/services/assignments';
 import { quizzesService } from '@/services/quizzes';
 import { isForbidden } from '@/services/api';
 import { AccessDenied } from '@/components/AccessDenied';
 import { OutlineUnitCard, type OutlineUnit } from '@/components/manage/OutlineUnitCard';
-import { AssignmentDialog } from '@/components/manage/AssignmentDialog';
 import { CourseSettingsDialog } from '@/components/manage/CourseSettingsDialog';
-import type { Assignment, AssignmentListItem, Quiz } from '@/types';
+import type { Quiz } from '@/types';
 import {
   Loader2, Plus, Copy, CheckCircle, Settings, BookOpen, Eye,
   Table, Megaphone, Users, FileQuestion, ChevronsDownUp, ChevronsUpDown,
@@ -108,7 +106,6 @@ export function ManageCoursePage() {
 
   const [course, setCourse] = useState<CourseDetail | null>(null);
   const [units, setUnits] = useState<OutlineUnit[]>([]);
-  const [assignments, setAssignments] = useState<AssignmentListItem[]>([]);
   const [quizzes, setQuizzes] = useState<Quiz[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState('');
@@ -120,11 +117,6 @@ export function ManageCoursePage() {
 
   // Settings dialog
   const [showSettings, setShowSettings] = useState(false);
-
-  // Assignment dialog
-  const [showAssignmentDialog, setShowAssignmentDialog] = useState(false);
-  const [editingAssignment, setEditingAssignment] = useState<Assignment | null>(null);
-  const [assignmentUnitId, setAssignmentUnitId] = useState<number | null>(null);
 
   // Snapshot for drag rollback
   const dragSnapshot = useRef<OutlineUnit[] | null>(null);
@@ -162,14 +154,12 @@ export function ManageCoursePage() {
     if (!code) return;
     try {
       if (showSpinner) setIsLoading(true);
-      const [data, assignmentsData, quizzesData] = await Promise.all([
+      const [data, quizzesData] = await Promise.all([
         courseService.getCourse(code),
-        assignmentService.getCourseAssignments(code),
         quizzesService.getCourseQuizzes(code),
       ]);
       setCourse(data);
       setUnits(data.units.map(u => ({ id: u.id, title: u.title, lessons: u.lessons })));
-      setAssignments(assignmentsData);
       setQuizzes(quizzesData);
     } catch (err) {
       if (isForbidden(err)) {
@@ -226,7 +216,7 @@ export function ManageCoursePage() {
   };
 
   const handleDeleteUnit = async (unitId: number) => {
-    if (!confirm('Delete this unit? All lessons, assignments, and quizzes in it will also be deleted.')) {
+    if (!confirm('Delete this unit? All lessons and quizzes in it will also be deleted.')) {
       return;
     }
     try {
@@ -289,34 +279,6 @@ export function ManageCoursePage() {
       await loadCourse();
     } catch (err) {
       console.error('Failed to delete quiz:', err);
-    }
-  };
-
-  const handleDeleteAssignment = async (assignmentId: number) => {
-    if (!confirm('Are you sure you want to delete this assignment?')) return;
-    try {
-      await assignmentService.deleteAssignment(assignmentId);
-      await loadCourse();
-    } catch (err) {
-      console.error('Failed to delete assignment:', err);
-    }
-  };
-
-  const handleAddAssignment = (unitId: number) => {
-    setEditingAssignment(null);
-    setAssignmentUnitId(unitId);
-    setShowAssignmentDialog(true);
-  };
-
-  const handleEditAssignment = async (item: AssignmentListItem) => {
-    try {
-      const full = await assignmentService.getAssignment(item.id);
-      setEditingAssignment(full);
-      setAssignmentUnitId(null);
-      setShowAssignmentDialog(true);
-    } catch (err) {
-      console.error('Failed to load assignment:', err);
-      setError('Failed to load assignment');
     }
   };
 
@@ -495,7 +457,6 @@ export function ManageCoursePage() {
 
   if (!course) return null;
 
-  const unitAssignments = (unitId: number) => assignments.filter(a => a.unit === unitId);
   const unitQuizzes = (unitId: number) => quizzes.filter(q => q.unit === unitId);
 
   return (
@@ -604,7 +565,7 @@ export function ManageCoursePage() {
             <BookOpen className="h-12 w-12 mx-auto mb-4 text-muted-foreground opacity-50" />
             <h3 className="text-lg font-semibold mb-1">Create your first unit</h3>
             <p className="text-sm text-muted-foreground">
-              Units organize your lessons, assignments, and quizzes.
+              Units organize your lessons and quizzes.
             </p>
           </CardContent>
         </Card>
@@ -628,7 +589,6 @@ export function ManageCoursePage() {
                   unit={unit}
                   courseCode={course.code}
                   collapsed={!!collapsed[unit.id]}
-                  assignments={unitAssignments(unit.id)}
                   quizzes={unitQuizzes(unit.id)}
                   onToggleCollapse={(unitId) =>
                     persistCollapsed({ ...collapsed, [unitId]: !collapsed[unitId] })
@@ -637,12 +597,9 @@ export function ManageCoursePage() {
                   onDeleteUnit={handleDeleteUnit}
                   onRenameLesson={handleRenameLesson}
                   onDeleteLesson={handleDeleteLesson}
-                  onEditAssignment={handleEditAssignment}
-                  onDeleteAssignment={handleDeleteAssignment}
                   onDeleteQuiz={handleDeleteQuiz}
                   onAddLesson={handleAddLesson}
                   onAddQuiz={handleAddQuiz}
-                  onAddAssignment={handleAddAssignment}
                 />
               ))}
             </div>
@@ -657,15 +614,6 @@ export function ManageCoursePage() {
         open={showSettings}
         onOpenChange={setShowSettings}
         course={course}
-        onSaved={() => loadCourse()}
-      />
-
-      {/* Assignment create/edit */}
-      <AssignmentDialog
-        open={showAssignmentDialog}
-        onOpenChange={setShowAssignmentDialog}
-        unitId={assignmentUnitId}
-        assignment={editingAssignment}
         onSaved={() => loadCourse()}
       />
     </div>
