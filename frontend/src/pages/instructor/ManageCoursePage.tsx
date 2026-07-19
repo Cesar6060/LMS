@@ -125,6 +125,8 @@ export function ManageCoursePage() {
     { type: 'unit' | 'lesson' | 'quiz'; id: number } | null
   >(null);
   const [isDeleting, setIsDeleting] = useState(false);
+  // Type-to-confirm gate for the (cascading) unit delete.
+  const [deleteConfirmText, setDeleteConfirmText] = useState('');
 
   // Snapshot for drag rollback
   const dragSnapshot = useRef<OutlineUnit[] | null>(null);
@@ -224,6 +226,7 @@ export function ManageCoursePage() {
   };
 
   const handleDeleteUnit = (unitId: number) => {
+    setDeleteConfirmText('');
     setDeleteTarget({ type: 'unit', id: unitId });
   };
 
@@ -602,35 +605,73 @@ export function ManageCoursePage() {
       />
 
       {/* Delete confirmation */}
-      <ConfirmDialog
-        open={!!deleteTarget}
-        onOpenChange={(open) => {
-          if (!open) setDeleteTarget(null);
-        }}
-        title={
+      {(() => {
+        const deleteUnitTitle =
           deleteTarget?.type === 'unit'
-            ? 'Delete Unit'
-            : deleteTarget?.type === 'lesson'
-              ? 'Delete Lesson'
-              : 'Delete Quiz'
-        }
-        confirmLabel={
-          deleteTarget?.type === 'unit'
-            ? 'Delete Unit'
-            : deleteTarget?.type === 'lesson'
-              ? 'Delete Lesson'
-              : 'Delete Quiz'
-        }
-        loadingLabel="Deleting..."
-        onConfirm={confirmDelete}
-        isLoading={isDeleting}
-      >
-        {deleteTarget?.type === 'unit'
-          ? 'Delete this unit? All lessons and quizzes in it will also be deleted.'
-          : deleteTarget?.type === 'lesson'
-            ? 'Are you sure you want to delete this lesson?'
-            : 'Are you sure you want to delete this quiz?'}
-      </ConfirmDialog>
+            ? units.find((u) => u.id === deleteTarget.id)?.title ?? ''
+            : '';
+        const unitNameMismatch =
+          deleteTarget?.type === 'unit' &&
+          deleteConfirmText.trim().toLowerCase() !== deleteUnitTitle.trim().toLowerCase();
+        return (
+          <ConfirmDialog
+            open={!!deleteTarget}
+            onOpenChange={(open) => {
+              if (!open) {
+                setDeleteTarget(null);
+                setDeleteConfirmText('');
+              }
+            }}
+            title={
+              deleteTarget?.type === 'unit'
+                ? 'Delete Unit'
+                : deleteTarget?.type === 'lesson'
+                  ? 'Delete Lesson'
+                  : 'Delete Quiz'
+            }
+            confirmLabel={
+              deleteTarget?.type === 'unit'
+                ? 'Delete Unit'
+                : deleteTarget?.type === 'lesson'
+                  ? 'Delete Lesson'
+                  : 'Delete Quiz'
+            }
+            loadingLabel="Deleting..."
+            onConfirm={confirmDelete}
+            isLoading={isDeleting}
+            confirmDisabled={unitNameMismatch}
+          >
+            {deleteTarget?.type === 'unit' ? (
+              <div className="space-y-3">
+                <p>
+                  This deletes the unit and{' '}
+                  <span className="font-medium text-foreground">
+                    every lesson and quiz inside it
+                  </span>
+                  . This cannot be undone.
+                </p>
+                <p>
+                  Type{' '}
+                  <span className="font-semibold text-foreground">{deleteUnitTitle}</span>{' '}
+                  to confirm:
+                </p>
+                <Input
+                  type="text"
+                  autoFocus
+                  value={deleteConfirmText}
+                  onChange={(e) => setDeleteConfirmText(e.target.value)}
+                  placeholder={deleteUnitTitle}
+                  aria-label="Type the unit name to confirm deletion"
+                />
+              </div>
+            ) : deleteTarget?.type === 'lesson' ? (
+              'Are you sure you want to delete this lesson?'
+            ) : (
+              'Are you sure you want to delete this quiz?'
+            )}
+          </ConfirmDialog>
+        );
+      })()}
     </PageContainer>
   );
 }

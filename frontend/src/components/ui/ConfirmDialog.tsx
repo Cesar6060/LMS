@@ -21,6 +21,8 @@ interface ConfirmDialogProps {
   onConfirm: () => void;
   isLoading?: boolean;
   destructive?: boolean;
+  /** Disable the confirm button independently of loading (e.g. a type-to-confirm gate). */
+  confirmDisabled?: boolean;
 }
 
 export function ConfirmDialog({
@@ -34,6 +36,7 @@ export function ConfirmDialog({
   onConfirm,
   isLoading = false,
   destructive = true,
+  confirmDisabled = false,
 }: ConfirmDialogProps) {
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -49,7 +52,7 @@ export function ConfirmDialog({
           <Button
             variant={destructive ? 'destructive' : 'default'}
             onClick={onConfirm}
-            disabled={isLoading}
+            disabled={isLoading || confirmDisabled}
           >
             {isLoading ? (loadingLabel ?? confirmLabel) : confirmLabel}
           </Button>

@@ -6,18 +6,11 @@ import { CSS } from '@dnd-kit/utilities';
 import { Card, CardContent, CardHeader } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
-import {
-  DropdownMenu,
-  DropdownMenuTrigger,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuSeparator,
-} from '@/components/ui/DropdownMenu';
 import type { LessonListItem } from '@/services/courses';
 import type { Quiz } from '@/types';
 import { cn } from '@/lib/utils';
 import {
-  GripVertical, ChevronDown, ChevronRight, MoreVertical, Trash2,
+  GripVertical, ChevronDown, ChevronRight, Trash2,
   Pencil, Play, FileText, FileQuestion, Plus,
 } from 'lucide-react';
 
@@ -70,9 +63,11 @@ function InlineAddRow({ onAddLesson, onAddQuiz }: InlineAddRowProps) {
     }
   };
 
+  const modeLabel = mode === 'quiz' ? 'unit quiz' : 'lesson';
+
   if (mode) {
     return (
-      <div className="flex items-center gap-2 px-2 py-1.5">
+      <div className="mt-3 flex items-center gap-2 rounded-lg border border-dashed border-border px-3 py-2.5">
         {mode === 'lesson' ? (
           <FileText className="h-4 w-4 text-muted-foreground flex-shrink-0" />
         ) : (
@@ -82,7 +77,7 @@ function InlineAddRow({ onAddLesson, onAddQuiz }: InlineAddRowProps) {
           ref={inputRef}
           type="text"
           className="h-8"
-          placeholder={`New ${mode} title — Enter to create, Esc to cancel`}
+          placeholder={`New ${modeLabel} title — Enter to create, Esc to cancel`}
           value={title}
           disabled={isCreating}
           onChange={(e) => setTitle(e.target.value)}
@@ -96,14 +91,14 @@ function InlineAddRow({ onAddLesson, onAddQuiz }: InlineAddRowProps) {
   }
 
   return (
-    <div className="flex items-center gap-2 px-2 pt-3 pb-1">
-      <Button type="button" variant="outline" size="sm" onClick={() => setMode('lesson')}>
+    <div className="mt-3 flex items-center gap-2 rounded-lg border border-dashed border-border px-3 py-2.5">
+      <Button type="button" variant="outline" onClick={() => setMode('lesson')}>
         <Plus className="h-4 w-4 mr-1.5" />
         Add Lesson
       </Button>
-      <Button type="button" variant="outline" size="sm" onClick={() => setMode('quiz')}>
+      <Button type="button" variant="outline" onClick={() => setMode('quiz')}>
         <Plus className="h-4 w-4 mr-1.5" />
-        Add Quiz
+        Add Unit Quiz
       </Button>
     </div>
   );
@@ -187,7 +182,7 @@ function SortableLessonRow({ lesson, courseCode, onRename, onDelete }: SortableL
       ref={setNodeRef}
       style={{ transform: CSS.Transform.toString(transform), transition }}
       className={cn(
-        'group flex items-center gap-2 rounded-md px-2 py-2 hover:bg-muted/50',
+        'group flex items-center gap-2 rounded-lg border border-border px-3 py-2.5',
         isDragging && 'opacity-50'
       )}
     >
@@ -206,25 +201,17 @@ function SortableLessonRow({ lesson, courseCode, onRename, onDelete }: SortableL
         <FileText className="h-4 w-4 text-muted-foreground flex-shrink-0" />
       )}
       <div className="flex-1 min-w-0">
-        {editing ? (
-          <InlineTitle
-            value={lesson.title}
-            editing={editing}
-            onStartEdit={() => setEditing(true)}
-            onSave={(title) => {
-              setEditing(false);
-              onRename(lesson.id, title);
-            }}
-            onCancel={() => setEditing(false)}
-          />
-        ) : (
-          <Link
-            to={`/instructor/courses/${courseCode}/lessons/${lesson.id}/edit`}
-            className="text-base hover:underline truncate block"
-          >
-            {lesson.title}
-          </Link>
-        )}
+        <InlineTitle
+          value={lesson.title}
+          className="text-base"
+          editing={editing}
+          onStartEdit={() => setEditing(true)}
+          onSave={(title) => {
+            setEditing(false);
+            onRename(lesson.id, title);
+          }}
+          onCancel={() => setEditing(false)}
+        />
       </div>
       <div className="flex items-center gap-1 opacity-60 hover:opacity-100 focus-within:opacity-100">
         <Link to={`/instructor/courses/${courseCode}/lessons/${lesson.id}/edit`}>
@@ -238,33 +225,16 @@ function SortableLessonRow({ lesson, courseCode, onRename, onDelete }: SortableL
             <Pencil className="h-4 w-4" />
           </Button>
         </Link>
-        <DropdownMenu>
-          <DropdownMenuTrigger asChild>
-            <Button
-              variant="ghost"
-              size="sm"
-              className="h-8 w-8 p-0"
-              aria-label={`More actions for ${lesson.title}`}
-              title="More actions"
-            >
-              <MoreVertical className="h-4 w-4" />
-            </Button>
-          </DropdownMenuTrigger>
-          <DropdownMenuContent align="end">
-            <DropdownMenuItem onSelect={() => setEditing(true)}>
-              <Pencil className="h-4 w-4" />
-              Rename
-            </DropdownMenuItem>
-            <DropdownMenuSeparator />
-            <DropdownMenuItem
-              className="text-destructive focus:text-destructive"
-              onSelect={() => onDelete(lesson.id)}
-            >
-              <Trash2 className="h-4 w-4" />
-              Delete
-            </DropdownMenuItem>
-          </DropdownMenuContent>
-        </DropdownMenu>
+        <Button
+          variant="ghost"
+          size="sm"
+          className="h-8 w-8 p-0 text-destructive hover:text-destructive"
+          onClick={() => onDelete(lesson.id)}
+          aria-label={`Delete lesson ${lesson.title}`}
+          title="Delete lesson"
+        >
+          <Trash2 className="h-4 w-4" />
+        </Button>
       </div>
     </li>
   );
@@ -356,33 +326,16 @@ export function OutlineUnitCard({
           <span className="text-base text-muted-foreground whitespace-nowrap">
             {itemCount} {itemCount === 1 ? 'item' : 'items'}
           </span>
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <Button
-                variant="ghost"
-                size="sm"
-                className="h-8 w-8 p-0"
-                aria-label={`Actions for unit ${unit.title}`}
-                title="Unit actions"
-              >
-                <MoreVertical className="h-4 w-4" />
-              </Button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="end">
-              <DropdownMenuItem onSelect={() => setEditingTitle(true)}>
-                <Pencil className="h-4 w-4" />
-                Rename
-              </DropdownMenuItem>
-              <DropdownMenuSeparator />
-              <DropdownMenuItem
-                className="text-destructive focus:text-destructive"
-                onSelect={() => onDeleteUnit(unit.id)}
-              >
-                <Trash2 className="h-4 w-4" />
-                Delete
-              </DropdownMenuItem>
-            </DropdownMenuContent>
-          </DropdownMenu>
+          <Button
+            variant="ghost"
+            size="sm"
+            className="h-8 w-8 p-0 text-destructive hover:text-destructive"
+            onClick={() => onDeleteUnit(unit.id)}
+            aria-label={`Delete unit ${unit.title}`}
+            title="Delete unit"
+          >
+            <Trash2 className="h-4 w-4" />
+          </Button>
         </div>
       </CardHeader>
       {!collapsed && (
@@ -396,7 +349,7 @@ export function OutlineUnitCard({
             items={unit.lessons.map(l => `lesson-${l.id}`)}
             strategy={verticalListSortingStrategy}
           >
-            <ul>
+            <ul className="space-y-2">
               {unit.lessons.map(lesson => (
                 <SortableLessonRow
                   key={lesson.id}
@@ -410,21 +363,24 @@ export function OutlineUnitCard({
           </SortableContext>
 
           {quizzes.length > 0 && (
-            <ul>
+            <ul className="mt-2 space-y-2">
               {quizzes.map(quiz => (
                 <li
                   key={quiz.id}
-                  className="group flex items-center gap-2 rounded-md px-2 py-2 hover:bg-muted/50"
+                  className="group flex items-center gap-2 rounded-lg border border-border px-3 py-2.5"
                 >
                   <span className="w-4" />
                   <FileQuestion className="h-4 w-4 text-muted-foreground flex-shrink-0" />
                   <Link
                     to={`/instructor/courses/${courseCode}/quizzes?quiz=${quiz.id}`}
-                    className="flex-1 min-w-0 text-base hover:underline truncate"
+                    className="min-w-0 text-base hover:underline truncate"
                   >
                     {quiz.title}
                   </Link>
-                  <span className="text-base text-muted-foreground whitespace-nowrap">
+                  <span className="flex-shrink-0 text-xs text-muted-foreground border border-border rounded px-1.5 py-0.5">
+                    Unit Quiz
+                  </span>
+                  <span className="flex-1 text-base text-muted-foreground whitespace-nowrap text-right">
                     {quiz.question_count} {quiz.question_count === 1 ? 'question' : 'questions'} · {quiz.points} pts
                   </span>
                   <div className="flex items-center gap-1 opacity-60 hover:opacity-100 focus-within:opacity-100">
