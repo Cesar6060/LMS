@@ -21,14 +21,17 @@ export function QuizDetailPage() {
   const { user } = useAuth();
   const [searchParams] = useSearchParams();
 
-  // When the player linked here (?from=learn&lesson={id}), the round trip
-  // returns to the lesson instead of course detail.
-  const fromLesson =
-    searchParams.get('from') === 'learn' ? searchParams.get('lesson') : null;
+  // When the player linked here (?from=learn), the round trip returns to
+  // learning mode instead of course detail — to the originating lesson if one
+  // was given (&lesson={id}), otherwise to the player itself (unit quizzes).
+  const fromLearn = searchParams.get('from') === 'learn';
+  const fromLesson = fromLearn ? searchParams.get('lesson') : null;
   const backTo = fromLesson
     ? `/courses/${code}/learn/${fromLesson}`
-    : `/courses/${code}`;
-  const backLabel = fromLesson ? 'Lesson' : 'Course';
+    : fromLearn
+      ? `/courses/${code}/learn`
+      : `/courses/${code}`;
+  const backLabel = fromLesson ? 'Lesson' : fromLearn ? 'Learning' : 'Course';
 
   const [quiz, setQuiz] = useState<Quiz | null>(null);
   const [isLoading, setIsLoading] = useState(true);
@@ -189,11 +192,11 @@ export function QuizDetailPage() {
             )}
 
             <div className="flex flex-col sm:flex-row gap-3">
-              {fromLesson && (
+              {fromLearn && (
                 <Button asChild className="flex-1">
                   <Link to={backTo}>
                     <ChevronLeft className="h-4 w-4 mr-2" />
-                    Back to Lesson
+                    {fromLesson ? 'Back to Lesson' : 'Back to Learning'}
                   </Link>
                 </Button>
               )}

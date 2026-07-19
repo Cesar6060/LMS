@@ -9,8 +9,9 @@ import { VideoPlayer } from '@/components/video/VideoPlayer';
 import { LessonQuizSection } from '@/components/lesson/LessonQuizSection';
 import { LessonAttachmentsList } from '@/components/lesson/LessonAttachmentsList';
 import { courseService } from '@/services/courses';
+import { quizzesService } from '@/services/quizzes';
 import { useAuth } from '@/contexts/AuthContext';
-import type { LessonProgress, LessonQuestionsStatus, LessonAttachment, LessonSection } from '@/types';
+import type { LessonProgress, LessonQuestionsStatus, LessonAttachment, LessonSection, Quiz } from '@/types';
 import {
   Loader2, ChevronLeft, ChevronRight, CheckCircle, Circle, FileQuestion
 } from 'lucide-react';
@@ -67,6 +68,7 @@ export function CoursePlayerPage() {
   const { user } = useAuth();
 
   const [course, setCourse] = useState<CourseWithProgress | null>(null);
+  const [quizzes, setQuizzes] = useState<Quiz[]>([]);
   const [currentLesson, setCurrentLesson] = useState<LessonDetail | null>(null);
   const [progress, setProgress] = useState<LessonProgress | null>(null);
   const [isLoading, setIsLoading] = useState(true);
@@ -131,8 +133,12 @@ export function CoursePlayerPage() {
 
     try {
       setIsLoading(true);
-      const courseData = await courseService.getCourseWithProgress(code);
+      const [courseData, quizData] = await Promise.all([
+        courseService.getCourseWithProgress(code),
+        quizzesService.getCourseQuizzes(code).catch(() => [] as Quiz[]),
+      ]);
       setCourse(courseData);
+      setQuizzes(quizData);
 
       // If no lessonId in URL, navigate to first incomplete lesson or first lesson
       if (!lessonId && courseData.units.length > 0) {
@@ -213,6 +219,11 @@ export function CoursePlayerPage() {
 
   const handleLessonSelect = useCallback((id: number) => {
     navigate(`/courses/${code}/learn/${id}`);
+  }, [navigate, code]);
+
+  const handleQuizSelect = useCallback((quizId: number) => {
+    // Unit quizzes are taken on the quiz page; ?from=learn returns here after.
+    navigate(`/courses/${code}/quizzes/${quizId}?from=learn`);
   }, [navigate, code]);
 
   // Handle section navigation
@@ -595,8 +606,10 @@ export function CoursePlayerPage() {
         {/* Sidebar */}
         <CourseSidebar
           units={course.units}
+          quizzes={quizzes}
           currentLessonId={currentLesson?.id || null}
           onLessonSelect={handleLessonSelect}
+          onQuizSelect={handleQuizSelect}
           isCollapsed={isSidebarCollapsed}
           onToggleCollapse={() => setIsSidebarCollapsed(!isSidebarCollapsed)}
           progressPercentage={progressPercentage}

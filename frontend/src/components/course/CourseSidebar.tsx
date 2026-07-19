@@ -29,10 +29,23 @@ interface Unit {
   lessons: LessonWithProgress[];
 }
 
+/** Unit-wide quiz (quizzes.Quiz), a graded sibling of lessons. */
+interface SidebarQuiz {
+  id: number;
+  title: string;
+  unit?: number;
+  question_count: number;
+  points: number;
+  best_score?: { score: number; passed: boolean } | null;
+}
+
 interface CourseSidebarProps {
   units: Unit[];
+  quizzes?: SidebarQuiz[];
   currentLessonId: number | null;
+  currentQuizId?: number | null;
   onLessonSelect: (lessonId: number) => void;
+  onQuizSelect?: (quizId: number) => void;
   isCollapsed: boolean;
   onToggleCollapse: () => void;
   progressPercentage: number;
@@ -42,8 +55,11 @@ interface CourseSidebarProps {
 
 export function CourseSidebar({
   units,
+  quizzes = [],
   currentLessonId,
+  currentQuizId = null,
   onLessonSelect,
+  onQuizSelect,
   isCollapsed,
   onToggleCollapse,
   progressPercentage,
@@ -52,17 +68,23 @@ export function CourseSidebar({
 }: CourseSidebarProps) {
   const [expandedUnits, setExpandedUnits] = useState<number[]>([]);
 
-  // Auto-expand unit containing current lesson
+  // Auto-expand the unit containing the current lesson or unit quiz
   useEffect(() => {
-    if (currentLessonId) {
-      const unitWithLesson = units.find(unit =>
-        unit.lessons.some(lesson => lesson.id === currentLessonId)
-      );
-      if (unitWithLesson && !expandedUnits.includes(unitWithLesson.id)) {
-        setExpandedUnits(prev => [...prev, unitWithLesson.id]);
+    setExpandedUnits(prev => {
+      const next = new Set(prev);
+      if (currentLessonId) {
+        const unitWithLesson = units.find(unit =>
+          unit.lessons.some(lesson => lesson.id === currentLessonId)
+        );
+        if (unitWithLesson) next.add(unitWithLesson.id);
       }
-    }
-  }, [currentLessonId, units]);
+      if (currentQuizId) {
+        const quiz = quizzes.find(q => q.id === currentQuizId);
+        if (quiz?.unit != null) next.add(quiz.unit);
+      }
+      return next.size === prev.length ? prev : Array.from(next);
+    });
+  }, [currentLessonId, currentQuizId, units, quizzes]);
 
   const toggleUnit = (unitId: number) => {
     setExpandedUnits(prev =>
@@ -218,6 +240,57 @@ export function CourseSidebar({
                       </button>
                     );
                   })}
+
+                  {/* Unit-wide quizzes (graded siblings of lessons) */}
+                  {quizzes
+                    .filter(quiz => quiz.unit === unit.id)
+                    .map(quiz => {
+                      const isActive = quiz.id === currentQuizId;
+                      const passed = quiz.best_score?.passed;
+
+                      return (
+                        <button
+                          key={`quiz-${quiz.id}`}
+                          onClick={() => onQuizSelect?.(quiz.id)}
+                          className={cn(
+                            "w-full px-5 py-3 flex items-center gap-3 text-left transition-colors",
+                            isActive
+                              ? "bg-primary/10 border-l-[3px] border-primary"
+                              : "hover:bg-accent/50 border-l-[3px] border-transparent"
+                          )}
+                        >
+                          {/* Completion icon */}
+                          <div className="flex-shrink-0">
+                            {passed ? (
+                              <CheckCircle className="h-5 w-5 text-green-500" />
+                            ) : (
+                              <Circle className="h-5 w-5 text-muted-foreground" />
+                            )}
+                          </div>
+
+                          {/* Quiz icon */}
+                          <div className="flex-shrink-0">
+                            <FileQuestion className="h-5 w-5 text-amber-500" />
+                          </div>
+
+                          {/* Quiz title + label */}
+                          <span className="flex-1 min-w-0">
+                            <span
+                              className={cn(
+                                "text-sm block truncate",
+                                isActive ? "font-medium" : "",
+                                passed ? "text-muted-foreground" : ""
+                              )}
+                            >
+                              {quiz.title}
+                            </span>
+                            <span className="text-xs text-muted-foreground">
+                              Unit Quiz · {quiz.points} pts
+                            </span>
+                          </span>
+                        </button>
+                      );
+                    })}
                 </div>
               )}
             </div>
