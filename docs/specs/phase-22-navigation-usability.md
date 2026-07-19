@@ -209,3 +209,35 @@ Every icon-only button gets `aria-label` + `title`:
       styled dialog; outline row actions visible without hover.
 - [ ] Mobile spot-check (~375px): sheet nav includes grades (student) and
       Teach overflow (instructor); outline actions tappable.
+
+## Implementation addendum (2026-07-19)
+
+Shipped in PR #10 (`feat/phase-22-navigation-usability`). Deviations and
+additions beyond the spec text, driven by live screenshot feedback during
+implementation:
+
+- **CourseToolsNav placement**: rendered at the very top of all four
+  instructor tool pages (above the page title), not inside the header
+  block — it reads as a sub-nav under the global header. Tab text is
+  `text-base` to match the header nav pills exactly.
+- **Replacing the Manage quick-links row dropped its Announcements
+  link** (the tab set is Overview · Gradebook · Roster · Quizzes ·
+  Student View per the scoping decision). Announcements remain reachable
+  via Student View → course detail. Revisit if that hop annoys.
+- **Readability pass** (user feedback: fonts too small, margins too big):
+  Manage and Quiz editor widened `max-w-4xl` → `max-w-6xl`; outline rows
+  use `text-base` titles with `text-sm` metadata.
+- **Enrollment code panel**: the Manage header's enrollment code was
+  promoted from an inline meta line to a highlighted neon-bordered panel
+  (large mono code + labeled copy button) — important shareable info
+  must be prominent.
+- **Add affordances are real buttons**: the outline's "Add lesson ·
+  quiz" inline text links became "Add Lesson" / "Add Quiz" outline
+  Buttons; the "Add unit" dashed row was enlarged to match.
+- **Dashboard instructor "Manage" button** navigates via
+  `preventDefault` + `stopPropagation` + `useNavigate` rather than a
+  nested `<Link>` (nested anchors are invalid HTML).
+- **MyGrades / Announcements rows** use row-`onClick` navigation with a
+  real `<Link>` on the title (`stopPropagation`) since rows contain
+  other interactive controls; Discussions rows wrap the whole card in a
+  `<Link>` (no inner controls).
