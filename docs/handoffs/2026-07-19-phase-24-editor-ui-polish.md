@@ -1,8 +1,11 @@
 # Handoff: Phase 24 — Curriculum editor UI polish + unit quizzes in learning mode
 
 ## Current state
-Phase 24 complete and committed on branch `feat/phase-24-management-editor-ui-polish`
-(commit `83f6bb0`, branched off `feat/phase-23-...`). Not pushed, no PR yet.
+Phase 24 complete, committed, pushed, and **PR #13 open** on branch
+`feat/phase-24-management-editor-ui-polish` (commit `83f6bb0`, branched off
+`feat/phase-23-...`). PR: https://github.com/Cesar6060/LMS/pull/13 — frontend-only,
+491 additions / 142 deletions. Repo has no CI checks configured, so nothing blocks
+merge; ready for review.
 
 Modified/created this session:
 - `frontend/src/components/manage/OutlineUnitCard.tsx` — bordered sub-cards, direct
@@ -24,11 +27,10 @@ Verified: backend `pytest` **196 passed**; `npx tsc --noEmit` **0 errors**;
 click-through (headless Chrome) as instructor and enrolled student, **0 console errors**.
 
 ## In progress / not done
-Nothing half-finished. Not pushed; no PR opened.
+Nothing half-finished. Pushed and PR #13 opened; awaiting review/merge.
 
 ## Next steps
-1. Push `feat/phase-24-management-editor-ui-polish` and open a PR (remote is `lms` =
-   Cesar6060/LMS per memory).
+1. Review and merge PR #13 (https://github.com/Cesar6060/LMS/pull/13) into `main`.
 2. Optional: unit quizzes are lesson-siblings but the sidebar unit header still counts
    only "N/M lessons" — decide whether unit-quiz completion should feed course progress.
 3. Optional: instructor previewing learning mode logs a benign `403` (student-progress
