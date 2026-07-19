@@ -4,7 +4,7 @@ import authService from '@/services/auth';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { Card, CardHeader, CardTitle, CardDescription, CardContent, CardFooter } from '@/components/ui/Card';
-import { Gamepad2, Loader2, ArrowLeft, CheckCircle } from 'lucide-react';
+import { Rocket, Loader2, ArrowLeft, CheckCircle } from 'lucide-react';
 
 export function ForgotPasswordPage() {
   const [email, setEmail] = useState('');
@@ -70,7 +70,7 @@ export function ForgotPasswordPage() {
       <Card className="w-full max-w-md">
         <CardHeader className="space-y-1 text-center">
           <div className="flex justify-center mb-4">
-            <Gamepad2 className="h-12 w-12 text-primary" />
+            <Rocket className="h-12 w-12 text-primary" />
           </div>
           <CardTitle className="text-2xl">Forgot password?</CardTitle>
           <CardDescription>

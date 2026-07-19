@@ -1,4 +1,4 @@
-# GameDev Learning Platform
+# STEM Quest
 
 A full-stack Learning Management System (LMS) built for video game development education, featuring real-time notifications, immersive learning mode, and comprehensive course management.
 
