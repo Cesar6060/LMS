@@ -43,6 +43,13 @@ tsc **0 errors**, lint **0 errors** (24 pre-existing warnings).
   status; its per-phase marks remain stale by design.
 
 ## Gotchas discovered
+- Vite in the Docker frontend container did NOT see host file changes (macOS
+  bind-mount events don't propagate), so localhost:5173 served stale compiled
+  code until a container restart — the user's 3:11 AM screenshot showed the
+  pre-fix Manage UI even though the fixes were committed. Fixed in `d83b742`
+  by enabling `server.watch.usePolling` in `frontend/vite.config.ts`. If UI
+  feedback ever contradicts the code, suspect a stale tab first (hard-refresh)
+  — polling now keeps the server itself current.
 - Host `head` is shadowed by a Perl tool — use `/usr/bin/head` (recurring).
 - Tailwind can't see dynamic class names (`text-${align}`) — literals only.
 - PLAN.md, CLAUDE.md, and top-level `docs/*.md` are gitignored; only
