@@ -10,7 +10,10 @@ from datetime import timedelta
 
 from accounts.models import User
 from allauth.account.models import EmailAddress
-from courses.models import Course, Unit, Lesson, Enrollment, LessonProgress, CourseGradingConfig
+from courses.models import (
+    Course, Unit, Lesson, Enrollment, LessonProgress, CourseGradingConfig,
+    LessonSection, LessonQuestion, LessonQuestionChoice,
+)
 from quizzes.models import Quiz, Question, Choice, QuizAttempt, AttemptAnswer
 
 
@@ -39,6 +42,7 @@ class Command(BaseCommand):
         course = self.create_course(instructor)
         units = self.create_units(course)
         lessons = self.create_lessons(units)
+        self.seed_demo_sections_and_quiz(lessons)
         quizzes = self.create_quizzes(units)
 
         # Enroll students and create activity for main course
@@ -463,6 +467,132 @@ func _physics_process(delta):
                     self.stdout.write(f'      Created lesson: {title}')
 
         return all_lessons
+
+    def seed_demo_sections_and_quiz(self, lessons):
+        """
+        Give one existing lesson multi-page sections + a short comprehension quiz
+        so learning-mode pagination and the end-of-lesson quiz gate are visible
+        and testable. Idempotent: re-running does not duplicate sections/questions.
+        """
+        demo_lesson = next(
+            (l for l in lessons if l.title == 'Variables and Data Types'),
+            None
+        )
+        if not demo_lesson:
+            self.stdout.write(
+                '  Demo lesson "Variables and Data Types" not found; '
+                'skipping sections/quiz seed'
+            )
+            return
+
+        sections_data = [
+            {
+                'order': 0,
+                'title': 'What Is a Variable?',
+                'content': '''A **variable** is a named container that stores a value your game can read and change while it runs.
+
+```gdscript
+var player_name = "Hero"
+var health = 100
+```
+
+Think of the name (`health`) as a label on a box, and the value (`100`) as what's inside.''',
+                'video_type': 'none',
+                'video_id': '',
+            },
+            {
+                'order': 1,
+                'title': 'Watch: Variables in Action',
+                'content': '''Watch how variables are declared and updated as a game runs, then continue to the next page.''',
+                'video_type': 'youtube',
+                'video_id': 'dQw4w9WgXcQ',
+            },
+            {
+                'order': 2,
+                'title': 'Common Data Types',
+                'content': '''Every variable holds a value of some **type**:
+
+- `String` – text, e.g. `"Hero"`
+- `int` – whole numbers, e.g. `100`
+- `float` – decimal numbers, e.g. `2.5`
+- `bool` – `true` / `false`
+- `Vector2` – a 2D position or direction, e.g. `Vector2(0, 0)`
+
+When you finish reading, take the short comprehension check to complete the lesson.''',
+                'video_type': 'none',
+                'video_id': '',
+            },
+        ]
+
+        created_sections = 0
+        for sec in sections_data:
+            _, created = LessonSection.objects.get_or_create(
+                lesson=demo_lesson,
+                order=sec['order'],
+                defaults={
+                    'title': sec['title'],
+                    'content': sec['content'],
+                    'video_type': sec['video_type'],
+                    'video_id': sec['video_id'],
+                }
+            )
+            if created:
+                created_sections += 1
+
+        questions_data = [
+            {
+                'order': 1,
+                'text': 'Which keyword is used to declare a variable in GDScript?',
+                'choices': [
+                    ('var', True),
+                    ('let', False),
+                    ('int', False),
+                    ('define', False),
+                ],
+            },
+            {
+                'order': 2,
+                'text': 'Which type would you use to store the text "Hero"?',
+                'choices': [
+                    ('String', True),
+                    ('int', False),
+                    ('bool', False),
+                    ('Vector2', False),
+                ],
+            },
+            {
+                'order': 3,
+                'text': 'What does a Vector2 represent?',
+                'choices': [
+                    ('A 2D position or direction', True),
+                    ('A single whole number', False),
+                    ('A true/false value', False),
+                    ('A block of text', False),
+                ],
+            },
+        ]
+
+        created_questions = 0
+        for q in questions_data:
+            question, created = LessonQuestion.objects.get_or_create(
+                lesson=demo_lesson,
+                order=q['order'],
+                defaults={'text': q['text']},
+            )
+            if created:
+                created_questions += 1
+                for c_order, (text, is_correct) in enumerate(q['choices'], 1):
+                    LessonQuestionChoice.objects.create(
+                        question=question,
+                        text=text,
+                        is_correct=is_correct,
+                        order=c_order,
+                    )
+
+        self.stdout.write(
+            f'  Demo lesson "{demo_lesson.title}": '
+            f'{created_sections} new section(s), {created_questions} new question(s)'
+        )
 
     def create_quizzes(self, units):
         """Create quizzes for units."""

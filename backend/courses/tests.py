@@ -3,7 +3,10 @@ from django.urls import reverse
 from rest_framework import status
 from rest_framework.test import APIClient
 from accounts.models import User
-from .models import Course, Unit, Lesson, Enrollment, LessonProgress, Announcement
+from .models import (
+    Course, Unit, Lesson, Enrollment, LessonProgress, Announcement,
+    LessonSection, LessonQuestion, LessonQuestionChoice, LessonQuizAttempt,
+)
 from notifications.models import Notification
 
 
@@ -1388,3 +1391,107 @@ class TestLessonReorder:
             f'/api/courses/lessons/{lessons_a[0].id}/reorder/', {'order': 2}
         )
         assert response.status_code == status.HTTP_401_UNAUTHORIZED
+
+
+# ---------------------------------------------------------------------------
+# Phase 23: Learning-mode pagination + comprehension-quiz gating
+# ---------------------------------------------------------------------------
+
+
+def _add_comprehension_quiz(lesson, count=2):
+    """Attach `count` comprehension questions (one correct choice each)."""
+    questions = []
+    for i in range(1, count + 1):
+        question = LessonQuestion.objects.create(
+            lesson=lesson, text=f'Question {i}?', order=i
+        )
+        LessonQuestionChoice.objects.create(
+            question=question, text='Correct', is_correct=True, order=1
+        )
+        LessonQuestionChoice.objects.create(
+            question=question, text='Wrong', is_correct=False, order=2
+        )
+        questions.append(question)
+    return questions
+
+
+@pytest.mark.django_db
+class TestLessonSections:
+    def test_lesson_detail_returns_sections_in_order(
+        self, api_client, student, lesson, enrollment
+    ):
+        # Create sections out of order; serializer should sort by `order`.
+        LessonSection.objects.create(lesson=lesson, title='Third', order=2)
+        LessonSection.objects.create(lesson=lesson, title='First', order=0)
+        LessonSection.objects.create(lesson=lesson, title='Second', order=1)
+
+        api_client.force_authenticate(user=student)
+        response = api_client.get(f'/api/courses/lessons/{lesson.id}/')
+
+        assert response.status_code == status.HTTP_200_OK
+        orders = [s['order'] for s in response.data['sections']]
+        titles = [s['title'] for s in response.data['sections']]
+        assert orders == [0, 1, 2]
+        assert titles == ['First', 'Second', 'Third']
+
+    def test_section_write_requires_course_owner(
+        self, api_client, student, lesson, enrollment
+    ):
+        """A non-owner enrolled student cannot create or reorder sections."""
+        section = LessonSection.objects.create(lesson=lesson, title='Only', order=0)
+        api_client.force_authenticate(user=student)
+
+        create_resp = api_client.post(
+            f'/api/courses/lessons/{lesson.id}/sections/',
+            {'title': 'Hacked', 'content': 'nope', 'order': 1},
+        )
+        assert create_resp.status_code == status.HTTP_403_FORBIDDEN
+
+        reorder_resp = api_client.post(
+            f'/api/courses/lessons/{lesson.id}/sections/reorder/',
+            {'section_ids': [section.id]},
+            format='json',
+        )
+        assert reorder_resp.status_code == status.HTTP_403_FORBIDDEN
+
+
+@pytest.mark.django_db
+class TestLessonCompletionGating:
+    def test_complete_blocked_until_comprehension_quiz_passed(
+        self, api_client, student, lesson, enrollment
+    ):
+        questions = _add_comprehension_quiz(lesson, count=2)
+        api_client.force_authenticate(user=student)
+
+        # Blocked while no passing attempt exists.
+        blocked = api_client.patch(
+            f'/api/courses/lessons/{lesson.id}/progress/', {'completed': True}
+        )
+        assert blocked.status_code == status.HTTP_400_BAD_REQUEST
+
+        # Record a passing attempt.
+        LessonQuizAttempt.objects.create(
+            user=student,
+            lesson=lesson,
+            attempt_number=1,
+            score=len(questions),
+            total_questions=len(questions),
+            passed=True,
+        )
+
+        allowed = api_client.patch(
+            f'/api/courses/lessons/{lesson.id}/progress/', {'completed': True}
+        )
+        assert allowed.status_code == status.HTTP_200_OK
+        assert allowed.data['completed'] is True
+
+    def test_complete_allowed_when_no_quiz(
+        self, api_client, student, lesson, enrollment
+    ):
+        """A lesson with no questions and no required_quiz completes directly."""
+        api_client.force_authenticate(user=student)
+        response = api_client.patch(
+            f'/api/courses/lessons/{lesson.id}/progress/', {'completed': True}
+        )
+        assert response.status_code == status.HTTP_200_OK
+        assert response.data['completed'] is True
