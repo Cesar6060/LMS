@@ -13,5 +13,11 @@ export default defineConfig({
   server: {
     port: 5173,
     host: true,
+    watch: {
+      // File events don't reliably propagate into the Docker bind mount on
+      // macOS, which leaves Vite serving stale transforms until a restart.
+      usePolling: true,
+      interval: 300,
+    },
   },
 })

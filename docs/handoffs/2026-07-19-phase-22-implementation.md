@@ -65,6 +65,14 @@ pre-existing `exhaustive-deps` warnings, untouched).
 
 ## Gotchas discovered
 
+- Vite in the Docker frontend container did NOT see host file changes
+  (macOS bind-mount events don't propagate), so localhost:5173 served
+  stale compiled code until a container restart — the user's 3:11 AM
+  screenshot showed the pre-fix Manage UI even though the fixes were
+  committed. Fixed by enabling `server.watch.usePolling` in
+  `frontend/vite.config.ts`. If UI feedback ever contradicts the code,
+  suspect a stale tab first (hard-refresh) — polling now keeps the
+  server itself current.
 - The host shell's `head` is shadowed by a Perl tool — use `/usr/bin/head`
   or `sed -n` (recurring; bit again this session).
 - Tailwind can't see dynamically-built class names (`text-${align}`) —
