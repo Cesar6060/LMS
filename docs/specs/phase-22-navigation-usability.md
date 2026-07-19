@@ -245,3 +245,12 @@ implementation:
   real `<Link>` on the title (`stopPropagation`) since rows contain
   other interactive controls; Discussions rows wrap the whole card in a
   `<Link>` (no inner controls).
+
+### Status (2026-07-19, post-merge)
+
+PR #10 merged to main. Caveat discovered after merge: the Docker Vite dev
+server had been serving stale compiled code (bind-mount file events don't
+propagate on macOS), so some screenshot-feedback rounds judged pre-fix
+UI. Fixed via `server.watch.usePolling` (PR #11). The three unchecked
+manual/mobile verification items above should be run against the
+now-current build before being checked off.
