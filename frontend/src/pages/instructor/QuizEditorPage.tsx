@@ -1,5 +1,5 @@
 import { useState, useEffect, type FormEvent } from 'react';
-import { useParams, useSearchParams, Link } from 'react-router';
+import { useParams, useSearchParams } from 'react-router';
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
@@ -9,9 +9,12 @@ import { isForbidden } from '@/services/api';
 import { AccessDenied } from '@/components/AccessDenied';
 import type { Quiz, Question } from '@/types';
 import { PageContainer } from '@/components/layout/PageContainer';
+import { BackLink } from '@/components/layout/BackLink';
+import { CourseToolsNav } from '@/components/instructor/CourseToolsNav';
+import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 import {
-  Loader2, ChevronLeft, Plus, Trash2, FileQuestion,
-  Check, X
+  Loader2, Plus, Trash2, FileQuestion,
+  Check, X, ChevronDown, ChevronRight, AlertCircle
 } from 'lucide-react';
 import {
   Dialog,
@@ -61,6 +64,14 @@ export function QuizEditorPage() {
   // Expanded quiz for viewing questions
   const [expandedQuizId, setExpandedQuizId] = useState<number | null>(null);
   const [expandedQuizData, setExpandedQuizData] = useState<Quiz | null>(null);
+
+  // Delete confirmations
+  const [deleteQuizId, setDeleteQuizId] = useState<number | null>(null);
+  const [deleteQuestionId, setDeleteQuestionId] = useState<number | null>(null);
+  const [isDeleting, setIsDeleting] = useState(false);
+
+  // Inline validation error for the question modal
+  const [questionError, setQuestionError] = useState('');
 
   useEffect(() => {
     if (code) {
@@ -164,26 +175,28 @@ export function QuizEditorPage() {
     }
   };
 
-  const handleDeleteQuiz = async (quizId: number) => {
-    if (!confirm('Are you sure you want to delete this quiz? All questions and attempts will be deleted.')) {
-      return;
-    }
-
+  const confirmDeleteQuiz = async () => {
+    if (deleteQuizId === null) return;
+    setIsDeleting(true);
     try {
-      await quizzesService.deleteQuiz(quizId);
+      await quizzesService.deleteQuiz(deleteQuizId);
       await loadData();
-      if (expandedQuizId === quizId) {
+      if (expandedQuizId === deleteQuizId) {
         setExpandedQuizId(null);
         setExpandedQuizData(null);
       }
     } catch (err) {
       console.error('Failed to delete quiz:', err);
+    } finally {
+      setIsDeleting(false);
+      setDeleteQuizId(null);
     }
   };
 
   // Question handlers
   const openAddQuestionModal = (quizId: number) => {
     setSelectedQuizId(quizId);
+    setQuestionError('');
     setEditingQuestion({
       text: '',
       choices: [
@@ -198,6 +211,7 @@ export function QuizEditorPage() {
 
   const openEditQuestionModal = (question: Question, quizId: number) => {
     setSelectedQuizId(quizId);
+    setQuestionError('');
     setEditingQuestion({
       id: question.id,
       text: question.text,
@@ -215,17 +229,18 @@ export function QuizEditorPage() {
 
     // Validate at least one correct answer
     if (!editingQuestion.choices.some(c => c.is_correct)) {
-      alert('Please mark at least one choice as correct');
+      setQuestionError('Please mark at least one choice as correct');
       return;
     }
 
     // Filter out empty choices
     const validChoices = editingQuestion.choices.filter(c => c.text.trim());
     if (validChoices.length < 2) {
-      alert('Please provide at least 2 choices');
+      setQuestionError('Please provide at least 2 choices');
       return;
     }
 
+    setQuestionError('');
     setQuestionLoading(true);
     try {
       if (editingQuestion.id) {
@@ -250,19 +265,20 @@ export function QuizEditorPage() {
     }
   };
 
-  const handleDeleteQuestion = async (questionId: number) => {
-    if (!confirm('Are you sure you want to delete this question?')) {
-      return;
-    }
-
+  const confirmDeleteQuestion = async () => {
+    if (deleteQuestionId === null) return;
+    setIsDeleting(true);
     try {
-      await quizzesService.deleteQuestion(questionId);
+      await quizzesService.deleteQuestion(deleteQuestionId);
       if (expandedQuizId) {
         await loadQuizDetail(expandedQuizId);
       }
       await loadData();
     } catch (err) {
       console.error('Failed to delete question:', err);
+    } finally {
+      setIsDeleting(false);
+      setDeleteQuestionId(null);
     }
   };
 
@@ -301,7 +317,7 @@ export function QuizEditorPage() {
 
   if (isLoading) {
     return (
-      <PageContainer maxWidth="max-w-4xl">
+      <PageContainer maxWidth="max-w-6xl">
         <div className="flex items-center justify-center py-12">
           <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
         </div>
@@ -315,10 +331,11 @@ export function QuizEditorPage() {
 
   if (error || !course) {
     return (
-      <PageContainer maxWidth="max-w-4xl">
+      <PageContainer maxWidth="max-w-6xl">
         <Card>
           <CardContent className="py-12 text-center">
-            <p className="text-destructive">{error || 'Course not found'}</p>
+            <p className="text-destructive mb-4">{error || 'Course not found'}</p>
+            <BackLink to={`/instructor/courses/${code}/manage`} label="Manage Course" />
           </CardContent>
         </Card>
       </PageContainer>
@@ -332,16 +349,12 @@ export function QuizEditorPage() {
   });
 
   return (
-    <PageContainer maxWidth="max-w-4xl">
+    <PageContainer maxWidth="max-w-6xl">
+      {/* Course tools sub-nav */}
+      <CourseToolsNav courseCode={code!} className="mb-6" />
+
       {/* Header */}
       <div className="mb-6">
-        <Link
-          to={`/instructor/courses/${code}/manage`}
-          className="inline-flex items-center gap-2 text-muted-foreground hover:text-foreground mb-4"
-        >
-          <ChevronLeft className="h-4 w-4" />
-          Back to Manage Course
-        </Link>
         <h1 className="text-3xl font-bold flex items-center gap-3">
           <FileQuestion className="h-6 w-6" />
           Manage Quizzes
@@ -367,35 +380,40 @@ export function QuizEditorPage() {
                 <div className="space-y-3">
                   {quizzesByUnit[unit.id].map((quiz) => (
                     <div key={quiz.id} className="border rounded-lg">
-                      <div
-                        className="p-4 flex items-center justify-between cursor-pointer hover:bg-muted/50"
-                        onClick={() => toggleExpandQuiz(quiz.id)}
-                      >
-                        <div>
-                          <h4 className="font-medium">{quiz.title}</h4>
-                          <p className="text-sm text-muted-foreground">
-                            {quiz.question_count} questions • {quiz.points} pts • Pass: {quiz.passing_score}% • {quiz.max_attempts === 0 ? 'Unlimited attempts' : `${quiz.max_attempts} attempt${quiz.max_attempts === 1 ? '' : 's'}`}
-                          </p>
-                        </div>
+                      <div className="p-4 flex items-center justify-between gap-2 hover:bg-muted/50">
+                        <button
+                          type="button"
+                          onClick={() => toggleExpandQuiz(quiz.id)}
+                          aria-expanded={expandedQuizId === quiz.id}
+                          className="flex flex-1 items-center gap-3 text-left min-w-0"
+                        >
+                          {expandedQuizId === quiz.id ? (
+                            <ChevronDown className="h-4 w-4 flex-shrink-0 text-muted-foreground" />
+                          ) : (
+                            <ChevronRight className="h-4 w-4 flex-shrink-0 text-muted-foreground" />
+                          )}
+                          <span className="min-w-0">
+                            <h4 className="font-medium">{quiz.title}</h4>
+                            <p className="text-sm text-muted-foreground">
+                              {quiz.question_count} questions • {quiz.points} pts • Pass: {quiz.passing_score}% • {quiz.max_attempts === 0 ? 'Unlimited attempts' : `${quiz.max_attempts} attempt${quiz.max_attempts === 1 ? '' : 's'}`}
+                            </p>
+                          </span>
+                        </button>
                         <div className="flex items-center gap-2">
                           <Button
                             size="sm"
                             variant="ghost"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              openEditQuizModal(quiz);
-                            }}
+                            onClick={() => openEditQuizModal(quiz)}
                           >
-                            Edit
+                            Edit Details
                           </Button>
                           <Button
                             size="sm"
                             variant="ghost"
                             className="text-destructive hover:text-destructive"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              handleDeleteQuiz(quiz.id);
-                            }}
+                            onClick={() => setDeleteQuizId(quiz.id)}
+                            aria-label={`Delete quiz ${quiz.title}`}
+                            title="Delete quiz"
                           >
                             <Trash2 className="h-4 w-4" />
                           </Button>
@@ -452,7 +470,9 @@ export function QuizEditorPage() {
                                         size="sm"
                                         variant="ghost"
                                         className="text-destructive hover:text-destructive"
-                                        onClick={() => handleDeleteQuestion(question.id)}
+                                        onClick={() => setDeleteQuestionId(question.id)}
+                                        aria-label={`Delete question ${qIndex + 1}`}
+                                        title="Delete question"
                                       >
                                         <Trash2 className="h-3 w-3" />
                                       </Button>
@@ -560,6 +580,12 @@ export function QuizEditorPage() {
           </DialogHeader>
           <form onSubmit={handleSaveQuestion}>
             <div className="space-y-4 py-4">
+              {questionError && (
+                <div className="bg-destructive/10 border border-destructive/20 rounded-lg p-3 flex items-center gap-2">
+                  <AlertCircle className="h-4 w-4 text-destructive flex-shrink-0" />
+                  <p className="text-sm text-destructive">{questionError}</p>
+                </div>
+              )}
               <div>
                 <label className="block text-sm font-medium mb-1">Question *</label>
                 <textarea
@@ -604,6 +630,8 @@ export function QuizEditorPage() {
                           variant="ghost"
                           onClick={() => removeChoice(index)}
                           className="text-destructive hover:text-destructive"
+                          aria-label={`Remove choice ${index + 1}`}
+                          title="Remove choice"
                         >
                           <Trash2 className="h-4 w-4" />
                         </Button>
@@ -628,6 +656,37 @@ export function QuizEditorPage() {
           </form>
         </DialogContent>
       </Dialog>
+
+      {/* Delete quiz confirmation */}
+      <ConfirmDialog
+        open={deleteQuizId !== null}
+        onOpenChange={(open) => {
+          if (!open) setDeleteQuizId(null);
+        }}
+        title="Delete Quiz"
+        confirmLabel="Delete Quiz"
+        loadingLabel="Deleting..."
+        onConfirm={confirmDeleteQuiz}
+        isLoading={isDeleting}
+      >
+        Are you sure you want to delete this quiz? All questions and attempts
+        will be deleted.
+      </ConfirmDialog>
+
+      {/* Delete question confirmation */}
+      <ConfirmDialog
+        open={deleteQuestionId !== null}
+        onOpenChange={(open) => {
+          if (!open) setDeleteQuestionId(null);
+        }}
+        title="Delete Question"
+        confirmLabel="Delete Question"
+        loadingLabel="Deleting..."
+        onConfirm={confirmDeleteQuestion}
+        isLoading={isDeleting}
+      >
+        Are you sure you want to delete this question?
+      </ConfirmDialog>
     </PageContainer>
   );
 }

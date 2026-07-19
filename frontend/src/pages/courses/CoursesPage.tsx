@@ -153,15 +153,22 @@ export function CoursesPage() {
                     Instructor: {course.instructor_name}
                   </p>
                 </CardContent>
-                <CardFooter className="flex gap-4 text-sm text-muted-foreground">
-                  <div className="flex items-center gap-1">
-                    <Layers className="h-4 w-4" />
-                    {course.unit_count} units
+                <CardFooter className="flex-col items-stretch gap-4">
+                  <div className="flex gap-4 text-sm text-muted-foreground">
+                    <div className="flex items-center gap-1">
+                      <Layers className="h-4 w-4" />
+                      {course.unit_count} units
+                    </div>
+                    <div className="flex items-center gap-1">
+                      <Users className="h-4 w-4" />
+                      {course.student_count} students
+                    </div>
                   </div>
-                  <div className="flex items-center gap-1">
-                    <Users className="h-4 w-4" />
-                    {course.student_count} students
-                  </div>
+                  {!user?.is_instructor && (
+                    <Button variant="outline" className="w-full">
+                      View Course
+                    </Button>
+                  )}
                 </CardFooter>
               </Card>
             </Link>

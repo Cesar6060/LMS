@@ -259,16 +259,34 @@ export function ThreadDetailPage() {
         <div className="flex items-center gap-2 flex-shrink-0">
           {isCourseOwner && (
             <>
-              <Button variant="outline" size="sm" onClick={handleTogglePin} title={thread.is_pinned ? 'Unpin' : 'Pin'}>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={handleTogglePin}
+                aria-label={thread.is_pinned ? 'Unpin thread' : 'Pin thread'}
+                title={thread.is_pinned ? 'Unpin' : 'Pin'}
+              >
                 <Pin className={`h-4 w-4 ${thread.is_pinned ? 'text-primary' : ''}`} />
               </Button>
-              <Button variant="outline" size="sm" onClick={handleToggleLock} title={thread.is_locked ? 'Unlock' : 'Lock'}>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={handleToggleLock}
+                aria-label={thread.is_locked ? 'Unlock thread' : 'Lock thread'}
+                title={thread.is_locked ? 'Unlock' : 'Lock'}
+              >
                 {thread.is_locked ? <Unlock className="h-4 w-4" /> : <Lock className="h-4 w-4" />}
               </Button>
             </>
           )}
           {isThreadAuthor && (
-            <Button variant="outline" size="sm" onClick={openEditThread}>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={openEditThread}
+              aria-label="Edit thread"
+              title="Edit"
+            >
               <Edit className="h-4 w-4" />
             </Button>
           )}
@@ -278,6 +296,8 @@ export function ThreadDetailPage() {
               size="sm"
               onClick={() => setShowDeleteThread(true)}
               className="text-destructive hover:text-destructive"
+              aria-label="Delete thread"
+              title="Delete"
             >
               <Trash2 className="h-4 w-4" />
             </Button>
@@ -311,7 +331,13 @@ export function ThreadDetailPage() {
                   </div>
                   <div className="flex items-center gap-1">
                     {isReplyAuthor && (
-                      <Button variant="ghost" size="sm" onClick={() => startEditReply(reply)}>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => startEditReply(reply)}
+                        aria-label="Edit reply"
+                        title="Edit reply"
+                      >
                         <Edit className="h-3 w-3" />
                       </Button>
                     )}
@@ -321,6 +347,8 @@ export function ThreadDetailPage() {
                         size="sm"
                         onClick={() => setDeleteReplyId(reply.id)}
                         className="text-destructive hover:text-destructive"
+                        aria-label="Delete reply"
+                        title="Delete reply"
                       >
                         <Trash2 className="h-3 w-3" />
                       </Button>

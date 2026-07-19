@@ -11,6 +11,7 @@ import {
   GraduationCap,
   PlusCircle,
   ClipboardList,
+  BarChart3,
 } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
 import { Button } from '@/components/ui/Button';
@@ -89,8 +90,14 @@ export function Header() {
     // Course-related routes
     const courseMatch = path.match(/\/courses\/([^/]+)/);
     if (courseMatch) {
+      const isInstructorRoute = path.startsWith('/instructor');
       const courseCode = courseMatch[1].toUpperCase();
-      parts.push({ label: courseCode, href: `/courses/${courseMatch[1]}` });
+      parts.push({
+        label: courseCode,
+        href: isInstructorRoute
+          ? `/instructor/courses/${courseMatch[1]}/manage`
+          : `/courses/${courseMatch[1]}`,
+      });
 
       // Add sub-page if we're deeper
       if (path.includes('/grades')) {
@@ -101,9 +108,13 @@ export function Header() {
         parts.push({ label: 'Learning' });
       } else if (path.includes('/announcements')) {
         parts.push({ label: 'Announcements' });
+      } else if (path.includes('/discussions')) {
+        parts.push({ label: 'Discussions' });
+      } else if (path.includes('/lessons') && path.endsWith('/edit')) {
+        parts.push({ label: 'Edit Lesson' });
       } else if (path.includes('/manage')) {
         parts.push({ label: 'Manage' });
-      } else if (path.includes('/roster')) {
+      } else if (path.includes('/students')) {
         parts.push({ label: 'Roster' });
       } else if (path.includes('/gradebook')) {
         parts.push({ label: 'Gradebook' });
@@ -263,9 +274,11 @@ export function Header() {
                         </DropdownMenuItem>
                       ))}
                       {enrolledCourses.length > 3 && (
-                        <div className="px-2 py-1 text-xs text-muted-foreground">
-                          +{enrolledCourses.length - 3} more courses
-                        </div>
+                        <DropdownMenuItem asChild>
+                          <Link to="/courses" className="text-xs text-muted-foreground">
+                            +{enrolledCourses.length - 3} more courses
+                          </Link>
+                        </DropdownMenuItem>
                       )}
                       <DropdownMenuSeparator />
                     </>
@@ -324,6 +337,23 @@ export function Header() {
                     >
                       Courses
                     </Link>
+                    {!user?.is_instructor && enrolledCourses.length > 0 && (
+                      <>
+                        <div className="flex items-center gap-2 px-3 pt-4 pb-1 text-xs font-medium text-muted-foreground uppercase tracking-wide">
+                          <BarChart3 className="h-4 w-4" />
+                          My Grades
+                        </div>
+                        {enrolledCourses.map((enrollment) => (
+                          <Link
+                            key={enrollment.id}
+                            to={`/courses/${enrollment.course.code}/grades`}
+                            className="flex items-center gap-2 px-3 py-3 text-base font-medium rounded-lg text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-colors"
+                          >
+                            <span className="truncate">{enrollment.course.code}</span>
+                          </Link>
+                        ))}
+                      </>
+                    )}
                     {user?.is_instructor && (
                       <>
                         <div className="flex items-center gap-2 px-3 pt-4 pb-1 text-xs font-medium text-muted-foreground uppercase tracking-wide">
@@ -347,6 +377,14 @@ export function Header() {
                             <span className="truncate">{course.code}</span>
                           </Link>
                         ))}
+                        {teachOverflow && (
+                          <Link
+                            to="/courses"
+                            className="px-3 py-3 text-base font-medium rounded-lg text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-colors"
+                          >
+                            All courses…
+                          </Link>
+                        )}
                       </>
                     )}
                     <div className="border-t my-3" />

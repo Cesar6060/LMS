@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { useParams, Link } from 'react-router';
+import { useParams, Link, useNavigate } from 'react-router';
 import { useAuth } from '@/contexts/AuthContext';
 import { Card, CardContent } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
@@ -24,6 +24,7 @@ import {
 export function AnnouncementsPage() {
   const { code } = useParams<{ code: string }>();
   const { user } = useAuth();
+  const navigate = useNavigate();
 
   const [course, setCourse] = useState<CourseDetail | null>(null);
   const [announcements, setAnnouncements] = useState<AnnouncementListItem[]>([]);
@@ -244,7 +245,13 @@ export function AnnouncementsPage() {
       ) : (
         <div className="space-y-4">
           {announcements.map((announcement) => (
-            <Card key={announcement.id} className={announcement.is_pinned ? 'border-primary' : ''}>
+            <Card
+              key={announcement.id}
+              className={`card-interactive cursor-pointer hover:border-primary/40 transition-colors ${
+                announcement.is_pinned ? 'border-primary' : ''
+              }`}
+              onClick={() => navigate(`/courses/${code}/announcements/${announcement.id}`)}
+            >
               <CardContent className="py-4">
                 <div className="flex items-start justify-between gap-4">
                   <div className="flex-1">
@@ -255,6 +262,7 @@ export function AnnouncementsPage() {
                       <Link
                         to={`/courses/${code}/announcements/${announcement.id}`}
                         className="font-semibold hover:text-primary transition-colors"
+                        onClick={(e) => e.stopPropagation()}
                       >
                         {announcement.title}
                       </Link>
@@ -276,7 +284,11 @@ export function AnnouncementsPage() {
                       <Button
                         variant="ghost"
                         size="sm"
-                        onClick={() => handleTogglePin(announcement.id, announcement.is_pinned)}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleTogglePin(announcement.id, announcement.is_pinned);
+                        }}
+                        aria-label={announcement.is_pinned ? 'Unpin announcement' : 'Pin announcement'}
                         title={announcement.is_pinned ? 'Unpin' : 'Pin'}
                       >
                         <Pin className={`h-4 w-4 ${announcement.is_pinned ? 'text-primary' : ''}`} />
@@ -284,15 +296,25 @@ export function AnnouncementsPage() {
                       <Button
                         variant="ghost"
                         size="sm"
-                        onClick={() => openEditModal(announcement.id)}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          openEditModal(announcement.id);
+                        }}
+                        aria-label="Edit announcement"
+                        title="Edit"
                       >
                         <Edit className="h-4 w-4" />
                       </Button>
                       <Button
                         variant="ghost"
                         size="sm"
-                        onClick={() => setDeleteId(announcement.id)}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setDeleteId(announcement.id);
+                        }}
                         className="text-destructive hover:text-destructive"
+                        aria-label="Delete announcement"
+                        title="Delete"
                       >
                         <Trash2 className="h-4 w-4" />
                       </Button>

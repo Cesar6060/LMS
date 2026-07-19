@@ -328,7 +328,7 @@ export function CourseDetailPage() {
               <Link to={`/courses/${course.code}/learn`}>
                 <Button size="lg" className="gap-2 bg-green-600 text-white hover:bg-green-700">
                   <Play className="h-5 w-5" />
-                  Learning Mode
+                  Continue Learning
                 </Button>
               </Link>
             </div>
@@ -451,7 +451,7 @@ export function CourseDetailPage() {
                   {announcements.slice(0, 3).map((announcement) => (
                     <li key={announcement.id}>
                       <Link
-                        to={`/courses/${course.code}/announcements/${announcement.id}`}
+                        to={`/courses/${course.code}/announcements/${announcement.id}?from=course`}
                         className="flex items-center justify-between py-3 hover:bg-muted/50 -mx-6 px-6 transition-colors"
                       >
                         <div className="flex items-center gap-3">

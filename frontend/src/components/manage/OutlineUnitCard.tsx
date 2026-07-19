@@ -96,24 +96,15 @@ function InlineAddRow({ onAddLesson, onAddQuiz }: InlineAddRowProps) {
   }
 
   return (
-    <div className="flex items-center gap-1 px-2 py-1.5 text-sm text-muted-foreground">
-      <Plus className="h-4 w-4" />
-      <span className="mr-1">Add</span>
-      <button
-        type="button"
-        className="hover:text-foreground hover:underline"
-        onClick={() => setMode('lesson')}
-      >
-        lesson
-      </button>
-      <span>·</span>
-      <button
-        type="button"
-        className="hover:text-foreground hover:underline"
-        onClick={() => setMode('quiz')}
-      >
-        quiz
-      </button>
+    <div className="flex items-center gap-2 px-2 pt-3 pb-1">
+      <Button type="button" variant="outline" size="sm" onClick={() => setMode('lesson')}>
+        <Plus className="h-4 w-4 mr-1.5" />
+        Add Lesson
+      </Button>
+      <Button type="button" variant="outline" size="sm" onClick={() => setMode('quiz')}>
+        <Plus className="h-4 w-4 mr-1.5" />
+        Add Quiz
+      </Button>
     </div>
   );
 }
@@ -196,13 +187,13 @@ function SortableLessonRow({ lesson, courseCode, onRename, onDelete }: SortableL
       ref={setNodeRef}
       style={{ transform: CSS.Transform.toString(transform), transition }}
       className={cn(
-        'group flex items-center gap-2 rounded-md px-2 py-1.5 hover:bg-muted/50',
+        'group flex items-center gap-2 rounded-md px-2 py-2 hover:bg-muted/50',
         isDragging && 'opacity-50'
       )}
     >
       <button
         type="button"
-        className="cursor-grab touch-none opacity-0 group-hover:opacity-100 focus:opacity-100 text-muted-foreground"
+        className="cursor-grab touch-none opacity-60 hover:opacity-100 focus-visible:opacity-100 text-muted-foreground"
         aria-label={`Reorder lesson ${lesson.title}`}
         {...attributes}
         {...listeners}
@@ -229,22 +220,34 @@ function SortableLessonRow({ lesson, courseCode, onRename, onDelete }: SortableL
         ) : (
           <Link
             to={`/instructor/courses/${courseCode}/lessons/${lesson.id}/edit`}
-            className="text-sm hover:underline truncate block"
+            className="text-base hover:underline truncate block"
           >
             {lesson.title}
           </Link>
         )}
       </div>
-      <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 focus-within:opacity-100">
+      <div className="flex items-center gap-1 opacity-60 hover:opacity-100 focus-within:opacity-100">
         <Link to={`/instructor/courses/${courseCode}/lessons/${lesson.id}/edit`}>
-          <Button variant="ghost" size="sm" className="h-7 w-7 p-0" title="Edit lesson">
-            <Pencil className="h-3.5 w-3.5" />
+          <Button
+            variant="ghost"
+            size="sm"
+            className="h-8 w-8 p-0"
+            aria-label={`Edit lesson ${lesson.title}`}
+            title="Edit lesson"
+          >
+            <Pencil className="h-4 w-4" />
           </Button>
         </Link>
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
-            <Button variant="ghost" size="sm" className="h-7 w-7 p-0" title="More actions">
-              <MoreVertical className="h-3.5 w-3.5" />
+            <Button
+              variant="ghost"
+              size="sm"
+              className="h-8 w-8 p-0"
+              aria-label={`More actions for ${lesson.title}`}
+              title="More actions"
+            >
+              <MoreVertical className="h-4 w-4" />
             </Button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end">
@@ -316,7 +319,7 @@ export function OutlineUnitCard({
         <div className="flex items-center gap-2">
           <button
             type="button"
-            className="cursor-grab touch-none opacity-0 group-hover/unit:opacity-100 focus:opacity-100 text-muted-foreground"
+            className="cursor-grab touch-none opacity-60 hover:opacity-100 focus-visible:opacity-100 text-muted-foreground"
             aria-label={`Reorder unit ${unit.title}`}
             {...attributes}
             {...listeners}
@@ -326,8 +329,9 @@ export function OutlineUnitCard({
           <Button
             variant="ghost"
             size="sm"
-            className="h-7 w-7 p-0"
+            className="h-8 w-8 p-0"
             onClick={() => onToggleCollapse(unit.id)}
+            aria-label={collapsed ? `Expand unit ${unit.title}` : `Collapse unit ${unit.title}`}
             title={collapsed ? 'Expand unit' : 'Collapse unit'}
           >
             {collapsed ? (
@@ -349,12 +353,18 @@ export function OutlineUnitCard({
               onCancel={() => setEditingTitle(false)}
             />
           </div>
-          <span className="text-xs text-muted-foreground whitespace-nowrap">
+          <span className="text-base text-muted-foreground whitespace-nowrap">
             {itemCount} {itemCount === 1 ? 'item' : 'items'}
           </span>
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
-              <Button variant="ghost" size="sm" className="h-7 w-7 p-0" title="Unit actions">
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-8 w-8 p-0"
+                aria-label={`Actions for unit ${unit.title}`}
+                title="Unit actions"
+              >
                 <MoreVertical className="h-4 w-4" />
               </Button>
             </DropdownMenuTrigger>
@@ -404,41 +414,41 @@ export function OutlineUnitCard({
               {quizzes.map(quiz => (
                 <li
                   key={quiz.id}
-                  className="group flex items-center gap-2 rounded-md px-2 py-1.5 hover:bg-muted/50"
+                  className="group flex items-center gap-2 rounded-md px-2 py-2 hover:bg-muted/50"
                 >
                   <span className="w-4" />
                   <FileQuestion className="h-4 w-4 text-muted-foreground flex-shrink-0" />
                   <Link
                     to={`/instructor/courses/${courseCode}/quizzes?quiz=${quiz.id}`}
-                    className="flex-1 min-w-0 text-sm hover:underline truncate"
+                    className="flex-1 min-w-0 text-base hover:underline truncate"
                   >
                     {quiz.title}
                   </Link>
-                  <span className="text-xs text-muted-foreground whitespace-nowrap">
+                  <span className="text-base text-muted-foreground whitespace-nowrap">
                     {quiz.question_count} {quiz.question_count === 1 ? 'question' : 'questions'} · {quiz.points} pts
                   </span>
-                  <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 focus-within:opacity-100">
+                  <div className="flex items-center gap-1 opacity-60 hover:opacity-100 focus-within:opacity-100">
                     <Link to={`/instructor/courses/${courseCode}/quizzes?quiz=${quiz.id}`}>
-                      <Button variant="ghost" size="sm" className="h-7 w-7 p-0" title="Edit quiz">
-                        <Pencil className="h-3.5 w-3.5" />
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="h-8 w-8 p-0"
+                        aria-label={`Edit quiz ${quiz.title}`}
+                        title="Edit quiz"
+                      >
+                        <Pencil className="h-4 w-4" />
                       </Button>
                     </Link>
-                    <DropdownMenu>
-                      <DropdownMenuTrigger asChild>
-                        <Button variant="ghost" size="sm" className="h-7 w-7 p-0" title="More actions">
-                          <MoreVertical className="h-3.5 w-3.5" />
-                        </Button>
-                      </DropdownMenuTrigger>
-                      <DropdownMenuContent align="end">
-                        <DropdownMenuItem
-                          className="text-destructive focus:text-destructive"
-                          onSelect={() => onDeleteQuiz(quiz.id)}
-                        >
-                          <Trash2 className="h-4 w-4" />
-                          Delete
-                        </DropdownMenuItem>
-                      </DropdownMenuContent>
-                    </DropdownMenu>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="h-8 w-8 p-0 text-destructive hover:text-destructive"
+                      onClick={() => onDeleteQuiz(quiz.id)}
+                      aria-label={`Delete quiz ${quiz.title}`}
+                      title="Delete quiz"
+                    >
+                      <Trash2 className="h-4 w-4" />
+                    </Button>
                   </div>
                 </li>
               ))}

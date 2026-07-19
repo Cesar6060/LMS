@@ -1,10 +1,10 @@
 import { useState, type FormEvent } from 'react';
-import { useNavigate, Link } from 'react-router';
+import { useNavigate } from 'react-router';
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { courseService } from '@/services/courses';
-import { Loader2, ChevronLeft } from 'lucide-react';
+import { Loader2 } from 'lucide-react';
 import { PageContainer } from '@/components/layout/PageContainer';
 
 export function CreateCoursePage() {
@@ -44,13 +44,6 @@ export function CreateCoursePage() {
 
   return (
     <PageContainer maxWidth="max-w-2xl">
-      <Link to="/courses">
-        <Button variant="ghost" size="sm" className="mb-6">
-          <ChevronLeft className="h-4 w-4 mr-1" />
-          Back to Courses
-        </Button>
-      </Link>
-
       <Card>
         <CardHeader>
           <CardTitle>Create a New Course</CardTitle>
@@ -118,7 +111,7 @@ export function CreateCoursePage() {
               <Button
                 type="button"
                 variant="outline"
-                onClick={() => navigate('/courses')}
+                onClick={() => navigate('/dashboard')}
                 disabled={isLoading}
               >
                 Cancel

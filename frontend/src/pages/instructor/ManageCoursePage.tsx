@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback, type KeyboardEvent } from 'react';
-import { useParams, Link } from 'react-router';
+import { useParams } from 'react-router';
 import {
   DndContext,
   closestCorners,
@@ -26,11 +26,14 @@ import { isForbidden } from '@/services/api';
 import { AccessDenied } from '@/components/AccessDenied';
 import { OutlineUnitCard, type OutlineUnit } from '@/components/manage/OutlineUnitCard';
 import { CourseSettingsDialog } from '@/components/manage/CourseSettingsDialog';
+import { CourseToolsNav } from '@/components/instructor/CourseToolsNav';
+import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
+import { BackLink } from '@/components/layout/BackLink';
 import type { Quiz } from '@/types';
 import { PageContainer } from '@/components/layout/PageContainer';
 import {
-  Loader2, Plus, Copy, CheckCircle, Settings, BookOpen, Eye,
-  Table, Megaphone, Users, FileQuestion, ChevronsDownUp, ChevronsUpDown,
+  Loader2, Plus, Copy, CheckCircle, Settings, BookOpen,
+  ChevronsDownUp, ChevronsUpDown,
 } from 'lucide-react';
 
 function AddUnitRow({
@@ -74,10 +77,10 @@ function AddUnitRow({
     return (
       <button
         type="button"
-        className="w-full rounded-lg border border-dashed px-4 py-3 text-sm text-muted-foreground hover:text-foreground hover:border-foreground/30 flex items-center justify-center gap-2"
+        className="w-full rounded-lg border border-dashed px-4 py-3.5 text-base font-medium text-muted-foreground hover:text-foreground hover:border-foreground/30 flex items-center justify-center gap-2"
         onClick={() => setActive(true)}
       >
-        <Plus className="h-4 w-4" />
+        <Plus className="h-5 w-5" />
         Add unit
       </button>
     );
@@ -118,6 +121,10 @@ export function ManageCoursePage() {
 
   // Settings dialog
   const [showSettings, setShowSettings] = useState(false);
+  const [deleteTarget, setDeleteTarget] = useState<
+    { type: 'unit' | 'lesson' | 'quiz'; id: number } | null
+  >(null);
+  const [isDeleting, setIsDeleting] = useState(false);
 
   // Snapshot for drag rollback
   const dragSnapshot = useRef<OutlineUnit[] | null>(null);
@@ -216,16 +223,8 @@ export function ManageCoursePage() {
     }
   };
 
-  const handleDeleteUnit = async (unitId: number) => {
-    if (!confirm('Delete this unit? All lessons and quizzes in it will also be deleted.')) {
-      return;
-    }
-    try {
-      await courseService.deleteUnit(unitId);
-      await loadCourse();
-    } catch (err) {
-      console.error('Failed to delete unit:', err);
-    }
+  const handleDeleteUnit = (unitId: number) => {
+    setDeleteTarget({ type: 'unit', id: unitId });
   };
 
   const handleAddLesson = async (unitId: number, title: string) => {
@@ -253,14 +252,8 @@ export function ManageCoursePage() {
     }
   };
 
-  const handleDeleteLesson = async (lessonId: number) => {
-    if (!confirm('Are you sure you want to delete this lesson?')) return;
-    try {
-      await courseService.deleteLesson(lessonId);
-      await loadCourse();
-    } catch (err) {
-      console.error('Failed to delete lesson:', err);
-    }
+  const handleDeleteLesson = (lessonId: number) => {
+    setDeleteTarget({ type: 'lesson', id: lessonId });
   };
 
   const handleAddQuiz = async (unitId: number, title: string) => {
@@ -273,13 +266,28 @@ export function ManageCoursePage() {
     }
   };
 
-  const handleDeleteQuiz = async (quizId: number) => {
-    if (!confirm('Are you sure you want to delete this quiz?')) return;
+  const handleDeleteQuiz = (quizId: number) => {
+    setDeleteTarget({ type: 'quiz', id: quizId });
+  };
+
+  const confirmDelete = async () => {
+    if (!deleteTarget) return;
+    setIsDeleting(true);
     try {
-      await quizzesService.deleteQuiz(quizId);
+      if (deleteTarget.type === 'unit') {
+        await courseService.deleteUnit(deleteTarget.id);
+      } else if (deleteTarget.type === 'lesson') {
+        await courseService.deleteLesson(deleteTarget.id);
+      } else {
+        await quizzesService.deleteQuiz(deleteTarget.id);
+      }
+      setDeleteTarget(null);
       await loadCourse();
     } catch (err) {
-      console.error('Failed to delete quiz:', err);
+      console.error(`Failed to delete ${deleteTarget.type}:`, err);
+      setDeleteTarget(null);
+    } finally {
+      setIsDeleting(false);
     }
   };
 
@@ -441,15 +449,13 @@ export function ManageCoursePage() {
 
   if (error && !course) {
     return (
-      <PageContainer maxWidth="max-w-4xl">
+      <PageContainer maxWidth="max-w-6xl">
         <Card>
           <CardContent className="flex flex-col items-center justify-center py-12">
             <BookOpen className="h-12 w-12 text-muted-foreground mb-4" />
             <h3 className="text-lg font-semibold mb-2">Course not found</h3>
             <p className="text-muted-foreground mb-4">{error}</p>
-            <Link to="/courses">
-              <Button>Back to Courses</Button>
-            </Link>
+            <BackLink to="/dashboard" label="Dashboard" />
           </CardContent>
         </Card>
       </PageContainer>
@@ -461,95 +467,72 @@ export function ManageCoursePage() {
   const unitQuizzes = (unitId: number) => quizzes.filter(q => q.unit === unitId);
 
   return (
-    <PageContainer maxWidth="max-w-4xl">
+    <PageContainer maxWidth="max-w-6xl">
+      {/* Course tools sub-nav */}
+      <CourseToolsNav courseCode={course.code} className="mb-6" />
+
       {/* Header */}
       <div className="mb-6">
         <div className="flex flex-wrap items-start justify-between gap-4">
           <div className="min-w-0">
             <h1 className="text-3xl font-bold mb-1 truncate">{course.title}</h1>
-            <div className="flex flex-wrap items-center gap-3 text-sm text-muted-foreground">
+            <div className="flex flex-wrap items-center gap-3 text-base text-muted-foreground">
               <span className="font-mono">{course.code}</span>
               {!course.is_active && (
-                <span className="rounded bg-muted px-2 py-0.5 text-xs font-medium">Inactive</span>
+                <span className="rounded bg-muted px-2 py-0.5 text-sm font-medium">Inactive</span>
               )}
-              <span className="flex items-center gap-1.5">
-                Enrollment code:
-                <code className="bg-muted px-2 py-0.5 rounded font-mono tracking-wider">
-                  {course.enrollment_code}
-                </code>
-                <button
-                  type="button"
-                  onClick={handleCopyEnrollmentCode}
-                  className="hover:text-foreground"
-                  title="Copy enrollment code"
-                >
-                  {copied ? (
-                    <CheckCircle className="h-4 w-4 text-green-500" />
-                  ) : (
-                    <Copy className="h-4 w-4" />
-                  )}
-                </button>
-              </span>
             </div>
           </div>
-          <div className="flex items-center gap-2">
+
+          {/* Enrollment code — the thing instructors share with students */}
+          <div className="flex items-center gap-3 rounded-xl border border-neon-green/30 bg-neon-green/5 pl-4 pr-2 py-2.5">
+            <div>
+              <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                Enrollment Code
+              </p>
+              <p className="font-mono text-2xl font-bold tracking-[0.2em] text-neon-green leading-tight">
+                {course.enrollment_code}
+              </p>
+            </div>
             <Button
-              variant="outline"
-              size="sm"
-              onClick={() => persistCollapsed(Object.fromEntries(units.map(u => [u.id, true])))}
-              title="Collapse all units"
+              variant="ghost"
+              size="icon"
+              onClick={handleCopyEnrollmentCode}
+              aria-label="Copy enrollment code"
+              title="Copy enrollment code"
             >
-              <ChevronsDownUp className="h-4 w-4 mr-1" />
-              Collapse all
-            </Button>
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => persistCollapsed({})}
-              title="Expand all units"
-            >
-              <ChevronsUpDown className="h-4 w-4 mr-1" />
-              Expand all
-            </Button>
-            <Button variant="outline" size="sm" onClick={() => setShowSettings(true)}>
-              <Settings className="h-4 w-4 mr-1" />
-              Settings
+              {copied ? (
+                <CheckCircle className="h-5 w-5 text-green-500" />
+              ) : (
+                <Copy className="h-5 w-5" />
+              )}
             </Button>
           </div>
         </div>
 
-        {/* Quick links */}
         <div className="flex flex-wrap items-center gap-2 mt-4">
-          <Link to={`/courses/${course.code}`}>
-            <Button variant="ghost" size="sm">
-              <Eye className="h-4 w-4 mr-1" />
-              Student View
-            </Button>
-          </Link>
-          <Link to={`/instructor/courses/${course.code}/gradebook`}>
-            <Button variant="ghost" size="sm">
-              <Table className="h-4 w-4 mr-1" />
-              Gradebook
-            </Button>
-          </Link>
-          <Link to={`/courses/${course.code}/announcements`}>
-            <Button variant="ghost" size="sm">
-              <Megaphone className="h-4 w-4 mr-1" />
-              Announcements
-            </Button>
-          </Link>
-          <Link to={`/instructor/courses/${course.code}/students`}>
-            <Button variant="ghost" size="sm">
-              <Users className="h-4 w-4 mr-1" />
-              Roster
-            </Button>
-          </Link>
-          <Link to={`/instructor/courses/${course.code}/quizzes`}>
-            <Button variant="ghost" size="sm">
-              <FileQuestion className="h-4 w-4 mr-1" />
-              Quizzes
-            </Button>
-          </Link>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => persistCollapsed(Object.fromEntries(units.map(u => [u.id, true])))}
+            title="Collapse all units"
+          >
+            <ChevronsDownUp className="h-4 w-4 mr-1" />
+            Collapse all
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => persistCollapsed({})}
+            title="Expand all units"
+          >
+            <ChevronsUpDown className="h-4 w-4 mr-1" />
+            Expand all
+          </Button>
+          <Button variant="outline" size="sm" onClick={() => setShowSettings(true)}>
+            <Settings className="h-4 w-4 mr-1" />
+            Settings
+          </Button>
         </div>
       </div>
 
@@ -617,6 +600,37 @@ export function ManageCoursePage() {
         course={course}
         onSaved={() => loadCourse()}
       />
+
+      {/* Delete confirmation */}
+      <ConfirmDialog
+        open={!!deleteTarget}
+        onOpenChange={(open) => {
+          if (!open) setDeleteTarget(null);
+        }}
+        title={
+          deleteTarget?.type === 'unit'
+            ? 'Delete Unit'
+            : deleteTarget?.type === 'lesson'
+              ? 'Delete Lesson'
+              : 'Delete Quiz'
+        }
+        confirmLabel={
+          deleteTarget?.type === 'unit'
+            ? 'Delete Unit'
+            : deleteTarget?.type === 'lesson'
+              ? 'Delete Lesson'
+              : 'Delete Quiz'
+        }
+        loadingLabel="Deleting..."
+        onConfirm={confirmDelete}
+        isLoading={isDeleting}
+      >
+        {deleteTarget?.type === 'unit'
+          ? 'Delete this unit? All lessons and quizzes in it will also be deleted.'
+          : deleteTarget?.type === 'lesson'
+            ? 'Are you sure you want to delete this lesson?'
+            : 'Are you sure you want to delete this quiz?'}
+      </ConfirmDialog>
     </PageContainer>
   );
 }

@@ -9,8 +9,10 @@ import { Skeleton } from '@/components/ui/Skeleton';
 import { EditableGradeCell } from '@/components/gradebook/EditableGradeCell';
 import { GradingConfigModal } from '@/components/course/GradingConfigModal';
 import { PageContainer } from '@/components/layout/PageContainer';
+import { BackLink } from '@/components/layout/BackLink';
+import { CourseToolsNav } from '@/components/instructor/CourseToolsNav';
 import {
-  ChevronLeft, Download, Table, AlertCircle, FileQuestion, BookOpen, Settings, Users
+  Download, Table, AlertCircle, FileQuestion, BookOpen, Settings, Users
 } from 'lucide-react';
 
 export function GradebookPage() {
@@ -143,9 +145,7 @@ export function GradebookPage() {
             <AlertCircle className="h-12 w-12 text-destructive mx-auto mb-4" />
             <h3 className="text-lg font-semibold mb-2">Error</h3>
             <p className="text-muted-foreground mb-4">{error || 'Could not load gradebook'}</p>
-            <Link to={`/courses/${code}`}>
-              <Button>Back to Course</Button>
-            </Link>
+            <BackLink to={`/instructor/courses/${code}/manage`} label="Manage Course" />
           </CardContent>
         </Card>
       </PageContainer>
@@ -154,16 +154,11 @@ export function GradebookPage() {
 
   return (
     <PageContainer>
+      {/* Course tools sub-nav */}
+      <CourseToolsNav courseCode={code!} className="mb-6" />
+
       {/* Header */}
       <div className="mb-8">
-        <Link
-          to={`/instructor/courses/${code}/manage`}
-          className="inline-flex items-center text-sm text-muted-foreground hover:text-foreground mb-4"
-        >
-          <ChevronLeft className="h-4 w-4 mr-1" />
-          Back to Manage Course
-        </Link>
-
         <div className="flex items-start justify-between">
           <div>
             <h1 className="text-3xl font-bold flex items-center gap-2">

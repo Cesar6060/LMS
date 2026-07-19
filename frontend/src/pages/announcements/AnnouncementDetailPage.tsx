@@ -1,12 +1,12 @@
 import { useState, useEffect } from 'react';
-import { useParams, Link, useNavigate } from 'react-router';
+import { useParams, useNavigate, useSearchParams } from 'react-router';
 import { useAuth } from '@/contexts/AuthContext';
 import { Card, CardContent } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { courseService, type Announcement } from '@/services/courses';
 import { Skeleton } from '@/components/ui/Skeleton';
 import {
-  Megaphone, Pin, ChevronLeft, Trash2, Edit, Calendar, User
+  Megaphone, Pin, Trash2, Edit, Calendar, User
 } from 'lucide-react';
 import {
   Dialog,
@@ -18,11 +18,18 @@ import {
 import { Input } from '@/components/ui/Input';
 import ReactMarkdown from 'react-markdown';
 import { PageContainer } from '@/components/layout/PageContainer';
+import { BackLink } from '@/components/layout/BackLink';
 
 export function AnnouncementDetailPage() {
   const { code, announcementId } = useParams<{ code: string; announcementId: string }>();
   const { user } = useAuth();
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+
+  // Arrived from CourseDetail (?from=course) → back goes to the course.
+  const fromCourse = searchParams.get('from') === 'course';
+  const backTo = fromCourse ? `/courses/${code}` : `/courses/${code}/announcements`;
+  const backLabel = fromCourse ? 'Course' : 'Announcements';
 
   const [announcement, setAnnouncement] = useState<Announcement | null>(null);
   const [isLoading, setIsLoading] = useState(true);
@@ -131,9 +138,7 @@ export function AnnouncementDetailPage() {
             <Megaphone className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
             <h3 className="text-lg font-semibold mb-2">Announcement Not Found</h3>
             <p className="text-muted-foreground mb-4">{error || 'The announcement you are looking for does not exist.'}</p>
-            <Link to={`/courses/${code}/announcements`}>
-              <Button>Back to Announcements</Button>
-            </Link>
+            <BackLink to={backTo} label={backLabel} />
           </CardContent>
         </Card>
       </PageContainer>
@@ -143,13 +148,7 @@ export function AnnouncementDetailPage() {
   return (
     <PageContainer maxWidth="max-w-3xl">
       {/* Back Link */}
-      <Link
-        to={`/courses/${code}/announcements`}
-        className="inline-flex items-center text-sm text-muted-foreground hover:text-foreground mb-6"
-      >
-        <ChevronLeft className="h-4 w-4 mr-1" />
-        Back to Announcements
-      </Link>
+      <BackLink to={backTo} label={backLabel} className="mb-6" />
 
       {/* Header */}
       <div className="flex items-start justify-between mb-6">

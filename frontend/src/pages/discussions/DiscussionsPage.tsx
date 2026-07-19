@@ -176,19 +176,23 @@ export function DiscussionsPage() {
       ) : (
         <div className="space-y-4">
           {threads.map((thread) => (
-            <Card key={thread.id} className={thread.is_pinned ? 'border-primary' : ''}>
+            <Link
+              key={thread.id}
+              to={`/courses/${code}/discussions/${thread.id}`}
+              className="block"
+            >
+              <Card
+                className={`card-interactive cursor-pointer hover:border-primary/40 transition-colors ${
+                  thread.is_pinned ? 'border-primary' : ''
+                }`}
+              >
               <CardContent className="py-4">
                 <div className="flex items-start justify-between gap-4">
                   <div className="flex-1">
                     <div className="flex items-center gap-2 mb-1">
                       {thread.is_pinned && <Pin className="h-4 w-4 text-primary" />}
                       {thread.is_locked && <Lock className="h-4 w-4 text-muted-foreground" />}
-                      <Link
-                        to={`/courses/${code}/discussions/${thread.id}`}
-                        className="font-semibold hover:text-primary transition-colors"
-                      >
-                        {thread.title}
-                      </Link>
+                      <span className="font-semibold">{thread.title}</span>
                     </div>
                     <div className="flex items-center gap-4 text-sm text-muted-foreground">
                       <span className="flex items-center gap-1">
@@ -204,7 +208,8 @@ export function DiscussionsPage() {
                   </div>
                 </div>
               </CardContent>
-            </Card>
+              </Card>
+            </Link>
           ))}
         </div>
       )}

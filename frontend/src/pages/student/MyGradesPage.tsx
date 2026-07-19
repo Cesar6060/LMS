@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { useParams, Link } from 'react-router';
+import { useParams, Link, useNavigate } from 'react-router';
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { courseService } from '@/services/courses';
@@ -15,6 +15,7 @@ import {
 
 export function MyGradesPage() {
   const { code } = useParams<{ code: string }>();
+  const navigate = useNavigate();
   const [grades, setGrades] = useState<GradeSummary | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState('');
@@ -234,11 +235,21 @@ export function MyGradesPage() {
                       : null;
 
                     return (
-                      <tr key={item.id} className="border-b hover:bg-muted/30">
+                      <tr
+                        key={item.id}
+                        className="border-b hover:bg-muted/30 cursor-pointer"
+                        onClick={() => navigate(`/courses/${code}/quizzes/${item.id}`)}
+                      >
                         <td className="p-3">
                           <div className="flex items-center gap-2">
                             <FileQuestion className="h-4 w-4 text-purple-500 flex-shrink-0" />
-                            <span className="font-medium">{item.title}</span>
+                            <Link
+                              to={`/courses/${code}/quizzes/${item.id}`}
+                              className="font-medium hover:text-primary transition-colors"
+                              onClick={(e) => e.stopPropagation()}
+                            >
+                              {item.title}
+                            </Link>
                           </div>
                         </td>
                         <td className="p-3 text-muted-foreground">{item.unit_title}</td>

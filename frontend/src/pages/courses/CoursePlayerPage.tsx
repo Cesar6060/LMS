@@ -551,9 +551,11 @@ export function CoursePlayerPage() {
           <Button
             variant="outline"
             className="gap-2 border-primary/50 text-primary hover:bg-primary hover:text-primary-foreground transition-colors"
+            aria-label="Back to Course"
+            title="Back to Course"
           >
             <ChevronLeft className="h-4 w-4" />
-            <span className="hidden sm:inline">Exit</span>
+            <span className="hidden sm:inline">Back to Course</span>
           </Button>
         </Link>
 
@@ -633,12 +635,13 @@ export function CoursePlayerPage() {
                             <span className="text-sm font-medium">
                               Complete quiz "{progress.required_quiz_info.title}" to finish this lesson
                             </span>
-                            <Link
-                              to={`/courses/${code}/quizzes/${progress.required_quiz_info.id}`}
-                              className="text-sm underline hover:no-underline ml-1"
-                            >
-                              Take Quiz →
-                            </Link>
+                            <Button asChild size="sm" className="ml-1">
+                              <Link
+                                to={`/courses/${code}/quizzes/${progress.required_quiz_info.id}?from=learn&lesson=${currentLesson.id}`}
+                              >
+                                Take Quiz
+                              </Link>
+                            </Button>
                           </>
                         )}
                       </div>
