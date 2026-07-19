@@ -77,10 +77,10 @@ function AddUnitRow({
     return (
       <button
         type="button"
-        className="w-full rounded-lg border border-dashed px-4 py-3 text-sm text-muted-foreground hover:text-foreground hover:border-foreground/30 flex items-center justify-center gap-2"
+        className="w-full rounded-lg border border-dashed px-4 py-3.5 text-base font-medium text-muted-foreground hover:text-foreground hover:border-foreground/30 flex items-center justify-center gap-2"
         onClick={() => setActive(true)}
       >
-        <Plus className="h-4 w-4" />
+        <Plus className="h-5 w-5" />
         Add unit
       </button>
     );

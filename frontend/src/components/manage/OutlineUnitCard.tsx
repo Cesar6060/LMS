@@ -96,24 +96,15 @@ function InlineAddRow({ onAddLesson, onAddQuiz }: InlineAddRowProps) {
   }
 
   return (
-    <div className="flex items-center gap-1 px-2 py-1.5 text-base text-muted-foreground">
-      <Plus className="h-4 w-4" />
-      <span className="mr-1">Add</span>
-      <button
-        type="button"
-        className="hover:text-foreground hover:underline"
-        onClick={() => setMode('lesson')}
-      >
-        lesson
-      </button>
-      <span>·</span>
-      <button
-        type="button"
-        className="hover:text-foreground hover:underline"
-        onClick={() => setMode('quiz')}
-      >
-        quiz
-      </button>
+    <div className="flex items-center gap-2 px-2 pt-3 pb-1">
+      <Button type="button" variant="outline" size="sm" onClick={() => setMode('lesson')}>
+        <Plus className="h-4 w-4 mr-1.5" />
+        Add Lesson
+      </Button>
+      <Button type="button" variant="outline" size="sm" onClick={() => setMode('quiz')}>
+        <Plus className="h-4 w-4 mr-1.5" />
+        Add Quiz
+      </Button>
     </div>
   );
 }
