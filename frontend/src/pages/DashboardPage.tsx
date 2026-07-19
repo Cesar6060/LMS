@@ -101,10 +101,10 @@ export function DashboardPage() {
     <PageContainer maxWidth="max-w-6xl">
       {/* Hero: Continue Learning - Students */}
       {hasCourses && !isInstructor && (
-        <div className="relative rounded-xl p-8 mb-6 overflow-hidden border border-[#22c55e]/20" style={{ background: 'linear-gradient(135deg, rgba(34, 197, 94, 0.1) 0%, rgba(6, 182, 212, 0.05) 50%, transparent 100%)' }}>
+        <div className="relative rounded-xl p-8 mb-6 overflow-hidden border border-primary/20" style={{ background: 'linear-gradient(135deg, rgba(34, 197, 94, 0.1) 0%, rgba(6, 182, 212, 0.05) 50%, transparent 100%)' }}>
           <div className="absolute inset-0 bg-grid opacity-30" />
           <div className="relative">
-            <p className="text-sm font-medium mb-3" style={{ color: '#22c55e', fontFamily: 'Orbitron, sans-serif' }}>Continue Learning</p>
+            <p className="text-sm font-semibold uppercase tracking-wider text-primary mb-3">Continue Learning</p>
           {continueLearning ? (
             <>
               <h2 className="text-2xl font-semibold mb-2">{continueLearning.course_title}</h2>
@@ -148,10 +148,10 @@ export function DashboardPage() {
 
       {/* Hero: Make Announcement - Instructors */}
       {hasCourses && isInstructor && (
-        <div className="relative rounded-xl p-8 mb-6 overflow-hidden border border-[#06b6d4]/20" style={{ background: 'linear-gradient(135deg, rgba(6, 182, 212, 0.1) 0%, rgba(34, 197, 94, 0.05) 50%, transparent 100%)' }}>
+        <div className="relative rounded-xl p-8 mb-6 overflow-hidden border border-accent/20" style={{ background: 'linear-gradient(135deg, rgba(6, 182, 212, 0.1) 0%, rgba(34, 197, 94, 0.05) 50%, transparent 100%)' }}>
           <div className="absolute inset-0 bg-grid opacity-30" />
           <div className="relative">
-            <p className="text-sm font-medium mb-3" style={{ color: '#06b6d4', fontFamily: 'Orbitron, sans-serif' }}>Quick Actions</p>
+            <p className="text-sm font-semibold uppercase tracking-wider text-accent mb-3">Quick Actions</p>
             <h2 className="text-2xl font-semibold mb-2">Post an Announcement</h2>
             <p className="text-muted-foreground mb-5">
               Keep your students informed with course updates and important news
@@ -171,14 +171,14 @@ export function DashboardPage() {
         <div className="grid grid-cols-2 sm:grid-cols-3 gap-4 mb-8">
           <div className="card-gaming rounded-xl p-5">
             <div className="flex items-center gap-2 text-muted-foreground mb-2">
-              <BookOpen className="h-5 w-5" style={{ color: '#22c55e' }} />
+              <BookOpen className="h-5 w-5 text-primary" />
               <span className="text-sm font-medium">Courses</span>
             </div>
             <p className="text-3xl font-semibold text-gradient-gaming">{courses.length}</p>
           </div>
           <div className="card-gaming rounded-xl p-5">
             <div className="flex items-center gap-2 text-muted-foreground mb-2">
-              <CheckCircle2 className="h-5 w-5" style={{ color: '#06b6d4' }} />
+              <CheckCircle2 className="h-5 w-5 text-accent" />
               <span className="text-sm font-medium">Completed</span>
             </div>
             <p className="text-3xl font-semibold text-gradient-gaming">{completedLessons}<span className="text-lg text-muted-foreground">/{totalLessons}</span></p>
@@ -204,7 +204,7 @@ export function DashboardPage() {
               <Link
                 key={course.course_code}
                 to={`/courses/${course.course_code}`}
-                className="card-gaming p-5 hover:border-[#22c55e]/50 transition-colors"
+                className="card-gaming card-interactive p-5 hover:border-primary/50 transition-colors"
               >
                 <div className="flex items-center justify-between mb-4">
                   <div>
@@ -230,7 +230,7 @@ export function DashboardPage() {
                     </div>
                     <div className="h-2 bg-muted rounded-full overflow-hidden">
                       <div
-                        className="h-full bg-gradient-to-r from-[#22c55e] to-[#06b6d4] transition-all duration-500"
+                        className="h-full bg-gradient-to-r from-primary to-accent transition-all duration-500"
                         style={{ width: `${course.lessons.percentage}%` }}
                       />
                     </div>
@@ -325,7 +325,7 @@ export function DashboardPage() {
                 <Link
                   key={course.id}
                   to={`/courses/${course.code}`}
-                  className="card-gaming p-6 flex flex-col hover:border-[#22c55e]/50 transition-colors"
+                  className="card-gaming card-interactive p-6 flex flex-col hover:border-primary/50 transition-colors"
                 >
                   <div className="flex-1">
                     <h3 className="text-lg font-semibold mb-2">{course.title}</h3>
@@ -346,7 +346,7 @@ export function DashboardPage() {
                 <Link
                   key={enrollment.id}
                   to={`/courses/${enrollment.course.code}`}
-                  className="card-gaming p-6 flex flex-col hover:border-[#22c55e]/50 transition-colors"
+                  className="card-gaming card-interactive p-6 flex flex-col hover:border-primary/50 transition-colors"
                 >
                   <div className="flex-1">
                     <h3 className="text-lg font-semibold mb-2">{enrollment.course.title}</h3>

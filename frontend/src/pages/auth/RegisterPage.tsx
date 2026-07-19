@@ -57,7 +57,7 @@ export function RegisterPage() {
       <Card className="w-full max-w-md backdrop-blur-sm bg-card/95">
         <CardHeader className="space-y-1 text-center">
           <div className="flex justify-center mb-4">
-            <Gamepad2 className="h-12 w-12 animate-pulse" style={{ color: '#22c55e', filter: 'drop-shadow(0 0 10px rgba(34,197,94,0.5))' }} />
+            <Gamepad2 className="h-12 w-12 animate-pulse text-primary" style={{ filter: 'drop-shadow(0 0 8px rgba(34,197,94,0.35))' }} />
           </div>
           <CardTitle className="text-2xl text-gradient-gaming" style={{ fontFamily: 'Orbitron, sans-serif' }}>Create an account</CardTitle>
           <CardDescription>
@@ -147,7 +147,7 @@ export function RegisterPage() {
             </Button>
             <p className="text-sm text-muted-foreground text-center">
               Already have an account?{' '}
-              <Link to="/login" className="hover:underline" style={{ color: '#22c55e' }}>
+              <Link to="/login" className="text-primary hover:underline">
                 Sign in
               </Link>
             </p>

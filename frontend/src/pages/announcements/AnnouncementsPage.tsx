@@ -8,6 +8,7 @@ import { courseService, type AnnouncementListItem, type CourseDetail } from '@/s
 import { isForbidden } from '@/services/api';
 import { AccessDenied } from '@/components/AccessDenied';
 import { Skeleton } from '@/components/ui/Skeleton';
+import { PageContainer } from '@/components/layout/PageContainer';
 import {
   Megaphone, Pin, ChevronLeft, Plus, Trash2, Edit,
   Calendar, User
@@ -151,7 +152,7 @@ export function AnnouncementsPage() {
 
   if (isLoading) {
     return (
-      <div className="container mx-auto px-4 py-8">
+      <PageContainer maxWidth="max-w-6xl">
         <div className="mb-6">
           <Skeleton className="h-4 w-32 mb-4" />
           <Skeleton className="h-8 w-64 mb-2" />
@@ -166,7 +167,7 @@ export function AnnouncementsPage() {
             </Card>
           ))}
         </div>
-      </div>
+      </PageContainer>
     );
   }
 
@@ -176,7 +177,7 @@ export function AnnouncementsPage() {
 
   if (error || !course) {
     return (
-      <div className="container mx-auto px-4 py-8">
+      <PageContainer maxWidth="max-w-6xl">
         <Card>
           <CardContent className="py-12 text-center">
             <Megaphone className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
@@ -187,12 +188,12 @@ export function AnnouncementsPage() {
             </Link>
           </CardContent>
         </Card>
-      </div>
+      </PageContainer>
     );
   }
 
   return (
-    <div className="container mx-auto px-4 py-8">
+    <PageContainer maxWidth="max-w-6xl">
       {/* Header */}
       <div className="mb-6">
         <Link
@@ -205,7 +206,7 @@ export function AnnouncementsPage() {
 
         <div className="flex items-start justify-between">
           <div>
-            <h1 className="text-2xl font-bold flex items-center gap-2">
+            <h1 className="text-3xl font-bold flex items-center gap-2">
               <Megaphone className="h-6 w-6" />
               Announcements
             </h1>
@@ -232,6 +233,12 @@ export function AnnouncementsPage() {
                 ? "You haven't created any announcements yet."
                 : 'No announcements have been posted for this course.'}
             </p>
+            {isCourseOwner && (
+              <Button className="mt-4" onClick={openCreateModal}>
+                <Plus className="h-4 w-4 mr-2" />
+                New Announcement
+              </Button>
+            )}
           </CardContent>
         </Card>
       ) : (
@@ -391,6 +398,6 @@ export function AnnouncementsPage() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
-    </div>
+    </PageContainer>
   );
 }

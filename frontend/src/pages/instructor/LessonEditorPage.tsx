@@ -16,6 +16,7 @@ import { quizzesService } from '@/services/quizzes';
 import { isForbidden } from '@/services/api';
 import { extractYouTubeVideoId, extractVimeoVideoId } from '@/lib/video';
 import type { Lesson, Quiz } from '@/types';
+import { PageContainer } from '@/components/layout/PageContainer';
 import {
   Loader2, ChevronLeft, Save, FileText, Layers, HelpCircle, Paperclip, BookOpen,
 } from 'lucide-react';
@@ -170,7 +171,7 @@ export function LessonEditorPage() {
 
   if (notFound || !lesson || !form) {
     return (
-      <div className="container mx-auto px-4 py-8">
+      <PageContainer maxWidth="max-w-6xl">
         <Card>
           <CardContent className="flex flex-col items-center justify-center py-12">
             <BookOpen className="h-12 w-12 text-muted-foreground mb-4" />
@@ -180,12 +181,12 @@ export function LessonEditorPage() {
             </Button>
           </CardContent>
         </Card>
-      </div>
+      </PageContainer>
     );
   }
 
   return (
-    <div className="container mx-auto px-4 py-8 max-w-6xl">
+    <PageContainer maxWidth="max-w-6xl">
       {/* Header */}
       <div className="flex flex-wrap items-center justify-between gap-4 mb-6">
         <div className="flex items-center gap-2 min-w-0">
@@ -194,7 +195,7 @@ export function LessonEditorPage() {
             Course Outline
           </Button>
           <span className="text-muted-foreground">/</span>
-          <h1 className="text-xl font-semibold truncate">{lesson.title}</h1>
+          <h1 className="text-2xl font-bold truncate">{lesson.title}</h1>
         </div>
         <div className="flex items-center gap-3">
           {isDirty && (
@@ -383,6 +384,6 @@ export function LessonEditorPage() {
           <AttachmentUploader lessonId={lesson.id} lessonTitle={lesson.title} />
         </TabsContent>
       </Tabs>
-    </div>
+    </PageContainer>
   );
 }

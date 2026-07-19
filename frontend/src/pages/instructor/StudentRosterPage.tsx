@@ -7,6 +7,7 @@ import { courseService, type RosterStudent } from '@/services/courses';
 import { isForbidden } from '@/services/api';
 import { AccessDenied } from '@/components/AccessDenied';
 import { Skeleton } from '@/components/ui/Skeleton';
+import { PageContainer } from '@/components/layout/PageContainer';
 import {
   ChevronLeft, Mail, Users, AlertCircle, Trash2,
   Search, CheckCircle, Clock, AlertTriangle
@@ -214,13 +215,13 @@ export function StudentRosterPage() {
 
   if (isLoading) {
     return (
-      <div className="container mx-auto px-4 py-8">
+      <PageContainer>
         <div className="mb-6">
           <Skeleton className="h-4 w-32 mb-4" />
           <Skeleton className="h-8 w-64 mb-2" />
         </div>
         <Skeleton className="h-64 w-full" />
-      </div>
+      </PageContainer>
     );
   }
 
@@ -230,7 +231,7 @@ export function StudentRosterPage() {
 
   if (error) {
     return (
-      <div className="container mx-auto px-4 py-8">
+      <PageContainer>
         <Card>
           <CardContent className="py-12 text-center">
             <AlertCircle className="h-12 w-12 text-destructive mx-auto mb-4" />
@@ -241,12 +242,12 @@ export function StudentRosterPage() {
             </Link>
           </CardContent>
         </Card>
-      </div>
+      </PageContainer>
     );
   }
 
   return (
-    <div className="container mx-auto px-4 py-8">
+    <PageContainer>
       {/* Header */}
       <div className="mb-6">
         <Link
@@ -259,7 +260,7 @@ export function StudentRosterPage() {
 
         <div className="flex items-start justify-between">
           <div>
-            <h1 className="text-2xl font-bold flex items-center gap-2">
+            <h1 className="text-3xl font-bold flex items-center gap-2">
               <Users className="h-6 w-6" />
               Student Roster
             </h1>
@@ -315,8 +316,22 @@ export function StudentRosterPage() {
       {/* Student Table */}
       {filteredStudents.length === 0 ? (
         <Card>
-          <CardContent className="py-12 text-center text-muted-foreground">
-            {searchQuery ? 'No students match your search.' : 'No students enrolled yet.'}
+          <CardContent className="py-12 text-center">
+            <Users className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
+            <h3 className="text-lg font-semibold mb-2">
+              {searchQuery ? 'No matching students' : 'No students enrolled yet'}
+            </h3>
+            <p className="text-muted-foreground">
+              {searchQuery
+                ? 'Try a different search term.'
+                : 'Share the enrollment code or send an email invitation.'}
+            </p>
+            {!searchQuery && (
+              <Button className="mt-4" onClick={() => setShowInviteModal(true)}>
+                <Mail className="h-4 w-4 mr-2" />
+                Invite Student
+              </Button>
+            )}
           </CardContent>
         </Card>
       ) : (
@@ -489,6 +504,6 @@ export function StudentRosterPage() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
-    </div>
+    </PageContainer>
   );
 }

@@ -10,6 +10,7 @@ import { isForbidden } from '@/services/api';
 import { AccessDenied } from '@/components/AccessDenied';
 import type { ThreadListItem } from '@/types';
 import { MessageSquare, Pin, Lock, ChevronLeft, Plus, MessageCircle, User } from 'lucide-react';
+import { PageContainer } from '@/components/layout/PageContainer';
 import {
   Dialog,
   DialogContent,
@@ -89,7 +90,7 @@ export function DiscussionsPage() {
 
   if (isLoading) {
     return (
-      <div className="container mx-auto px-4 py-8">
+      <PageContainer maxWidth="max-w-6xl">
         <div className="mb-6">
           <Skeleton className="h-4 w-32 mb-4" />
           <Skeleton className="h-8 w-64 mb-2" />
@@ -104,7 +105,7 @@ export function DiscussionsPage() {
             </Card>
           ))}
         </div>
-      </div>
+      </PageContainer>
     );
   }
 
@@ -114,7 +115,7 @@ export function DiscussionsPage() {
 
   if (error || !course) {
     return (
-      <div className="container mx-auto px-4 py-8">
+      <PageContainer maxWidth="max-w-6xl">
         <Card>
           <CardContent className="py-12 text-center">
             <MessageSquare className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
@@ -125,12 +126,12 @@ export function DiscussionsPage() {
             </Link>
           </CardContent>
         </Card>
-      </div>
+      </PageContainer>
     );
   }
 
   return (
-    <div className="container mx-auto px-4 py-8">
+    <PageContainer maxWidth="max-w-6xl">
       {/* Header */}
       <div className="mb-6">
         <Link
@@ -143,7 +144,7 @@ export function DiscussionsPage() {
 
         <div className="flex items-start justify-between">
           <div>
-            <h1 className="text-2xl font-bold flex items-center gap-2">
+            <h1 className="text-3xl font-bold flex items-center gap-2">
               <MessageSquare className="h-6 w-6" />
               Discussions
             </h1>
@@ -166,6 +167,10 @@ export function DiscussionsPage() {
             <p className="text-muted-foreground">
               Be the first to start a conversation in this course.
             </p>
+            <Button className="mt-4" onClick={() => setShowModal(true)}>
+              <Plus className="h-4 w-4 mr-2" />
+              New Thread
+            </Button>
           </CardContent>
         </Card>
       ) : (
@@ -247,6 +252,6 @@ export function DiscussionsPage() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
-    </div>
+    </PageContainer>
   );
 }

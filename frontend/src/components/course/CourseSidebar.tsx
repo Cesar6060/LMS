@@ -201,7 +201,7 @@ export function CourseSidebar({
                         {/* Lesson title */}
                         <span
                           className={cn(
-                            "text-[15px] flex-1 truncate",
+                            "text-sm flex-1 truncate",
                             isActive ? "font-medium" : "",
                             lesson.is_completed ? "text-muted-foreground" : ""
                           )}

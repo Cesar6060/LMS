@@ -22,6 +22,7 @@ import {
 } from '@/components/ui/Dialog';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
+import { PageContainer } from '@/components/layout/PageContainer';
 
 const PROSE = 'prose prose-neutral dark:prose-invert max-w-none';
 
@@ -191,11 +192,11 @@ export function ThreadDetailPage() {
 
   if (isLoading) {
     return (
-      <div className="container mx-auto px-4 py-8 max-w-3xl">
+      <PageContainer maxWidth="max-w-3xl">
         <Skeleton className="h-4 w-32 mb-6" />
         <Skeleton className="h-8 w-3/4 mb-4" />
         <Skeleton className="h-64 w-full" />
-      </div>
+      </PageContainer>
     );
   }
 
@@ -205,7 +206,7 @@ export function ThreadDetailPage() {
 
   if (error || !thread) {
     return (
-      <div className="container mx-auto px-4 py-8">
+      <PageContainer maxWidth="max-w-3xl">
         <Card>
           <CardContent className="py-12 text-center">
             <MessageSquare className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
@@ -218,14 +219,14 @@ export function ThreadDetailPage() {
             </Link>
           </CardContent>
         </Card>
-      </div>
+      </PageContainer>
     );
   }
 
   const canReply = !thread.is_locked || isCourseOwner;
 
   return (
-    <div className="container mx-auto px-4 py-8 max-w-3xl">
+    <PageContainer maxWidth="max-w-3xl">
       {/* Back Link */}
       <Link
         to={`/courses/${code}/discussions`}
@@ -241,7 +242,7 @@ export function ThreadDetailPage() {
           <div className="flex items-center gap-2 mb-2">
             {thread.is_pinned && <Pin className="h-5 w-5 text-primary" />}
             {thread.is_locked && <Lock className="h-5 w-5 text-muted-foreground" />}
-            <h1 className="text-2xl font-bold">{thread.title}</h1>
+            <h1 className="text-3xl font-bold">{thread.title}</h1>
           </div>
           <div className="flex items-center gap-4 text-sm text-muted-foreground">
             <span className="flex items-center gap-1">
@@ -467,6 +468,6 @@ export function ThreadDetailPage() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
-    </div>
+    </PageContainer>
   );
 }

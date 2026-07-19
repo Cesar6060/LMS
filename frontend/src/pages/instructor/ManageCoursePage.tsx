@@ -27,6 +27,7 @@ import { AccessDenied } from '@/components/AccessDenied';
 import { OutlineUnitCard, type OutlineUnit } from '@/components/manage/OutlineUnitCard';
 import { CourseSettingsDialog } from '@/components/manage/CourseSettingsDialog';
 import type { Quiz } from '@/types';
+import { PageContainer } from '@/components/layout/PageContainer';
 import {
   Loader2, Plus, Copy, CheckCircle, Settings, BookOpen, Eye,
   Table, Megaphone, Users, FileQuestion, ChevronsDownUp, ChevronsUpDown,
@@ -440,7 +441,7 @@ export function ManageCoursePage() {
 
   if (error && !course) {
     return (
-      <div className="container mx-auto px-4 py-8">
+      <PageContainer maxWidth="max-w-4xl">
         <Card>
           <CardContent className="flex flex-col items-center justify-center py-12">
             <BookOpen className="h-12 w-12 text-muted-foreground mb-4" />
@@ -451,7 +452,7 @@ export function ManageCoursePage() {
             </Link>
           </CardContent>
         </Card>
-      </div>
+      </PageContainer>
     );
   }
 
@@ -460,7 +461,7 @@ export function ManageCoursePage() {
   const unitQuizzes = (unitId: number) => quizzes.filter(q => q.unit === unitId);
 
   return (
-    <div className="container mx-auto px-4 py-8 max-w-4xl">
+    <PageContainer maxWidth="max-w-4xl">
       {/* Header */}
       <div className="mb-6">
         <div className="flex flex-wrap items-start justify-between gap-4">
@@ -616,6 +617,6 @@ export function ManageCoursePage() {
         course={course}
         onSaved={() => loadCourse()}
       />
-    </div>
+    </PageContainer>
   );
 }

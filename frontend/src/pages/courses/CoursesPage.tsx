@@ -136,7 +136,7 @@ export function CoursesPage() {
         <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
           {filteredCourses.map((course) => (
             <Link key={course.id} to={`/courses/${course.code}`}>
-              <Card className="h-full hover:shadow-lg transition-shadow cursor-pointer">
+              <Card className="card-interactive h-full hover:border-primary/40 hover:shadow-lg transition-shadow cursor-pointer">
                 <CardHeader>
                   <div className="flex items-center justify-between">
                     <span className="text-sm font-mono text-muted-foreground">
