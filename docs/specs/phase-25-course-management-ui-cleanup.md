@@ -54,9 +54,10 @@ None.
 - [x] `cd frontend && npm run lint` → 0 errors, 23 warnings (Phase 24 baseline, not exceeded;
       no new unused-var/import warnings introduced).
 - [x] `cd backend && docker compose exec -T backend pytest` → 196 passed (no backend change).
-- [~] Manual click-through as **instructor** (`instructor@demo.com` / `Admin123!`)
-      — **user-confirmed visually** (Phase 26): browser automation was unavailable in
-      the agent environment, so the DOM/visual pass was handed to the user. Agent-side
+- [x] Manual click-through as **instructor** (`instructor@demo.com` / `Admin123!`)
+      — **user-confirmed visually** (Phase 26): all six checks pass. Browser automation was
+      unavailable in the agent environment, so the DOM/visual pass was handed to the user
+      and the user confirmed everything checks out. Agent-side
       verification done in Phase 26: stack healthy (`docker compose ps` all up, frontend
       HTTP 200, backend serving), instructor login works via API (HTTP 200), and code-level
       sanity confirmed (`grep "Teach"` in `Header.tsx` empty; `grep "max-w-6xl"` in
@@ -69,7 +70,7 @@ None.
          **Roster** tabs all have identical left/right margins at a wide (>1280px) viewport
          — Overview and Quizzes no longer look more inset than Gradebook/Roster.
       5. Quizzes tab: width does not visibly jump between the loading state and loaded state.
-- [~] 0 new console errors during the click-through — user to confirm during the visual pass.
+- [x] 0 new console errors during the click-through — user-confirmed (Phase 26).
 
 ## Reference (from investigation)
 - Shared shell: `frontend/src/components/layout/PageContainer.tsx:11` —

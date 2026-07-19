@@ -51,13 +51,13 @@ apply a minimal fix.
 ### 1. Manual instructor click-through (decision: I attempt via browser, user confirms)
 - [x] `docker compose up -d`; confirm frontend + backend are healthy. (All 4 containers
       up; frontend HTTP 200; backend serving — 401 on `/api/courses/`, 302 on `/admin/`.)
-- [~] Attempt to drive the app in a browser (Playwright/`/run` if available) as
+- [x] Attempt to drive the app in a browser (Playwright/`/run` if available) as
       instructor `instructor@demo.com` / `Admin123!`. **Browser automation unavailable**
       in this environment (no Playwright, no browser-driver tool) — reported plainly and
-      handed the visual pass to the user. Agent did confirm the app is functionally
-      healthy: instructor login via API returns HTTP 200 with a token.
-- [~] Verify, per the Phase 25 spec Verification section (agent did the code-level +
-      API-level checks; user does the visual DOM pass):
+      handed the visual pass to the user, who **confirmed everything checks out**. Agent
+      confirmed the app is functionally healthy: instructor login via API HTTP 200 + token.
+- [x] Verify, per the Phase 25 spec Verification section — all six checks **user-confirmed**
+      (agent did the code-level + API-level checks; user did the visual DOM pass):
   1. Top navbar shows **no "Teach" item** on desktop and none in the mobile menu.
   2. Account/user dropdown still opens; Courses/Dashboard links still work.
   3. Instructor can still reach **Create Course** (Dashboard "New Course" +

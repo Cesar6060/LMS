@@ -1,66 +1,48 @@
 # Handoff: Phase 26 — Close out Phase 25 UI cleanup
 
 ## Current state
-Phase 26 (housekeeping) is **complete**. The Phase 25 frontend UI cleanup is committed,
-pushed, and up for review.
+Phase 26 (housekeeping) is **complete** and the manual visual pass is now **user-confirmed** —
+all six Phase 25 click-through checks pass. The Phase 25 frontend UI cleanup is committed,
+pushed, and up for review as **PR #14** (https://github.com/Cesar6060/LMS/pull/14, base
+`Cesar6060/LMS:main`, open).
 
-- **PR:** https://github.com/Cesar6060/LMS/pull/14 (base `Cesar6060/LMS:main`) — **open**.
 - **Branch:** `feat/phase-26-close-out` (renamed from `feat/phase-24-management-editor-ui-polish`;
-  tracks `lms/feat/phase-26-close-out`).
-- **Commits on the branch, ahead of `lms/main`:**
-  - `92d4366 docs: update phase 24 handoff with PR status` (pre-existing orphan, carried along)
-  - `732b3ac feat: course management margin consistency + remove Teach navbar dropdown`
-    (Phase 25 code + Phase 25/pivot docs + Phase 26 spec)
-  - the follow-up `docs:` commit adding this handoff + the final Phase 26 checklist updates.
-- Phase 24 remains **merged** on `lms/main` (PR #13, merge `162c5ee`).
-
-## What shipped (Phase 25 code, unchanged from last session — not re-implemented)
-- `ManageCoursePage.tsx` / `QuizEditorPage.tsx`: dropped the `maxWidth` prop (default
-  `max-w-7xl`) on main + loading/error states → all four Course Management tabs share margins;
-  Quizzes width no longer jumps between render states.
-- `Header.tsx`: removed the desktop + mobile "Teach" dropdown and all unused supporting
-  state/effect/constants/icons. No navigation stranded.
-
-## Verification
-- **Automated (this session):** pytest **196 passed**; `tsc --noEmit` **0 errors**;
-  lint **0 errors / 23 warnings** (Phase 24 baseline, unchanged).
-- **Sanity:** `grep "Teach"` in `Header.tsx` → empty; `grep "max-w-6xl"` in the two
-  instructor pages → empty; `git status` clean after the docs commit.
-- **App health:** all 4 containers up, frontend HTTP 200, backend serving, instructor
-  login via API HTTP 200.
+  tracks `lms/feat/phase-26-close-out`), 1 commit ahead of `lms/main` at branch point.
+- **Commits ahead of `lms/main`:** `92d4366` (orphan phase-24 docs, carried), `732b3ac feat:`
+  (Phase 25 code + docs + Phase 26 spec), `283a1ec docs:` (handoff + checklist), plus this
+  finalizing docs commit marking the click-through user-confirmed.
+- **Shipped (Phase 25 code):** `ManageCoursePage.tsx` / `QuizEditorPage.tsx` dropped the
+  `maxWidth` prop (default `max-w-7xl`) on all render states → all four Course Management tabs
+  share margins, Quizzes width stable. `Header.tsx` removed the "Teach" navbar dropdown +
+  unused supporting code. No navigation stranded.
+- **Verified:** pytest **196 passed**; tsc **0 errors**; lint **0 errors / 23 warnings**
+  (baseline). Sanity greps for `Teach` / `max-w-6xl` empty. App healthy, instructor login OK.
 
 ## In progress / not done
-- **Manual instructor visual click-through is NOT agent-verified** — browser automation was
-  unavailable in this environment (no Playwright, no browser-driver tool). Handed to the user.
-  The reviewer/user should confirm on PR #14 (login `instructor@demo.com` / `Admin123!`):
-  1. No "Teach" item in desktop navbar or mobile menu.
-  2. Account dropdown opens; Courses/Dashboard links work.
-  3. Create Course reachable (Dashboard "New Course" + Courses page); Manage reachable
-     (Dashboard course card / CourseDetail).
-  4. Overview / Quizzes / Gradebook / Roster tabs share identical margins at >1280px.
-  5. Quizzes width stable loading→loaded.
-  6. 0 new console errors.
-- PR #14 not yet merged.
+- **PR #14 is open, not yet merged** — ready to merge now that the visual pass is confirmed.
+- The old remote branch `lms/feat/phase-24-management-editor-ui-polish` still exists (harmless;
+  branch pruning was explicitly out of scope).
 
 ## Next steps
-1. User does the visual click-through above; if clean, **merge PR #14** into `lms/main`.
-2. Start **Phase 27 — rebrand to "STEM Quest" (ADR-017)**. See `PLAN.md` Part 9 (gitignored,
-   on disk) for the phase row, and check for a `docs/specs/phase-27-*.md` spec.
+1. Merge **PR #14** into `lms/main`.
+2. Start **Phase 27 — rebrand to "STEM Quest" (ADR-017)**: read `PLAN.md` Part 9 Phase 27 row
+   (gitignored, on disk) and check for a `docs/specs/phase-27-*.md` spec; write one if absent.
 
 ## Decisions made
-- Renamed the branch (not a fresh branch) so the orphan `92d4366` docs commit stays in history.
-- Split into two commits: `feat:` for the Phase 25 code + docs, and a follow-up `docs:` for
-  this handoff (which needed the PR URL that only exists after push). Matches the repo's
-  pattern of separate `docs:` commits and keeps `git status` clean at the end.
-- Annotated the Phase 25 spec's manual-verification items as "user-confirmed" rather than
-  falsely checking them, since agent-side browser automation was unavailable.
+- Renamed the branch (not fresh) so the orphan `92d4366` stays in history.
+- Split into `feat:` (code) + `docs:` (handoff needing the PR URL) commits — matches the repo's
+  separate-`docs:` pattern and keeps `git status` clean.
+- Annotated the manual-verification items "user-confirmed" once the user confirmed, rather than
+  the agent claiming a browser pass it couldn't run.
 
-## Gotchas
-- `head` is still shadowed in this shell (aliased to an HTTP tool) — `ls | head` fails.
-- The old remote branch `lms/feat/phase-24-management-editor-ui-polish` still exists on the
-  remote (harmless; branch pruning was explicitly out of scope for Phase 26).
+## Gotchas discovered
+- No browser automation in the agent env (no Playwright / browser-driver tool) — visual
+  click-throughs must be handed to the user; don't fake them.
+- `head` is shadowed in this shell (aliased to an HTTP tool) — `ls | head` fails.
+- Backend changes need `docker compose restart backend`; pytest runs via `docker compose exec -T backend`.
 
-## Files to read first (Phase 27)
+## Files to read first
 - `PLAN.md` Part 9, Phase 27 row (rebrand, ADR-017) — gitignored, on disk.
-- `docs/specs/phase-27-*.md` if a spec has been written.
+- `docs/specs/phase-27-*.md` if a spec exists.
 - `docs/handoffs/2026-07-19-stem-quest-pivot-plan-revision.md` (pivot context).
+- `docs/specs/phase-26-close-out.md` (this phase, all items checked).
