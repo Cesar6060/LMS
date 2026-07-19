@@ -37,32 +37,32 @@ Science **and** Robotics (user decision, 2026-07-19).
 ## Backend tasks
 No models, migrations, or endpoints. Templates only.
 
-- [ ] `backend/templates/emails/base.html:6` — `<title>{% block title %}GameDev Platform{% endblock %}</title>` → `STEM Quest`
-- [ ] `backend/templates/emails/base.html:82` — masthead `<h1>GameDev Platform</h1>` → `<h1>STEM Quest</h1>`
-- [ ] `backend/templates/emails/base.html:88` — footer `<p>This email was sent from GameDev Platform.</p>` → `...from STEM Quest.`
-- [ ] `backend/templates/emails/course_invitation.html:22` — `<li>Go to the GameDev Platform</li>` → `<li>Go to STEM Quest</li>` (drop "the" so it reads naturally)
-- [ ] `announcement.html` — verify no brand string exists (it uses dynamic vars only); no change expected.
-- [ ] Restart backend after template edits (`docker compose restart backend`) before verifying email render.
+- [x] `backend/templates/emails/base.html:6` — `<title>{% block title %}GameDev Platform{% endblock %}</title>` → `STEM Quest`
+- [x] `backend/templates/emails/base.html:82` — masthead `<h1>GameDev Platform</h1>` → `<h1>STEM Quest</h1>`
+- [x] `backend/templates/emails/base.html:88` — footer `<p>This email was sent from GameDev Platform.</p>` → `...from STEM Quest.`
+- [x] `backend/templates/emails/course_invitation.html:22` — `<li>Go to the GameDev Platform</li>` → `<li>Go to STEM Quest</li>` (drop "the" so it reads naturally)
+- [x] `announcement.html` — verify no brand string exists (it uses dynamic vars only); no change expected.
+- [x] Restart backend after template edits (`docker compose restart backend`) before verifying email render.
 
 ## Frontend tasks
-- [ ] `frontend/index.html:7` — `<title>GameDev Platform</title>` → `<title>STEM Quest</title>` (browser tab title).
-- [ ] `frontend/src/components/layout/Header.tsx` — desktop wordmark (~line 124–126): change the `<span>` text `GameDev` → `STEM Quest`, and replace the paired `Gamepad2` icon with the chosen neutral STEM icon.
-- [ ] `frontend/src/components/layout/Header.tsx` — mobile `SheetTitle` (~line 253): same wordmark text `GameDev` → `STEM Quest` and the same icon swap, kept consistent with desktop.
-- [ ] Update the `lucide-react` import in `Header.tsx`: remove `Gamepad2` if it's no longer used anywhere else in the file; add the chosen icon.
+- [x] `frontend/index.html:7` — `<title>GameDev Platform</title>` → `<title>STEM Quest</title>` (browser tab title).
+- [x] `frontend/src/components/layout/Header.tsx` — desktop wordmark (~line 124–126): change the `<span>` text `GameDev` → `STEM Quest`, and replace the paired `Gamepad2` icon with the chosen neutral STEM icon.
+- [x] `frontend/src/components/layout/Header.tsx` — mobile `SheetTitle` (~line 253): same wordmark text `GameDev` → `STEM Quest` and the same icon swap, kept consistent with desktop.
+- [x] Update the `lucide-react` import in `Header.tsx`: remove `Gamepad2` if it's no longer used anywhere else in the file; add the chosen icon.
   - **Icon choice:** recommend `Rocket` (motivating / "quest" feel, fits the ADR-019 gamification direction). Acceptable alternatives: `Compass`, `GraduationCap`, `Sparkles`. Pick ONE and use it in both the desktop and mobile locations. Confirm the name exists in the installed `lucide-react` version before importing.
-- [ ] `frontend/package.json:2` — `"name": "gamedev-platform-frontend"` → `"stem-quest-frontend"` (ADR-017 lists this in scope; it's an npm identifier, so keep it lowercase/kebab-case — NOT "STEM Quest").
+- [x] `frontend/package.json:2` — `"name": "gamedev-platform-frontend"` → `"stem-quest-frontend"` (ADR-017 lists this in scope; it's an npm identifier, so keep it lowercase/kebab-case — NOT "STEM Quest").
 
 ## Docs / repo tasks
-- [ ] `README.md:1` — H1 `# GameDev Learning Platform` → `# STEM Quest`.
-- [ ] `README.md` — swap any other literal brand mentions of "GameDev Platform" to "STEM Quest". Leave the "video game development education" tagline and the `gamedev-platform/` directory reference in the ASCII project-tree block as-is (brand-only scope this phase).
-- [ ] `.env.example:30` and `docker-compose.yml:56` — the commented `# DEFAULT_FROM_EMAIL=GameDev Platform <noreply@yourdomain.com>` examples: update the display name to `STEM Quest` for consistency (inactive/commented, but it's the user-facing From name if ever enabled). Low priority; include if trivially quick.
+- [x] `README.md:1` — H1 `# GameDev Learning Platform` → `# STEM Quest`.
+- [x] `README.md` — swap any other literal brand mentions of "GameDev Platform" to "STEM Quest". Leave the "video game development education" tagline and the `gamedev-platform/` directory reference in the ASCII project-tree block as-is (brand-only scope this phase).
+- [x] `.env.example:30` and `docker-compose.yml:56` — the commented `# DEFAULT_FROM_EMAIL=GameDev Platform <noreply@yourdomain.com>` examples: update the display name to `STEM Quest` for consistency (inactive/commented, but it's the user-facing From name if ever enabled). Low priority; include if trivially quick.
 
 ## Verification
 Run `/verify-stack` and show the output. Expected:
-- [ ] **pytest** — 196 passed (baseline; this phase adds no backend logic, only template copy). Email-template rendering tests, if any exist, still pass.
-- [ ] **tsc** `npx tsc --noEmit` — 0 errors (icon import must resolve).
-- [ ] **lint** `npm run lint` — 0 errors, ~23 warnings (baseline; no new warnings from the changed import).
-- [ ] **Grep sweep** — `grep -rn "GameDev Platform" frontend/index.html frontend/src backend/templates README.md frontend/package.json` returns nothing; `grep -rn "GameDev" frontend/src/components/layout/Header.tsx` returns nothing (wordmark fully swapped). The out-of-scope `gamedev_*` infra strings should still be present (confirm they were NOT touched).
+- [x] **pytest** — 196 passed (baseline; this phase adds no backend logic, only template copy). Email-template rendering tests, if any exist, still pass.
+- [x] **tsc** `npx tsc --noEmit` — 0 errors (icon import must resolve).
+- [x] **lint** `npm run lint` — 0 errors, ~23 warnings (baseline; no new warnings from the changed import).
+- [x] **Grep sweep** — `grep -rn "GameDev Platform" frontend/index.html frontend/src backend/templates README.md frontend/package.json` returns nothing; `grep -rn "GameDev" frontend/src/components/layout/Header.tsx` returns nothing (wordmark fully swapped). The out-of-scope `gamedev_*` infra strings should still be present (confirm they were NOT touched).
 - [ ] **Manual click-through (hand to user — no browser automation in agent env):**
   1. Load the app — browser tab title reads **STEM Quest**.
   2. Header wordmark (desktop) reads **STEM Quest** with the new icon, not a gamepad.
