@@ -88,16 +88,15 @@ apply a minimal fix.
 - [x] Committed with a Conventional Commit `feat:` message, **no** `Co-Authored-By` line.
 
 ### 5. Push + open PR to `lms`
-- [ ] `git push -u lms feat/phase-26-close-out`.
-- [ ] `gh pr create --repo Cesar6060/LMS --base main` with a title like
-      "Phase 26: close out Phase 25 UI cleanup (margins + remove Teach dropdown)"
-      and a body summarizing the two UI changes + the click-through result.
-      No `Co-Authored-By`; follow the LMS-repo PR workflow.
+- [x] `git push -u lms feat/phase-26-close-out`.
+- [x] Opened PR #14: https://github.com/Cesar6060/LMS/pull/14 (base `main`,
+      no `Co-Authored-By`), body summarizing both UI changes + the click-through status.
 
 ### 6. Handoff
-- [ ] `/handoff` — write `docs/handoffs/2026-07-19-phase-26-close-out.md`
-      recording the merge status, the branch rename, and the PR URL, and pointing
-      Phase 27 (rebrand, ADR-017) at its starting files.
+- [x] `/handoff` — wrote `docs/handoffs/2026-07-19-phase-26-close-out.md` recording the
+      merge status, branch rename, and PR URL, pointing Phase 27 (rebrand, ADR-017) at
+      its starting files. (This handoff + the two checklist updates are the follow-up
+      `docs:` commit.)
 
 ## Verification (what proves the phase is done)
 - **Automated:** `/verify-stack` output shown — tsc 0 errors, lint 0 errors /
