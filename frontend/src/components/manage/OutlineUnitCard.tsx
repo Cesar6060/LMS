@@ -187,7 +187,7 @@ function SortableLessonRow({ lesson, courseCode, onRename, onDelete }: SortableL
       ref={setNodeRef}
       style={{ transform: CSS.Transform.toString(transform), transition }}
       className={cn(
-        'group flex items-center gap-2 rounded-md px-2 py-1.5 hover:bg-muted/50',
+        'group flex items-center gap-2 rounded-md px-2 py-2 hover:bg-muted/50',
         isDragging && 'opacity-50'
       )}
     >
@@ -228,14 +228,26 @@ function SortableLessonRow({ lesson, courseCode, onRename, onDelete }: SortableL
       </div>
       <div className="flex items-center gap-1 opacity-60 hover:opacity-100 focus-within:opacity-100">
         <Link to={`/instructor/courses/${courseCode}/lessons/${lesson.id}/edit`}>
-          <Button variant="ghost" size="sm" className="h-7 w-7 p-0" title="Edit lesson">
-            <Pencil className="h-3.5 w-3.5" />
+          <Button
+            variant="ghost"
+            size="sm"
+            className="h-8 w-8 p-0"
+            aria-label={`Edit lesson ${lesson.title}`}
+            title="Edit lesson"
+          >
+            <Pencil className="h-4 w-4" />
           </Button>
         </Link>
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
-            <Button variant="ghost" size="sm" className="h-7 w-7 p-0" title="More actions">
-              <MoreVertical className="h-3.5 w-3.5" />
+            <Button
+              variant="ghost"
+              size="sm"
+              className="h-8 w-8 p-0"
+              aria-label={`More actions for ${lesson.title}`}
+              title="More actions"
+            >
+              <MoreVertical className="h-4 w-4" />
             </Button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end">
@@ -317,8 +329,9 @@ export function OutlineUnitCard({
           <Button
             variant="ghost"
             size="sm"
-            className="h-7 w-7 p-0"
+            className="h-8 w-8 p-0"
             onClick={() => onToggleCollapse(unit.id)}
+            aria-label={collapsed ? `Expand unit ${unit.title}` : `Collapse unit ${unit.title}`}
             title={collapsed ? 'Expand unit' : 'Collapse unit'}
           >
             {collapsed ? (
@@ -340,12 +353,18 @@ export function OutlineUnitCard({
               onCancel={() => setEditingTitle(false)}
             />
           </div>
-          <span className="text-sm text-muted-foreground whitespace-nowrap">
+          <span className="text-base text-muted-foreground whitespace-nowrap">
             {itemCount} {itemCount === 1 ? 'item' : 'items'}
           </span>
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
-              <Button variant="ghost" size="sm" className="h-7 w-7 p-0" title="Unit actions">
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-8 w-8 p-0"
+                aria-label={`Actions for unit ${unit.title}`}
+                title="Unit actions"
+              >
                 <MoreVertical className="h-4 w-4" />
               </Button>
             </DropdownMenuTrigger>
@@ -395,7 +414,7 @@ export function OutlineUnitCard({
               {quizzes.map(quiz => (
                 <li
                   key={quiz.id}
-                  className="group flex items-center gap-2 rounded-md px-2 py-1.5 hover:bg-muted/50"
+                  className="group flex items-center gap-2 rounded-md px-2 py-2 hover:bg-muted/50"
                 >
                   <span className="w-4" />
                   <FileQuestion className="h-4 w-4 text-muted-foreground flex-shrink-0" />
@@ -405,31 +424,31 @@ export function OutlineUnitCard({
                   >
                     {quiz.title}
                   </Link>
-                  <span className="text-sm text-muted-foreground whitespace-nowrap">
+                  <span className="text-base text-muted-foreground whitespace-nowrap">
                     {quiz.question_count} {quiz.question_count === 1 ? 'question' : 'questions'} · {quiz.points} pts
                   </span>
                   <div className="flex items-center gap-1 opacity-60 hover:opacity-100 focus-within:opacity-100">
                     <Link to={`/instructor/courses/${courseCode}/quizzes?quiz=${quiz.id}`}>
-                      <Button variant="ghost" size="sm" className="h-7 w-7 p-0" title="Edit quiz">
-                        <Pencil className="h-3.5 w-3.5" />
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="h-8 w-8 p-0"
+                        aria-label={`Edit quiz ${quiz.title}`}
+                        title="Edit quiz"
+                      >
+                        <Pencil className="h-4 w-4" />
                       </Button>
                     </Link>
-                    <DropdownMenu>
-                      <DropdownMenuTrigger asChild>
-                        <Button variant="ghost" size="sm" className="h-7 w-7 p-0" title="More actions">
-                          <MoreVertical className="h-3.5 w-3.5" />
-                        </Button>
-                      </DropdownMenuTrigger>
-                      <DropdownMenuContent align="end">
-                        <DropdownMenuItem
-                          className="text-destructive focus:text-destructive"
-                          onSelect={() => onDeleteQuiz(quiz.id)}
-                        >
-                          <Trash2 className="h-4 w-4" />
-                          Delete
-                        </DropdownMenuItem>
-                      </DropdownMenuContent>
-                    </DropdownMenu>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="h-8 w-8 p-0 text-destructive hover:text-destructive"
+                      onClick={() => onDeleteQuiz(quiz.id)}
+                      aria-label={`Delete quiz ${quiz.title}`}
+                      title="Delete quiz"
+                    >
+                      <Trash2 className="h-4 w-4" />
+                    </Button>
                   </div>
                 </li>
               ))}
