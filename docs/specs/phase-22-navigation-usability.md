@@ -234,6 +234,10 @@ implementation:
 - **Add affordances are real buttons**: the outline's "Add lesson ·
   quiz" inline text links became "Add Lesson" / "Add Quiz" outline
   Buttons; the "Add unit" dashed row was enlarged to match.
+- **No single-action overflow menus**: quiz rows' ⋮ menu held only
+  Delete, so it became a visible trash button. Lesson/unit ⋮ menus stay
+  (they hold Rename + Delete). Row action buttons grew to h-8 with
+  aria-labels; row meta text is `text-base`.
 - **Dashboard instructor "Manage" button** navigates via
   `preventDefault` + `stopPropagation` + `useNavigate` rather than a
   nested `<Link>` (nested anchors are invalid HTML).
