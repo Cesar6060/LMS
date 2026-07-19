@@ -317,7 +317,7 @@ export function QuizEditorPage() {
 
   if (isLoading) {
     return (
-      <PageContainer maxWidth="max-w-4xl">
+      <PageContainer maxWidth="max-w-6xl">
         <div className="flex items-center justify-center py-12">
           <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
         </div>
@@ -331,7 +331,7 @@ export function QuizEditorPage() {
 
   if (error || !course) {
     return (
-      <PageContainer maxWidth="max-w-4xl">
+      <PageContainer maxWidth="max-w-6xl">
         <Card>
           <CardContent className="py-12 text-center">
             <p className="text-destructive mb-4">{error || 'Course not found'}</p>
@@ -349,7 +349,7 @@ export function QuizEditorPage() {
   });
 
   return (
-    <PageContainer maxWidth="max-w-4xl">
+    <PageContainer maxWidth="max-w-6xl">
       {/* Course tools sub-nav */}
       <CourseToolsNav courseCode={code!} className="mb-6" />
 

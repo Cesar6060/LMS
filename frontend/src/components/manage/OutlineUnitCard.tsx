@@ -96,7 +96,7 @@ function InlineAddRow({ onAddLesson, onAddQuiz }: InlineAddRowProps) {
   }
 
   return (
-    <div className="flex items-center gap-1 px-2 py-1.5 text-sm text-muted-foreground">
+    <div className="flex items-center gap-1 px-2 py-1.5 text-base text-muted-foreground">
       <Plus className="h-4 w-4" />
       <span className="mr-1">Add</span>
       <button
@@ -229,7 +229,7 @@ function SortableLessonRow({ lesson, courseCode, onRename, onDelete }: SortableL
         ) : (
           <Link
             to={`/instructor/courses/${courseCode}/lessons/${lesson.id}/edit`}
-            className="text-sm hover:underline truncate block"
+            className="text-base hover:underline truncate block"
           >
             {lesson.title}
           </Link>
@@ -349,7 +349,7 @@ export function OutlineUnitCard({
               onCancel={() => setEditingTitle(false)}
             />
           </div>
-          <span className="text-xs text-muted-foreground whitespace-nowrap">
+          <span className="text-sm text-muted-foreground whitespace-nowrap">
             {itemCount} {itemCount === 1 ? 'item' : 'items'}
           </span>
           <DropdownMenu>
@@ -410,11 +410,11 @@ export function OutlineUnitCard({
                   <FileQuestion className="h-4 w-4 text-muted-foreground flex-shrink-0" />
                   <Link
                     to={`/instructor/courses/${courseCode}/quizzes?quiz=${quiz.id}`}
-                    className="flex-1 min-w-0 text-sm hover:underline truncate"
+                    className="flex-1 min-w-0 text-base hover:underline truncate"
                   >
                     {quiz.title}
                   </Link>
-                  <span className="text-xs text-muted-foreground whitespace-nowrap">
+                  <span className="text-sm text-muted-foreground whitespace-nowrap">
                     {quiz.question_count} {quiz.question_count === 1 ? 'question' : 'questions'} · {quiz.points} pts
                   </span>
                   <div className="flex items-center gap-1 opacity-60 hover:opacity-100 focus-within:opacity-100">

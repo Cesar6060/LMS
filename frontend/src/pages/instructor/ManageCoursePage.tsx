@@ -449,7 +449,7 @@ export function ManageCoursePage() {
 
   if (error && !course) {
     return (
-      <PageContainer maxWidth="max-w-4xl">
+      <PageContainer maxWidth="max-w-6xl">
         <Card>
           <CardContent className="flex flex-col items-center justify-center py-12">
             <BookOpen className="h-12 w-12 text-muted-foreground mb-4" />
@@ -467,7 +467,7 @@ export function ManageCoursePage() {
   const unitQuizzes = (unitId: number) => quizzes.filter(q => q.unit === unitId);
 
   return (
-    <PageContainer maxWidth="max-w-4xl">
+    <PageContainer maxWidth="max-w-6xl">
       {/* Course tools sub-nav */}
       <CourseToolsNav courseCode={course.code} className="mb-6" />
 
@@ -476,55 +476,63 @@ export function ManageCoursePage() {
         <div className="flex flex-wrap items-start justify-between gap-4">
           <div className="min-w-0">
             <h1 className="text-3xl font-bold mb-1 truncate">{course.title}</h1>
-            <div className="flex flex-wrap items-center gap-3 text-sm text-muted-foreground">
+            <div className="flex flex-wrap items-center gap-3 text-base text-muted-foreground">
               <span className="font-mono">{course.code}</span>
               {!course.is_active && (
-                <span className="rounded bg-muted px-2 py-0.5 text-xs font-medium">Inactive</span>
+                <span className="rounded bg-muted px-2 py-0.5 text-sm font-medium">Inactive</span>
               )}
-              <span className="flex items-center gap-1.5">
-                Enrollment code:
-                <code className="bg-muted px-2 py-0.5 rounded font-mono tracking-wider">
-                  {course.enrollment_code}
-                </code>
-                <button
-                  type="button"
-                  onClick={handleCopyEnrollmentCode}
-                  className="hover:text-foreground"
-                  title="Copy enrollment code"
-                >
-                  {copied ? (
-                    <CheckCircle className="h-4 w-4 text-green-500" />
-                  ) : (
-                    <Copy className="h-4 w-4" />
-                  )}
-                </button>
-              </span>
             </div>
           </div>
-          <div className="flex items-center gap-2">
+
+          {/* Enrollment code — the thing instructors share with students */}
+          <div className="flex items-center gap-3 rounded-xl border border-neon-green/30 bg-neon-green/5 pl-4 pr-2 py-2.5">
+            <div>
+              <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                Enrollment Code
+              </p>
+              <p className="font-mono text-2xl font-bold tracking-[0.2em] text-neon-green leading-tight">
+                {course.enrollment_code}
+              </p>
+            </div>
             <Button
-              variant="outline"
-              size="sm"
-              onClick={() => persistCollapsed(Object.fromEntries(units.map(u => [u.id, true])))}
-              title="Collapse all units"
+              variant="ghost"
+              size="icon"
+              onClick={handleCopyEnrollmentCode}
+              aria-label="Copy enrollment code"
+              title="Copy enrollment code"
             >
-              <ChevronsDownUp className="h-4 w-4 mr-1" />
-              Collapse all
-            </Button>
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => persistCollapsed({})}
-              title="Expand all units"
-            >
-              <ChevronsUpDown className="h-4 w-4 mr-1" />
-              Expand all
-            </Button>
-            <Button variant="outline" size="sm" onClick={() => setShowSettings(true)}>
-              <Settings className="h-4 w-4 mr-1" />
-              Settings
+              {copied ? (
+                <CheckCircle className="h-5 w-5 text-green-500" />
+              ) : (
+                <Copy className="h-5 w-5" />
+              )}
             </Button>
           </div>
+        </div>
+
+        <div className="flex flex-wrap items-center gap-2 mt-4">
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => persistCollapsed(Object.fromEntries(units.map(u => [u.id, true])))}
+            title="Collapse all units"
+          >
+            <ChevronsDownUp className="h-4 w-4 mr-1" />
+            Collapse all
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => persistCollapsed({})}
+            title="Expand all units"
+          >
+            <ChevronsUpDown className="h-4 w-4 mr-1" />
+            Expand all
+          </Button>
+          <Button variant="outline" size="sm" onClick={() => setShowSettings(true)}>
+            <Settings className="h-4 w-4 mr-1" />
+            Settings
+          </Button>
         </div>
       </div>
 

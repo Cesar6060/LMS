@@ -35,7 +35,7 @@ export function CourseToolsNav({ courseCode, className }: CourseToolsNavProps) {
             to={tab.to}
             aria-current={active ? 'page' : undefined}
             className={cn(
-              'relative whitespace-nowrap px-4 py-2.5 text-sm font-medium rounded-lg transition-colors',
+              'relative whitespace-nowrap px-4 py-2.5 text-base font-medium rounded-lg transition-colors',
               active
                 ? 'bg-muted text-foreground after:absolute after:left-4 after:right-4 after:bottom-1 after:h-0.5 after:rounded-full after:bg-neon-green'
                 : 'text-muted-foreground hover:text-foreground hover:bg-muted/50'
