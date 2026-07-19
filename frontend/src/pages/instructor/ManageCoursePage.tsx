@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback, type KeyboardEvent } from 'react';
-import { useParams, Link } from 'react-router';
+import { useParams } from 'react-router';
 import {
   DndContext,
   closestCorners,
@@ -26,11 +26,14 @@ import { isForbidden } from '@/services/api';
 import { AccessDenied } from '@/components/AccessDenied';
 import { OutlineUnitCard, type OutlineUnit } from '@/components/manage/OutlineUnitCard';
 import { CourseSettingsDialog } from '@/components/manage/CourseSettingsDialog';
+import { CourseToolsNav } from '@/components/instructor/CourseToolsNav';
+import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
+import { BackLink } from '@/components/layout/BackLink';
 import type { Quiz } from '@/types';
 import { PageContainer } from '@/components/layout/PageContainer';
 import {
-  Loader2, Plus, Copy, CheckCircle, Settings, BookOpen, Eye,
-  Table, Megaphone, Users, FileQuestion, ChevronsDownUp, ChevronsUpDown,
+  Loader2, Plus, Copy, CheckCircle, Settings, BookOpen,
+  ChevronsDownUp, ChevronsUpDown,
 } from 'lucide-react';
 
 function AddUnitRow({
@@ -118,6 +121,10 @@ export function ManageCoursePage() {
 
   // Settings dialog
   const [showSettings, setShowSettings] = useState(false);
+  const [deleteTarget, setDeleteTarget] = useState<
+    { type: 'unit' | 'lesson' | 'quiz'; id: number } | null
+  >(null);
+  const [isDeleting, setIsDeleting] = useState(false);
 
   // Snapshot for drag rollback
   const dragSnapshot = useRef<OutlineUnit[] | null>(null);
@@ -216,16 +223,8 @@ export function ManageCoursePage() {
     }
   };
 
-  const handleDeleteUnit = async (unitId: number) => {
-    if (!confirm('Delete this unit? All lessons and quizzes in it will also be deleted.')) {
-      return;
-    }
-    try {
-      await courseService.deleteUnit(unitId);
-      await loadCourse();
-    } catch (err) {
-      console.error('Failed to delete unit:', err);
-    }
+  const handleDeleteUnit = (unitId: number) => {
+    setDeleteTarget({ type: 'unit', id: unitId });
   };
 
   const handleAddLesson = async (unitId: number, title: string) => {
@@ -253,14 +252,8 @@ export function ManageCoursePage() {
     }
   };
 
-  const handleDeleteLesson = async (lessonId: number) => {
-    if (!confirm('Are you sure you want to delete this lesson?')) return;
-    try {
-      await courseService.deleteLesson(lessonId);
-      await loadCourse();
-    } catch (err) {
-      console.error('Failed to delete lesson:', err);
-    }
+  const handleDeleteLesson = (lessonId: number) => {
+    setDeleteTarget({ type: 'lesson', id: lessonId });
   };
 
   const handleAddQuiz = async (unitId: number, title: string) => {
@@ -273,13 +266,28 @@ export function ManageCoursePage() {
     }
   };
 
-  const handleDeleteQuiz = async (quizId: number) => {
-    if (!confirm('Are you sure you want to delete this quiz?')) return;
+  const handleDeleteQuiz = (quizId: number) => {
+    setDeleteTarget({ type: 'quiz', id: quizId });
+  };
+
+  const confirmDelete = async () => {
+    if (!deleteTarget) return;
+    setIsDeleting(true);
     try {
-      await quizzesService.deleteQuiz(quizId);
+      if (deleteTarget.type === 'unit') {
+        await courseService.deleteUnit(deleteTarget.id);
+      } else if (deleteTarget.type === 'lesson') {
+        await courseService.deleteLesson(deleteTarget.id);
+      } else {
+        await quizzesService.deleteQuiz(deleteTarget.id);
+      }
+      setDeleteTarget(null);
       await loadCourse();
     } catch (err) {
-      console.error('Failed to delete quiz:', err);
+      console.error(`Failed to delete ${deleteTarget.type}:`, err);
+      setDeleteTarget(null);
+    } finally {
+      setIsDeleting(false);
     }
   };
 
@@ -447,9 +455,7 @@ export function ManageCoursePage() {
             <BookOpen className="h-12 w-12 text-muted-foreground mb-4" />
             <h3 className="text-lg font-semibold mb-2">Course not found</h3>
             <p className="text-muted-foreground mb-4">{error}</p>
-            <Link to="/courses">
-              <Button>Back to Courses</Button>
-            </Link>
+            <BackLink to="/dashboard" label="Dashboard" />
           </CardContent>
         </Card>
       </PageContainer>
@@ -462,6 +468,9 @@ export function ManageCoursePage() {
 
   return (
     <PageContainer maxWidth="max-w-4xl">
+      {/* Course tools sub-nav */}
+      <CourseToolsNav courseCode={course.code} className="mb-6" />
+
       {/* Header */}
       <div className="mb-6">
         <div className="flex flex-wrap items-start justify-between gap-4">
@@ -516,40 +525,6 @@ export function ManageCoursePage() {
               Settings
             </Button>
           </div>
-        </div>
-
-        {/* Quick links */}
-        <div className="flex flex-wrap items-center gap-2 mt-4">
-          <Link to={`/courses/${course.code}`}>
-            <Button variant="ghost" size="sm">
-              <Eye className="h-4 w-4 mr-1" />
-              Student View
-            </Button>
-          </Link>
-          <Link to={`/instructor/courses/${course.code}/gradebook`}>
-            <Button variant="ghost" size="sm">
-              <Table className="h-4 w-4 mr-1" />
-              Gradebook
-            </Button>
-          </Link>
-          <Link to={`/courses/${course.code}/announcements`}>
-            <Button variant="ghost" size="sm">
-              <Megaphone className="h-4 w-4 mr-1" />
-              Announcements
-            </Button>
-          </Link>
-          <Link to={`/instructor/courses/${course.code}/students`}>
-            <Button variant="ghost" size="sm">
-              <Users className="h-4 w-4 mr-1" />
-              Roster
-            </Button>
-          </Link>
-          <Link to={`/instructor/courses/${course.code}/quizzes`}>
-            <Button variant="ghost" size="sm">
-              <FileQuestion className="h-4 w-4 mr-1" />
-              Quizzes
-            </Button>
-          </Link>
         </div>
       </div>
 
@@ -617,6 +592,37 @@ export function ManageCoursePage() {
         course={course}
         onSaved={() => loadCourse()}
       />
+
+      {/* Delete confirmation */}
+      <ConfirmDialog
+        open={!!deleteTarget}
+        onOpenChange={(open) => {
+          if (!open) setDeleteTarget(null);
+        }}
+        title={
+          deleteTarget?.type === 'unit'
+            ? 'Delete Unit'
+            : deleteTarget?.type === 'lesson'
+              ? 'Delete Lesson'
+              : 'Delete Quiz'
+        }
+        confirmLabel={
+          deleteTarget?.type === 'unit'
+            ? 'Delete Unit'
+            : deleteTarget?.type === 'lesson'
+              ? 'Delete Lesson'
+              : 'Delete Quiz'
+        }
+        loadingLabel="Deleting..."
+        onConfirm={confirmDelete}
+        isLoading={isDeleting}
+      >
+        {deleteTarget?.type === 'unit'
+          ? 'Delete this unit? All lessons and quizzes in it will also be deleted.'
+          : deleteTarget?.type === 'lesson'
+            ? 'Are you sure you want to delete this lesson?'
+            : 'Are you sure you want to delete this quiz?'}
+      </ConfirmDialog>
     </PageContainer>
   );
 }

@@ -17,6 +17,7 @@ import { isForbidden } from '@/services/api';
 import { extractYouTubeVideoId, extractVimeoVideoId } from '@/lib/video';
 import type { Lesson, Quiz } from '@/types';
 import { PageContainer } from '@/components/layout/PageContainer';
+import { BackLink } from '@/components/layout/BackLink';
 import {
   Loader2, ChevronLeft, Save, FileText, Layers, HelpCircle, Paperclip, BookOpen,
 } from 'lucide-react';
@@ -176,9 +177,7 @@ export function LessonEditorPage() {
           <CardContent className="flex flex-col items-center justify-center py-12">
             <BookOpen className="h-12 w-12 text-muted-foreground mb-4" />
             <h3 className="text-lg font-semibold mb-2">Lesson not found</h3>
-            <Button onClick={() => navigate(`/instructor/courses/${code}/manage`)}>
-              Back to Course
-            </Button>
+            <BackLink to={`/instructor/courses/${code}/manage`} label="Manage Course" />
           </CardContent>
         </Card>
       </PageContainer>
@@ -192,7 +191,7 @@ export function LessonEditorPage() {
         <div className="flex items-center gap-2 min-w-0">
           <Button variant="ghost" size="sm" onClick={handleBack}>
             <ChevronLeft className="h-4 w-4 mr-1" />
-            Course Outline
+            Back to Manage Course
           </Button>
           <span className="text-muted-foreground">/</span>
           <h1 className="text-2xl font-bold truncate">{lesson.title}</h1>

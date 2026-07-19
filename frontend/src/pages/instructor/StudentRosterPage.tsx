@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { useParams, Link } from 'react-router';
+import { useParams } from 'react-router';
 import { Card, CardContent } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
@@ -8,8 +8,11 @@ import { isForbidden } from '@/services/api';
 import { AccessDenied } from '@/components/AccessDenied';
 import { Skeleton } from '@/components/ui/Skeleton';
 import { PageContainer } from '@/components/layout/PageContainer';
+import { BackLink } from '@/components/layout/BackLink';
+import { CourseToolsNav } from '@/components/instructor/CourseToolsNav';
+import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 import {
-  ChevronLeft, Mail, Users, AlertCircle, Trash2,
+  Mail, Users, AlertCircle, Trash2,
   Search, CheckCircle, Clock, AlertTriangle
 } from 'lucide-react';
 import {
@@ -237,9 +240,7 @@ export function StudentRosterPage() {
             <AlertCircle className="h-12 w-12 text-destructive mx-auto mb-4" />
             <h3 className="text-lg font-semibold mb-2">Error</h3>
             <p className="text-muted-foreground mb-4">{error}</p>
-            <Link to={`/instructor/courses/${code}/manage`}>
-              <Button>Back to Manage Course</Button>
-            </Link>
+            <BackLink to={`/instructor/courses/${code}/manage`} label="Manage Course" />
           </CardContent>
         </Card>
       </PageContainer>
@@ -248,16 +249,11 @@ export function StudentRosterPage() {
 
   return (
     <PageContainer>
+      {/* Course tools sub-nav */}
+      <CourseToolsNav courseCode={code!} className="mb-6" />
+
       {/* Header */}
       <div className="mb-6">
-        <Link
-          to={`/instructor/courses/${code}/manage`}
-          className="inline-flex items-center text-sm text-muted-foreground hover:text-foreground mb-4"
-        >
-          <ChevronLeft className="h-4 w-4 mr-1" />
-          Back to Manage Course
-        </Link>
-
         <div className="flex items-start justify-between">
           <div>
             <h1 className="text-3xl font-bold flex items-center gap-2">
@@ -341,36 +337,39 @@ export function StudentRosterPage() {
               <table className="w-full text-sm">
                 <thead>
                   <tr className="border-b bg-muted/50">
-                    <th
-                      className="text-left p-3 font-medium cursor-pointer hover:bg-muted"
-                      onClick={() => handleSort('name')}
-                    >
-                      Name {sortField === 'name' && (sortDirection === 'asc' ? '↑' : '↓')}
-                    </th>
-                    <th
-                      className="text-left p-3 font-medium cursor-pointer hover:bg-muted"
-                      onClick={() => handleSort('email')}
-                    >
-                      Email {sortField === 'email' && (sortDirection === 'asc' ? '↑' : '↓')}
-                    </th>
-                    <th
-                      className="text-left p-3 font-medium cursor-pointer hover:bg-muted"
-                      onClick={() => handleSort('enrolled_at')}
-                    >
-                      Enrolled {sortField === 'enrolled_at' && (sortDirection === 'asc' ? '↑' : '↓')}
-                    </th>
-                    <th
-                      className="text-left p-3 font-medium cursor-pointer hover:bg-muted"
-                      onClick={() => handleSort('last_activity_at')}
-                    >
-                      Last Active {sortField === 'last_activity_at' && (sortDirection === 'asc' ? '↑' : '↓')}
-                    </th>
-                    <th
-                      className="text-center p-3 font-medium cursor-pointer hover:bg-muted"
-                      onClick={() => handleSort('progress')}
-                    >
-                      Progress {sortField === 'progress' && (sortDirection === 'asc' ? '↑' : '↓')}
-                    </th>
+                    {(
+                      [
+                        { field: 'name', label: 'Name', align: 'left' },
+                        { field: 'email', label: 'Email', align: 'left' },
+                        { field: 'enrolled_at', label: 'Enrolled', align: 'left' },
+                        { field: 'last_activity_at', label: 'Last Active', align: 'left' },
+                        { field: 'progress', label: 'Progress', align: 'center' },
+                      ] as { field: SortField; label: string; align: 'left' | 'center' }[]
+                    ).map(({ field, label, align }) => (
+                      <th
+                        key={field}
+                        className={`p-3 font-medium hover:bg-muted ${
+                          align === 'center' ? 'text-center' : 'text-left'
+                        }`}
+                        aria-sort={
+                          sortField === field
+                            ? sortDirection === 'asc'
+                              ? 'ascending'
+                              : 'descending'
+                            : undefined
+                        }
+                      >
+                        <button
+                          type="button"
+                          onClick={() => handleSort(field)}
+                          className={`w-full p-0 font-medium ${
+                            align === 'center' ? 'text-center' : 'text-left'
+                          }`}
+                        >
+                          {label} {sortField === field && (sortDirection === 'asc' ? '↑' : '↓')}
+                        </button>
+                      </th>
+                    ))}
                     <th className="text-center p-3 font-medium">Status</th>
                     <th className="text-center p-3 font-medium">Actions</th>
                   </tr>
@@ -404,6 +403,8 @@ export function StudentRosterPage() {
                           size="sm"
                           onClick={() => setRemoveStudent(student)}
                           className="text-destructive hover:text-destructive"
+                          aria-label={`Remove ${student.first_name} ${student.last_name}`}
+                          title="Remove student"
                         >
                           <Trash2 className="h-4 w-4" />
                         </Button>
@@ -478,32 +479,23 @@ export function StudentRosterPage() {
       </Dialog>
 
       {/* Remove Student Dialog */}
-      <Dialog open={!!removeStudent} onOpenChange={() => setRemoveStudent(null)}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Remove Student</DialogTitle>
-          </DialogHeader>
-          <p className="text-muted-foreground">
-            Are you sure you want to remove{' '}
-            <span className="font-medium text-foreground">
-              {removeStudent?.first_name} {removeStudent?.last_name}
-            </span>{' '}
-            from this course? Their grades will be preserved.
-          </p>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setRemoveStudent(null)}>
-              Cancel
-            </Button>
-            <Button
-              variant="destructive"
-              onClick={handleRemoveStudent}
-              disabled={isRemoving}
-            >
-              {isRemoving ? 'Removing...' : 'Remove Student'}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      <ConfirmDialog
+        open={!!removeStudent}
+        onOpenChange={(open) => {
+          if (!open) setRemoveStudent(null);
+        }}
+        title="Remove Student"
+        confirmLabel="Remove Student"
+        loadingLabel="Removing..."
+        onConfirm={handleRemoveStudent}
+        isLoading={isRemoving}
+      >
+        Are you sure you want to remove{' '}
+        <span className="font-medium text-foreground">
+          {removeStudent?.first_name} {removeStudent?.last_name}
+        </span>{' '}
+        from this course? Their grades will be preserved.
+      </ConfirmDialog>
     </PageContainer>
   );
 }

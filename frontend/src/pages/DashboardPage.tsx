@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Link } from 'react-router';
+import { Link, useNavigate } from 'react-router';
 import { useAuth } from '@/contexts/AuthContext';
 import { Button } from '@/components/ui/Button';
 import { courseService, type InstructorCourse } from '@/services/courses';
@@ -14,6 +14,7 @@ import { PageContainer } from '@/components/layout/PageContainer';
 
 export function DashboardPage() {
   const { user } = useAuth();
+  const navigate = useNavigate();
   const [enrolledCourses, setEnrolledCourses] = useState<Enrollment[]>([]);
   const [instructorCourses, setInstructorCourses] = useState<InstructorCourse[]>([]);
   const [enhancedData, setEnhancedData] = useState<EnhancedDashboard | null>(null);
@@ -117,7 +118,7 @@ export function DashboardPage() {
                 <Link to={`/courses/${continueLearning.course_code}/learn`}>
                   <Button size="lg" variant="neon">
                     <Play className="h-4 w-4 mr-2" />
-                    Continue
+                    Continue Learning
                   </Button>
                 </Link>
               </div>
@@ -336,7 +337,15 @@ export function DashboardPage() {
                     </div>
                   </div>
                   <div className="mt-4 pt-4 border-t border-border">
-                    <Button variant="outline" className="w-full">
+                    <Button
+                      variant="outline"
+                      className="w-full"
+                      onClick={(e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        navigate(`/instructor/courses/${course.code}/manage`);
+                      }}
+                    >
                       Manage
                     </Button>
                   </div>
@@ -357,8 +366,7 @@ export function DashboardPage() {
                   </div>
                   <div className="mt-4 pt-4 border-t border-border">
                     <Button variant="outline" className="w-full">
-                      <Play className="h-4 w-4 mr-2" />
-                      Continue
+                      View Course
                     </Button>
                   </div>
                 </Link>

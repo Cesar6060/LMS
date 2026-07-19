@@ -202,7 +202,7 @@ function SortableLessonRow({ lesson, courseCode, onRename, onDelete }: SortableL
     >
       <button
         type="button"
-        className="cursor-grab touch-none opacity-0 group-hover:opacity-100 focus:opacity-100 text-muted-foreground"
+        className="cursor-grab touch-none opacity-60 hover:opacity-100 focus-visible:opacity-100 text-muted-foreground"
         aria-label={`Reorder lesson ${lesson.title}`}
         {...attributes}
         {...listeners}
@@ -235,7 +235,7 @@ function SortableLessonRow({ lesson, courseCode, onRename, onDelete }: SortableL
           </Link>
         )}
       </div>
-      <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 focus-within:opacity-100">
+      <div className="flex items-center gap-1 opacity-60 hover:opacity-100 focus-within:opacity-100">
         <Link to={`/instructor/courses/${courseCode}/lessons/${lesson.id}/edit`}>
           <Button variant="ghost" size="sm" className="h-7 w-7 p-0" title="Edit lesson">
             <Pencil className="h-3.5 w-3.5" />
@@ -316,7 +316,7 @@ export function OutlineUnitCard({
         <div className="flex items-center gap-2">
           <button
             type="button"
-            className="cursor-grab touch-none opacity-0 group-hover/unit:opacity-100 focus:opacity-100 text-muted-foreground"
+            className="cursor-grab touch-none opacity-60 hover:opacity-100 focus-visible:opacity-100 text-muted-foreground"
             aria-label={`Reorder unit ${unit.title}`}
             {...attributes}
             {...listeners}
@@ -417,7 +417,7 @@ export function OutlineUnitCard({
                   <span className="text-xs text-muted-foreground whitespace-nowrap">
                     {quiz.question_count} {quiz.question_count === 1 ? 'question' : 'questions'} · {quiz.points} pts
                   </span>
-                  <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 focus-within:opacity-100">
+                  <div className="flex items-center gap-1 opacity-60 hover:opacity-100 focus-within:opacity-100">
                     <Link to={`/instructor/courses/${courseCode}/quizzes?quiz=${quiz.id}`}>
                       <Button variant="ghost" size="sm" className="h-7 w-7 p-0" title="Edit quiz">
                         <Pencil className="h-3.5 w-3.5" />

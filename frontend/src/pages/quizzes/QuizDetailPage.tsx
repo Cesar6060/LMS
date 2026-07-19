@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { useParams, Link } from 'react-router';
+import { useParams, Link, useSearchParams } from 'react-router';
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { quizzesService } from '@/services/quizzes';
@@ -9,14 +9,26 @@ import { useAuth } from '@/contexts/AuthContext';
 import type { Quiz, QuizAttempt } from '@/types';
 import { PageContainer } from '@/components/layout/PageContainer';
 import { Skeleton } from '@/components/ui/Skeleton';
+import { BackLink } from '@/components/layout/BackLink';
+import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 import {
   Loader2, CheckCircle, XCircle, Trophy, RotateCcw,
-  ChevronLeft, FileQuestion, Target, Clock
+  ChevronLeft, FileQuestion, Target, Clock, LogOut
 } from 'lucide-react';
 
 export function QuizDetailPage() {
   const { code, quizId } = useParams<{ code: string; quizId: string }>();
   const { user } = useAuth();
+  const [searchParams] = useSearchParams();
+
+  // When the player linked here (?from=learn&lesson={id}), the round trip
+  // returns to the lesson instead of course detail.
+  const fromLesson =
+    searchParams.get('from') === 'learn' ? searchParams.get('lesson') : null;
+  const backTo = fromLesson
+    ? `/courses/${code}/learn/${fromLesson}`
+    : `/courses/${code}`;
+  const backLabel = fromLesson ? 'Lesson' : 'Course';
 
   const [quiz, setQuiz] = useState<Quiz | null>(null);
   const [isLoading, setIsLoading] = useState(true);
@@ -28,6 +40,7 @@ export function QuizDetailPage() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [result, setResult] = useState<QuizAttempt | null>(null);
   const [showQuiz, setShowQuiz] = useState(false);
+  const [showExitConfirm, setShowExitConfirm] = useState(false);
 
   useEffect(() => {
     loadQuiz();
@@ -88,6 +101,12 @@ export function QuizDetailPage() {
     setShowQuiz(true);
   };
 
+  const handleExitQuiz = () => {
+    setSelectedAnswers({});
+    setShowExitConfirm(false);
+    setShowQuiz(false);
+  };
+
   if (isLoading) {
     return (
       <PageContainer maxWidth="max-w-4xl">
@@ -109,7 +128,8 @@ export function QuizDetailPage() {
       <PageContainer maxWidth="max-w-4xl">
         <Card>
           <CardContent className="py-12 text-center">
-            <p className="text-destructive">{error || 'Quiz not found'}</p>
+            <p className="text-destructive mb-4">{error || 'Quiz not found'}</p>
+            <BackLink to={backTo} label={backLabel} />
           </CardContent>
         </Card>
       </PageContainer>
@@ -121,13 +141,7 @@ export function QuizDetailPage() {
     const passed = result.passed;
     return (
       <PageContainer maxWidth="max-w-4xl">
-        <Link
-          to={`/courses/${code}`}
-          className="inline-flex items-center gap-2 text-muted-foreground hover:text-foreground mb-6"
-        >
-          <ChevronLeft className="h-4 w-4" />
-          Back to Course
-        </Link>
+        <BackLink to={backTo} label={backLabel} className="mb-6" />
 
         <Card className={`mb-6 ${passed ? 'border-green-500' : 'border-red-500'}`}>
           <CardHeader className="text-center">
@@ -174,15 +188,24 @@ export function QuizDetailPage() {
               </p>
             )}
 
-            <Button
-              onClick={handleRetake}
-              className="w-full"
-              variant="outline"
-              disabled={quiz.attempts_remaining === 0}
-            >
-              <RotateCcw className="h-4 w-4 mr-2" />
-              {quiz.attempts_remaining === 0 ? 'No Attempts Remaining' : 'Retake Quiz'}
-            </Button>
+            <div className="flex flex-col sm:flex-row gap-3">
+              {fromLesson && (
+                <Button asChild className="flex-1">
+                  <Link to={backTo}>
+                    <ChevronLeft className="h-4 w-4 mr-2" />
+                    Back to Lesson
+                  </Link>
+                </Button>
+              )}
+              <Button
+                onClick={handleRetake}
+                className="flex-1"
+                disabled={quiz.attempts_remaining === 0}
+              >
+                <RotateCcw className="h-4 w-4 mr-2" />
+                {quiz.attempts_remaining === 0 ? 'No Attempts Remaining' : 'Retake Quiz'}
+              </Button>
+            </div>
           </CardContent>
         </Card>
 
@@ -226,13 +249,7 @@ export function QuizDetailPage() {
   if (!showQuiz) {
     return (
       <PageContainer maxWidth="max-w-4xl">
-        <Link
-          to={`/courses/${code}`}
-          className="inline-flex items-center gap-2 text-muted-foreground hover:text-foreground mb-6"
-        >
-          <ChevronLeft className="h-4 w-4" />
-          Back to Course
-        </Link>
+        <BackLink to={backTo} label={backLabel} className="mb-6" />
 
         <Card>
           <CardHeader className="text-center">
@@ -341,9 +358,20 @@ export function QuizDetailPage() {
     <PageContainer maxWidth="max-w-4xl">
       <div className="flex items-center justify-between mb-6">
         <h1 className="text-3xl font-bold">{quiz.title}</h1>
-        <span className="text-sm text-muted-foreground">
-          {Object.keys(selectedAnswers).length} / {quiz.question_count} answered
-        </span>
+        <div className="flex items-center gap-4">
+          <span className="text-sm text-muted-foreground">
+            {Object.keys(selectedAnswers).length} / {quiz.question_count} answered
+          </span>
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => setShowExitConfirm(true)}
+            className="text-muted-foreground hover:text-foreground"
+          >
+            <LogOut className="h-4 w-4 mr-2" />
+            Exit Quiz
+          </Button>
+        </div>
       </div>
 
       <div className="space-y-6">
@@ -384,7 +412,7 @@ export function QuizDetailPage() {
       <div className="mt-8 flex gap-4">
         <Button
           variant="outline"
-          onClick={() => setShowQuiz(false)}
+          onClick={() => setShowExitConfirm(true)}
           className="flex-1"
         >
           Cancel
@@ -404,6 +432,16 @@ export function QuizDetailPage() {
           )}
         </Button>
       </div>
+
+      <ConfirmDialog
+        open={showExitConfirm}
+        onOpenChange={setShowExitConfirm}
+        title="Exit Quiz?"
+        confirmLabel="Exit Quiz"
+        onConfirm={handleExitQuiz}
+      >
+        Are you sure you want to exit? Your answers will be discarded.
+      </ConfirmDialog>
     </PageContainer>
   );
 }
