@@ -173,10 +173,10 @@ export function CoursePlayerPage() {
       lastSavedPositionRef.current = progressData?.video_position || 0;
       lastSavedSectionRef.current = progressData?.current_section || 0;
 
-      // Calculate total sections for resume logic
-      const contentSectionsCount = lessonData.sections?.length || 0;
+      // Calculate total pages for resume logic (legacy content counts as page 1)
+      const contentPageCount = lessonData.sections?.length || 1;
       const hasQuizSection = quizStatusData && quizStatusData.total_questions > 0;
-      const maxSectionIndex = contentSectionsCount + (hasQuizSection ? 1 : 0) - 1;
+      const maxSectionIndex = contentPageCount + (hasQuizSection ? 1 : 0) - 1;
 
       // Resume at saved section
       if (progressData?.current_section !== undefined) {
@@ -219,10 +219,10 @@ export function CoursePlayerPage() {
   const handleSectionChange = useCallback(async (newIndex: number) => {
     if (!currentLesson || isSavingRef.current) return;
 
-    // Calculate total sections (content + quiz if present)
-    const contentSectionsCount = currentLesson.sections?.length || 0;
+    // Calculate total pages (legacy content counts as page 1, + quiz if present)
+    const contentPageCount = currentLesson.sections?.length || 1;
     const hasQuizSection = questionsStatus && questionsStatus.total_questions > 0;
-    const maxIndex = contentSectionsCount + (hasQuizSection ? 1 : 0) - 1;
+    const maxIndex = contentPageCount + (hasQuizSection ? 1 : 0) - 1;
 
     if (newIndex < 0 || newIndex > maxIndex) return;
 
@@ -305,13 +305,20 @@ export function CoursePlayerPage() {
   const handleVideoEnded = useCallback(async () => {
     if (!currentLesson || progress?.completed) return;
 
-    // If there are more sections, don't auto-complete the lesson
-    const sections = currentLesson.sections || [];
-    if (sections.length > 1 && currentSectionIndex < sections.length - 1) {
-      // Just move to next section
+    // Page count including an appended comprehension-quiz page.
+    const contentPageCount = currentLesson.sections?.length || 1;
+    const hasQuizSection = questionsStatus && questionsStatus.total_questions > 0;
+    const totalPages = contentPageCount + (hasQuizSection ? 1 : 0);
+
+    // Not on the final page yet → advance one page (never skip a later quiz).
+    if (currentSectionIndex < totalPages - 1) {
       handleSectionChange(currentSectionIndex + 1);
       return;
     }
+
+    // On the final page with a quiz gate: the quiz page completes the lesson,
+    // so don't auto-complete here (the backend would reject completed:true).
+    if (hasQuizSection) return;
 
     try {
       const updated = await courseService.updateLessonProgress(currentLesson.id, {
@@ -346,7 +353,7 @@ export function CoursePlayerPage() {
     } catch (err) {
       console.error('Failed to mark lesson complete:', err);
     }
-  }, [currentLesson, progress?.completed, course, code, navigate, currentSectionIndex, handleSectionChange]);
+  }, [currentLesson, progress?.completed, course, code, navigate, currentSectionIndex, handleSectionChange, questionsStatus]);
 
   const getPreviousLesson = () => {
     if (!course || !currentLesson) return null;
@@ -372,10 +379,12 @@ export function CoursePlayerPage() {
   const hasContentSections = contentSections.length > 0;
   const hasQuiz = questionsStatus && questionsStatus.total_questions > 0;
 
-  // Total sections = content sections + quiz section (if exists)
-  const totalSections = hasContentSections
-    ? contentSections.length + (hasQuiz ? 1 : 0)
-    : (hasQuiz ? 1 : 0);
+  // Legacy content (no sections) still counts as a single page, so a blob+quiz
+  // lesson is 2 pages (content, then quiz) rather than a quiz-only page.
+  const contentPageCount = hasContentSections ? contentSections.length : 1;
+
+  // Total pages = content pages + quiz page (if a comprehension quiz exists)
+  const totalSections = contentPageCount + (hasQuiz ? 1 : 0);
   const hasSections = totalSections > 1;
 
   // Determine if we're on the quiz section (last section when quiz exists)
