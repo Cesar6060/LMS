@@ -1,89 +1,58 @@
-# Handoff: Phase 22 implementation (navigation & button usability)
+# Handoff: Phase 22 implementation + UI polish (navigation & button usability)
 
 ## Current state
-
-Phase 22 is fully implemented on `feat/phase-22-navigation-usability` and
-open as **PR #10** (https://github.com/Cesar6060/LMS/pull/10) against
-`main` on `Cesar6060/LMS` (remote `lms`). Not yet merged. Commits:
-
-- `c91d37b` feat: phase 22 navigation & button usability (spec A–E)
-- `347ab31` fix: instructor tools layout and readability polish
-- `a54337f` fix: make outline add-lesson/quiz/unit affordances real buttons
-- (this session) docs: PLAN.md/PORTFOLIO.md refresh, spec addendum, this
-  handoff
-
-`/verify-stack`: backend 192 passed, tsc 0 errors, lint 0 errors (24
-pre-existing `exhaustive-deps` warnings, untouched).
-
-## What shipped
-
-- New shared components: `components/ui/ConfirmDialog.tsx`,
-  `components/layout/BackLink.tsx`,
-  `components/instructor/CourseToolsNav.tsx` (new `instructor/` dir).
-- CourseToolsNav adopted at the top of Manage, Gradebook, Roster, Quiz
-  editor; replaces per-page back links and the Manage quick-links row.
-- Header breadcrumb fixes (instructor destinations, roster `/students`
-  branch, discussions + edit-lesson crumbs), mobile My Grades links,
-  mobile Teach overflow, user-menu overflow link.
-- Student vocabulary: "Continue Learning" → player, "View Course" →
-  detail, everywhere. Quiz round trip via `?from=learn&lesson={id}`
-  (player CTA → QuizDetailPage back links + results button). Announcement
-  back link via `?from=course`. In-quiz "Exit Quiz" ConfirmDialog.
-- All native `confirm()`/`alert()` removed from instructor pages;
-  ConfirmDialog everywhere; quiz-editor validation alerts are inline
-  error text.
-- Icon-button `aria-label`/`title` sweep; roster sortable headers are
-  buttons with `aria-sort` on the `th`; hover-only outline controls now
-  `opacity-60 hover:opacity-100`.
-- See the spec's **Implementation addendum** for post-spec UI polish
-  (nav placement, `max-w-6xl`, enrollment-code panel, add buttons).
+Phase 22 fully implemented on `feat/phase-22-navigation-usability`, open as
+**PR #10** (https://github.com/Cesar6060/LMS/pull/10, remote `lms`), unmerged.
+Created: `components/ui/ConfirmDialog.tsx`, `components/layout/BackLink.tsx`,
+`components/instructor/CourseToolsNav.tsx`. Modified: `Header.tsx`,
+`OutlineUnitCard.tsx`, and 15 pages (Dashboard, Courses, CourseDetail,
+CoursePlayer, QuizDetail, MyGrades, Discussions, ThreadDetail, Announcements
+×2, and all 6 instructor pages) — see spec addendum. Four rounds of live
+screenshot feedback landed as follow-up commits (`347ab31`..`d0496cf`).
+Docs: spec checklist + addendum updated; PLAN.md/PORTFOLIO.md refreshed
+(gitignored, local-only). Verified at `1bd86ef`: pytest **192 passed**,
+tsc **0 errors**, lint **0 errors** (24 pre-existing warnings).
 
 ## In progress / not done
-
-- Spec's manual click-through + mobile spot-check items are unchecked —
-  user was clicking through live (their screenshots drove three rounds of
-  polish on the Manage page) but the full checklist wasn't formally run.
-- Stretch items (LessonEditor prev/next, tab-state-in-URL, per-lesson
-  Edit on CourseDetail) intentionally not done.
-- Phase 21 (instructor analytics) remains deferred — spec in
-  `docs/specs/phase-21-instructor-analytics-dashboard.md`.
-
-## Decisions made
-
-- CourseToolsNav sits **above** the page title (sub-nav under global
-  header) on all four instructor pages — mid-implementation user
-  feedback; the in-header placement looked cluttered.
-- User strongly prefers larger type, real buttons over text links, wide
-  instructor pages, and prominent treatment of shareable info (the
-  enrollment code is now a highlighted panel). Apply this bar to future
-  UI work (also captured in Claude's project memory).
-- Manage's Announcements quick link was dropped with the quick-links row
-  (tab set is fixed at five); reachable via Student View.
-- PLAN.md header now points to `docs/specs/` + `docs/handoffs/` as the
-  source of truth for Phase 13+ status; per-phase marks in PLAN.md are
-  stale and were not individually fixed.
-
-## Gotchas discovered
-
-- The host shell's `head` is shadowed by a Perl tool — use `/usr/bin/head`
-  or `sed -n` (recurring; bit again this session).
-- Tailwind can't see dynamically-built class names (`text-${align}`) —
-  use literal conditionals.
-- `lint` has 24 pre-existing `react-hooks/exhaustive-deps` warnings
-  across pages; they predate phase 22. Don't treat them as new.
+- Spec's manual click-through + mobile spot-check items unchecked
+  (`docs/specs/phase-22-navigation-usability.md` Verification) — user
+  spot-checked Manage while iterating, full pass not run.
+- Stretch items untouched (LessonEditor prev/next, tab state in URL,
+  per-lesson Edit on CourseDetail).
 
 ## Next steps
+1. User runs the manual click-through checklist, then merge PR #10.
+2. Delete branch after merge; next phase cut from fresh `lms/main`.
+3. Pick next phase: phase 21 analytics (spec exists, deferred) or phase 22
+   stretch items. Scope with user first.
+4. Any further UI feedback before merge: batch into this PR.
 
-1. User merges PR #10 after their click-through (or reports issues).
-2. Write next phase spec — candidates: phase 21 analytics (deferred), or
-   phase 22 stretch items if navigation friction remains.
-3. If more UI polish feedback arrives, batch it into the open PR before
-   merge rather than a new phase.
+## Decisions made
+- CourseToolsNav sits ABOVE the page title on all 4 instructor pages —
+  in-header placement looked cluttered (screenshot feedback).
+- No single-action overflow menus: quiz rows got a visible trash button;
+  lesson/unit keep ⋮ (they hold Rename + Delete).
+- User's UI bar (applies to all future work): text-base for content, real
+  Buttons over text links, `max-w-6xl` instructor pages, prominent panels
+  for shareable info (enrollment code). Saved to Claude project memory.
+- Manage's Announcements quick link dropped with the quick-links row; tab
+  set fixed at five, announcements reachable via Student View.
+- Dashboard "Manage" uses preventDefault/stopPropagation + navigate, not
+  a nested `<Link>` (invalid HTML inside card Link).
+- PLAN.md header now defers to `docs/specs/` + handoffs for phase 13+
+  status; its per-phase marks remain stale by design.
+
+## Gotchas discovered
+- Host `head` is shadowed by a Perl tool — use `/usr/bin/head` (recurring).
+- Tailwind can't see dynamic class names (`text-${align}`) — literals only.
+- PLAN.md, CLAUDE.md, and top-level `docs/*.md` are gitignored; only
+  `docs/specs/` and `docs/handoffs/` are tracked.
+- Lint's 24 `exhaustive-deps` warnings predate phase 22 — not new.
 
 ## Files to read first
-
-1. `docs/specs/phase-22-navigation-usability.md` — spec + addendum.
-2. `frontend/src/components/instructor/CourseToolsNav.tsx` and
-   `components/ui/ConfirmDialog.tsx` — the new shared patterns to reuse.
-3. `frontend/src/pages/instructor/ManageCoursePage.tsx` — header/panel
-   layout that embodies the user's UI bar.
+1. `docs/specs/phase-22-navigation-usability.md` — spec + implementation
+   addendum (all deviations documented there).
+2. `frontend/src/components/instructor/CourseToolsNav.tsx` — new sub-nav.
+3. `frontend/src/components/ui/ConfirmDialog.tsx` — confirm pattern to reuse.
+4. `frontend/src/pages/instructor/ManageCoursePage.tsx` — embodies the
+   user's UI bar (header panel, outline, dialogs).
