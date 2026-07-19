@@ -8,9 +8,6 @@ import {
   ChevronDown,
   ChevronRight,
   Menu,
-  GraduationCap,
-  PlusCircle,
-  ClipboardList,
   BarChart3,
 } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
@@ -30,11 +27,9 @@ import {
   SheetTitle,
 } from '@/components/ui/Sheet';
 import { NotificationBell } from '@/components/notifications/NotificationBell';
-import { courseService, type InstructorCourse } from '@/services/courses';
+import { courseService } from '@/services/courses';
 import { cn } from '@/lib/utils';
 import type { Enrollment } from '@/types';
-
-const MAX_TEACH_COURSES = 5;
 
 function navLinkClass(active: boolean) {
   return cn(
@@ -50,7 +45,6 @@ export function Header() {
   const navigate = useNavigate();
   const location = useLocation();
   const [enrolledCourses, setEnrolledCourses] = useState<Enrollment[]>([]);
-  const [taughtCourses, setTaughtCourses] = useState<InstructorCourse[]>([]);
   const [mobileOpen, setMobileOpen] = useState(false);
 
   // Load enrolled courses for grades in user menu (students only)
@@ -59,15 +53,6 @@ export function Header() {
       courseService.getMyEnrollments().then(setEnrolledCourses).catch(console.error);
     } else {
       setEnrolledCourses([]);
-    }
-  }, [isAuthenticated, user]);
-
-  // Load owned courses for the Teach menu (instructors only)
-  useEffect(() => {
-    if (isAuthenticated && user?.is_instructor) {
-      courseService.getInstructorCourses().then(setTaughtCourses).catch(console.error);
-    } else {
-      setTaughtCourses([]);
     }
   }, [isAuthenticated, user]);
 
@@ -130,8 +115,6 @@ export function Header() {
   const isDashboardActive = location.pathname === '/dashboard';
   const isCoursesActive =
     location.pathname === '/courses' || location.pathname.startsWith('/courses/');
-  const isTeachActive = location.pathname.startsWith('/instructor');
-  const teachOverflow = taughtCourses.length > MAX_TEACH_COURSES;
 
   return (
     <header className="sticky top-0 z-50 w-full header-gaming">
@@ -153,50 +136,6 @@ export function Header() {
             <Link to="/courses" className={navLinkClass(isCoursesActive)}>
               Courses
             </Link>
-            {user?.is_instructor && (
-              <DropdownMenu>
-                <DropdownMenuTrigger
-                  className={cn(
-                    navLinkClass(isTeachActive),
-                    'flex items-center gap-1 outline-none'
-                  )}
-                >
-                  Teach
-                  <ChevronDown className="h-4 w-4" />
-                </DropdownMenuTrigger>
-                <DropdownMenuContent align="start" className="w-64">
-                  <DropdownMenuItem asChild>
-                    <Link to="/instructor/courses/new">
-                      <PlusCircle className="h-4 w-4" />
-                      Create Course
-                    </Link>
-                  </DropdownMenuItem>
-                  {taughtCourses.length > 0 && (
-                    <>
-                      <DropdownMenuSeparator />
-                      <DropdownMenuLabel>Manage</DropdownMenuLabel>
-                      {taughtCourses.slice(0, MAX_TEACH_COURSES).map((course) => (
-                        <DropdownMenuItem key={course.id} asChild>
-                          <Link to={`/instructor/courses/${course.code}/manage`}>
-                            <ClipboardList className="h-4 w-4" />
-                            <span className="truncate">
-                              {course.code} — {course.title}
-                            </span>
-                          </Link>
-                        </DropdownMenuItem>
-                      ))}
-                      {teachOverflow && (
-                        <DropdownMenuItem asChild>
-                          <Link to="/courses" className="text-muted-foreground">
-                            All courses…
-                          </Link>
-                        </DropdownMenuItem>
-                      )}
-                    </>
-                  )}
-                </DropdownMenuContent>
-              </DropdownMenu>
-            )}
             {/* Contextual breadcrumbs */}
             {breadcrumbs && breadcrumbs.length > 0 && (
               <nav className="hidden md:flex items-center ml-2 text-sm text-muted-foreground">
@@ -352,39 +291,6 @@ export function Header() {
                             <span className="truncate">{enrollment.course.code}</span>
                           </Link>
                         ))}
-                      </>
-                    )}
-                    {user?.is_instructor && (
-                      <>
-                        <div className="flex items-center gap-2 px-3 pt-4 pb-1 text-xs font-medium text-muted-foreground uppercase tracking-wide">
-                          <GraduationCap className="h-4 w-4" />
-                          Teach
-                        </div>
-                        <Link
-                          to="/instructor/courses/new"
-                          className="flex items-center gap-2 px-3 py-3 text-base font-medium rounded-lg text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-colors"
-                        >
-                          <PlusCircle className="h-5 w-5" />
-                          Create Course
-                        </Link>
-                        {taughtCourses.slice(0, MAX_TEACH_COURSES).map((course) => (
-                          <Link
-                            key={course.id}
-                            to={`/instructor/courses/${course.code}/manage`}
-                            className="flex items-center gap-2 px-3 py-3 text-base font-medium rounded-lg text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-colors"
-                          >
-                            <ClipboardList className="h-5 w-5" />
-                            <span className="truncate">{course.code}</span>
-                          </Link>
-                        ))}
-                        {teachOverflow && (
-                          <Link
-                            to="/courses"
-                            className="px-3 py-3 text-base font-medium rounded-lg text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-colors"
-                          >
-                            All courses…
-                          </Link>
-                        )}
                       </>
                     )}
                     <div className="border-t my-3" />

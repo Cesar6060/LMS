@@ -452,7 +452,7 @@ export function ManageCoursePage() {
 
   if (error && !course) {
     return (
-      <PageContainer maxWidth="max-w-6xl">
+      <PageContainer>
         <Card>
           <CardContent className="flex flex-col items-center justify-center py-12">
             <BookOpen className="h-12 w-12 text-muted-foreground mb-4" />
@@ -470,7 +470,7 @@ export function ManageCoursePage() {
   const unitQuizzes = (unitId: number) => quizzes.filter(q => q.unit === unitId);
 
   return (
-    <PageContainer maxWidth="max-w-6xl">
+    <PageContainer>
       {/* Course tools sub-nav */}
       <CourseToolsNav courseCode={course.code} className="mb-6" />
 
