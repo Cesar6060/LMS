@@ -5,7 +5,7 @@ import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { Card, CardHeader, CardTitle, CardDescription, CardContent, CardFooter } from '@/components/ui/Card';
 import { AnimatedBackground } from '@/components/ui/AnimatedBackground';
-import { Gamepad2, Loader2 } from 'lucide-react';
+import { Rocket, Loader2 } from 'lucide-react';
 
 export function LoginPage() {
   const [email, setEmail] = useState('');
@@ -55,7 +55,7 @@ export function LoginPage() {
       <Card className="w-full max-w-md backdrop-blur-sm bg-card/95">
         <CardHeader className="space-y-1 text-center">
           <div className="flex justify-center mb-4">
-            <Gamepad2 className="h-12 w-12 animate-pulse text-primary" style={{ filter: 'drop-shadow(0 0 8px rgba(34,197,94,0.35))' }} />
+            <Rocket className="h-12 w-12 animate-pulse text-primary" style={{ filter: 'drop-shadow(0 0 8px rgba(34,197,94,0.35))' }} />
           </div>
           <CardTitle className="text-2xl text-gradient-gaming" style={{ fontFamily: 'Orbitron, sans-serif' }}>Welcome back</CardTitle>
           <CardDescription>

@@ -3,7 +3,7 @@ import { Link, useNavigate, useLocation } from 'react-router';
 import {
   LogOut,
   User,
-  Gamepad2,
+  Rocket,
   Settings,
   ChevronDown,
   ChevronRight,
@@ -121,9 +121,9 @@ export function Header() {
       <div className="container mx-auto flex h-20 items-center px-6">
         {/* Logo */}
         <Link to="/" className="flex items-center space-x-2.5 group">
-          <Gamepad2 className="h-8 w-8 text-neon-green transition-all" />
+          <Rocket className="h-8 w-8 text-neon-green transition-all" />
           <span className="hidden sm:inline text-2xl font-bold font-gaming text-gradient-gaming">
-            GameDev
+            STEM Quest
           </span>
         </Link>
 
@@ -248,9 +248,9 @@ export function Header() {
                 </SheetTrigger>
                 <SheetContent side="right" className="w-72 p-0" aria-describedby={undefined}>
                   <SheetTitle className="flex items-center gap-2 px-6 py-5 border-b">
-                    <Gamepad2 className="h-6 w-6 text-neon-green" />
+                    <Rocket className="h-6 w-6 text-neon-green" />
                     <span className="font-gaming text-gradient-gaming text-lg font-bold">
-                      GameDev
+                      STEM Quest
                     </span>
                   </SheetTitle>
                   <nav className="flex flex-col px-3 py-4">
