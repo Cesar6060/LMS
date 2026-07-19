@@ -128,7 +128,7 @@ None. Do not touch `backend/`.
 - [x] `grep -rln "container mx-auto" frontend/src/pages` returns nothing
       (all pages on PageContainer; the class lives only inside
       PageContainer itself).
-- [ ] Manual click-through (dark mode, desktop): Dashboard → Courses →
+- [x] Manual click-through (dark mode, desktop): Dashboard → Courses →
       CourseDetail → learning mode (confirm phase-19 layout untouched) →
       Announcements list+detail → Discussions list+thread → MyGrades →
       Settings; as instructor: ManageCourse → Gradebook → Roster →
