@@ -5,6 +5,7 @@ import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { courseService } from '@/services/courses';
 import { Loader2, ChevronLeft } from 'lucide-react';
+import { PageContainer } from '@/components/layout/PageContainer';
 
 export function CreateCoursePage() {
   const navigate = useNavigate();
@@ -42,7 +43,7 @@ export function CreateCoursePage() {
   };
 
   return (
-    <div className="container mx-auto px-4 py-8 max-w-2xl">
+    <PageContainer maxWidth="max-w-2xl">
       <Link to="/courses">
         <Button variant="ghost" size="sm" className="mb-6">
           <ChevronLeft className="h-4 w-4 mr-1" />
@@ -130,6 +131,6 @@ export function CreateCoursePage() {
           </form>
         </CardContent>
       </Card>
-    </div>
+    </PageContainer>
   );
 }

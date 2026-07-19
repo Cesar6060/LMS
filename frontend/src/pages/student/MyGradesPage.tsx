@@ -6,8 +6,10 @@ import { courseService } from '@/services/courses';
 import { isForbidden } from '@/services/api';
 import { AccessDenied } from '@/components/AccessDenied';
 import type { GradeSummary } from '@/types';
+import { PageContainer } from '@/components/layout/PageContainer';
+import { Skeleton } from '@/components/ui/Skeleton';
 import {
-  Loader2, ChevronLeft, Trophy, FileQuestion,
+  ChevronLeft, Trophy, FileQuestion,
   BookOpen, CheckCircle, Clock, AlertCircle
 } from 'lucide-react';
 
@@ -75,11 +77,18 @@ export function MyGradesPage() {
 
   if (isLoading) {
     return (
-      <div className="container mx-auto px-4 py-8 max-w-6xl">
-        <div className="flex items-center justify-center py-12">
-          <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+      <PageContainer maxWidth="max-w-6xl">
+        <Skeleton className="h-4 w-32 mb-6" />
+        <Skeleton className="h-9 w-48 mb-2" />
+        <Skeleton className="h-5 w-64 mb-6" />
+        <Skeleton className="h-28 w-full mb-6" />
+        <div className="grid gap-4 md:grid-cols-3 mb-6">
+          <Skeleton className="h-24" />
+          <Skeleton className="h-24" />
+          <Skeleton className="h-24" />
         </div>
-      </div>
+        <Skeleton className="h-64 w-full" />
+      </PageContainer>
     );
   }
 
@@ -89,7 +98,7 @@ export function MyGradesPage() {
 
   if (error || !grades) {
     return (
-      <div className="container mx-auto px-4 py-8 max-w-6xl">
+      <PageContainer maxWidth="max-w-6xl">
         <Card>
           <CardContent className="py-12 text-center">
             <AlertCircle className="h-12 w-12 text-destructive mx-auto mb-4" />
@@ -101,14 +110,14 @@ export function MyGradesPage() {
             </Link>
           </CardContent>
         </Card>
-      </div>
+      </PageContainer>
     );
   }
 
   const gradeItems = grades.grade_items || [];
 
   return (
-    <div className="container mx-auto px-4 py-8 max-w-6xl">
+    <PageContainer maxWidth="max-w-6xl">
       {/* Header */}
       <Link
         to={`/courses/${code}`}
@@ -118,7 +127,7 @@ export function MyGradesPage() {
         Back to Course
       </Link>
 
-      <h1 className="text-2xl font-bold mb-2">My Grades</h1>
+      <h1 className="text-3xl font-bold mb-2">My Grades</h1>
       <p className="text-muted-foreground mb-6">{grades.course?.title || ''}</p>
 
       {/* Overall Grade Card */}
@@ -196,8 +205,12 @@ export function MyGradesPage() {
       {/* Quiz Grades Table */}
       {gradeItems.length === 0 ? (
         <Card>
-          <CardContent className="py-12 text-center text-muted-foreground">
-            No quizzes in this course yet.
+          <CardContent className="py-12 text-center">
+            <FileQuestion className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
+            <h3 className="text-lg font-semibold mb-2">No Quizzes Yet</h3>
+            <p className="text-muted-foreground">
+              Grades will appear here once your instructor adds quizzes.
+            </p>
           </CardContent>
         </Card>
       ) : (
@@ -290,6 +303,6 @@ export function MyGradesPage() {
           </div>
         </CardContent>
       </Card>
-    </div>
+    </PageContainer>
   );
 }

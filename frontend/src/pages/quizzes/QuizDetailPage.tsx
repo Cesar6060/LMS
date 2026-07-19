@@ -7,6 +7,8 @@ import { isForbidden } from '@/services/api';
 import { AccessDenied } from '@/components/AccessDenied';
 import { useAuth } from '@/contexts/AuthContext';
 import type { Quiz, QuizAttempt } from '@/types';
+import { PageContainer } from '@/components/layout/PageContainer';
+import { Skeleton } from '@/components/ui/Skeleton';
 import {
   Loader2, CheckCircle, XCircle, Trophy, RotateCcw,
   ChevronLeft, FileQuestion, Target, Clock
@@ -88,11 +90,13 @@ export function QuizDetailPage() {
 
   if (isLoading) {
     return (
-      <div className="container mx-auto px-4 py-8 max-w-4xl">
-        <div className="flex items-center justify-center py-12">
-          <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
-        </div>
-      </div>
+      <PageContainer maxWidth="max-w-4xl">
+        <Skeleton className="h-4 w-32 mb-6" />
+        <Skeleton className="h-9 w-2/3 mb-2" />
+        <Skeleton className="h-5 w-1/3 mb-6" />
+        <Skeleton className="h-40 w-full mb-4" />
+        <Skeleton className="h-40 w-full" />
+      </PageContainer>
     );
   }
 
@@ -102,13 +106,13 @@ export function QuizDetailPage() {
 
   if (error || !quiz) {
     return (
-      <div className="container mx-auto px-4 py-8 max-w-4xl">
+      <PageContainer maxWidth="max-w-4xl">
         <Card>
           <CardContent className="py-12 text-center">
             <p className="text-destructive">{error || 'Quiz not found'}</p>
           </CardContent>
         </Card>
-      </div>
+      </PageContainer>
     );
   }
 
@@ -116,7 +120,7 @@ export function QuizDetailPage() {
   if (result) {
     const passed = result.passed;
     return (
-      <div className="container mx-auto px-4 py-8 max-w-4xl">
+      <PageContainer maxWidth="max-w-4xl">
         <Link
           to={`/courses/${code}`}
           className="inline-flex items-center gap-2 text-muted-foreground hover:text-foreground mb-6"
@@ -214,14 +218,14 @@ export function QuizDetailPage() {
             </Card>
           ))}
         </div>
-      </div>
+      </PageContainer>
     );
   }
 
   // Show quiz intro (not started)
   if (!showQuiz) {
     return (
-      <div className="container mx-auto px-4 py-8 max-w-4xl">
+      <PageContainer maxWidth="max-w-4xl">
         <Link
           to={`/courses/${code}`}
           className="inline-flex items-center gap-2 text-muted-foreground hover:text-foreground mb-6"
@@ -325,7 +329,7 @@ export function QuizDetailPage() {
             )}
           </CardContent>
         </Card>
-      </div>
+      </PageContainer>
     );
   }
 
@@ -334,9 +338,9 @@ export function QuizDetailPage() {
     quiz.questions.every(q => selectedAnswers[q.id.toString()]);
 
   return (
-    <div className="container mx-auto px-4 py-8 max-w-4xl">
+    <PageContainer maxWidth="max-w-4xl">
       <div className="flex items-center justify-between mb-6">
-        <h1 className="text-2xl font-bold">{quiz.title}</h1>
+        <h1 className="text-3xl font-bold">{quiz.title}</h1>
         <span className="text-sm text-muted-foreground">
           {Object.keys(selectedAnswers).length} / {quiz.question_count} answered
         </span>
@@ -400,6 +404,6 @@ export function QuizDetailPage() {
           )}
         </Button>
       </div>
-    </div>
+    </PageContainer>
   );
 }

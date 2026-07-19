@@ -209,14 +209,14 @@ export function WeekCalendar({ onAddReminder, onEditReminder }: WeekCalendarProp
               key={dateStr}
               className={`min-h-[140px] p-2 rounded-lg border transition-colors ${
                 today
-                  ? 'border-[#22c55e]/50 bg-[#22c55e]/5'
+                  ? 'border-primary/50 bg-primary/5'
                   : 'border-border/50 hover:border-border'
               }`}
             >
               <div className="flex items-center justify-between mb-1">
                 <span
                   className={`text-sm font-medium ${
-                    today ? 'text-[#22c55e]' : 'text-muted-foreground'
+                    today ? 'text-primary' : 'text-muted-foreground'
                   }`}
                 >
                   {date.getDate()}
@@ -236,7 +236,7 @@ export function WeekCalendar({ onAddReminder, onEditReminder }: WeekCalendarProp
                   <div
                     key={event.id}
                     onClick={() => handleEventClick(event)}
-                    className={`text-[10px] px-1.5 py-1 rounded border cursor-pointer hover:opacity-80 ${getEventColorClass(event.color)}`}
+                    className={`text-xs px-1.5 py-1 rounded border cursor-pointer hover:opacity-80 ${getEventColorClass(event.color)}`}
                     title={`${event.title}${event.time ? ` at ${formatTime(event.time)}` : ''}`}
                   >
                     <div className="flex items-center gap-1">
@@ -251,7 +251,7 @@ export function WeekCalendar({ onAddReminder, onEditReminder }: WeekCalendarProp
                 {dayEvents.length > 4 && (
                   <button
                     onClick={() => toggleDayExpanded(dateStr)}
-                    className="w-full text-[10px] text-muted-foreground hover:text-foreground py-0.5 rounded hover:bg-muted/50 transition-colors"
+                    className="w-full text-xs text-muted-foreground hover:text-foreground py-0.5 rounded hover:bg-muted/50 transition-colors"
                   >
                     {expandedDays.has(dateStr) ? 'Show less' : `+${dayEvents.length - 4} more`}
                   </button>
@@ -265,7 +265,7 @@ export function WeekCalendar({ onAddReminder, onEditReminder }: WeekCalendarProp
       {/* Loading Overlay */}
       {isLoading && (
         <div className="absolute inset-0 bg-background/50 flex items-center justify-center rounded-xl">
-          <div className="animate-spin h-6 w-6 border-2 border-[#22c55e] border-t-transparent rounded-full" />
+          <div className="animate-spin h-6 w-6 border-2 border-primary border-t-transparent rounded-full" />
         </div>
       )}
 

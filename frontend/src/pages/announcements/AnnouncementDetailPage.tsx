@@ -17,6 +17,7 @@ import {
 } from '@/components/ui/Dialog';
 import { Input } from '@/components/ui/Input';
 import ReactMarkdown from 'react-markdown';
+import { PageContainer } from '@/components/layout/PageContainer';
 
 export function AnnouncementDetailPage() {
   const { code, announcementId } = useParams<{ code: string; announcementId: string }>();
@@ -110,7 +111,7 @@ export function AnnouncementDetailPage() {
 
   if (isLoading) {
     return (
-      <div className="container mx-auto px-4 py-8 max-w-3xl">
+      <PageContainer maxWidth="max-w-3xl">
         <Skeleton className="h-4 w-32 mb-6" />
         <Skeleton className="h-8 w-3/4 mb-4" />
         <div className="flex items-center gap-4 mb-6">
@@ -118,13 +119,13 @@ export function AnnouncementDetailPage() {
           <Skeleton className="h-4 w-32" />
         </div>
         <Skeleton className="h-64 w-full" />
-      </div>
+      </PageContainer>
     );
   }
 
   if (error || !announcement) {
     return (
-      <div className="container mx-auto px-4 py-8">
+      <PageContainer maxWidth="max-w-3xl">
         <Card>
           <CardContent className="py-12 text-center">
             <Megaphone className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
@@ -135,12 +136,12 @@ export function AnnouncementDetailPage() {
             </Link>
           </CardContent>
         </Card>
-      </div>
+      </PageContainer>
     );
   }
 
   return (
-    <div className="container mx-auto px-4 py-8 max-w-3xl">
+    <PageContainer maxWidth="max-w-3xl">
       {/* Back Link */}
       <Link
         to={`/courses/${code}/announcements`}
@@ -157,7 +158,7 @@ export function AnnouncementDetailPage() {
             {announcement.is_pinned && (
               <Pin className="h-5 w-5 text-primary" />
             )}
-            <h1 className="text-2xl font-bold">{announcement.title}</h1>
+            <h1 className="text-3xl font-bold">{announcement.title}</h1>
           </div>
           <div className="flex items-center gap-4 text-sm text-muted-foreground">
             <span className="flex items-center gap-1">
@@ -292,6 +293,6 @@ export function AnnouncementDetailPage() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
-    </div>
+    </PageContainer>
   );
 }

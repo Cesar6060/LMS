@@ -243,7 +243,7 @@ export function AddReminderModal({
 
   if (!open) return null;
 
-  const selectClass = "px-3 py-2 rounded-lg border border-border bg-background focus:outline-none focus:ring-2 focus:ring-[#22c55e]/50 focus:border-[#22c55e]/50 appearance-none cursor-pointer";
+  const selectClass = "px-3 py-2 rounded-lg border border-border bg-background focus:outline-none focus:ring-2 focus:ring-primary/50 focus:border-primary/50 appearance-none cursor-pointer";
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center">
@@ -258,7 +258,7 @@ export function AddReminderModal({
         {/* Header */}
         <div className="flex items-center justify-between p-4 border-b border-border">
           <div className="flex items-center gap-2">
-            <Calendar className="h-5 w-5 text-[#22c55e]" />
+            <Calendar className="h-5 w-5 text-primary" />
             <h2 className="text-lg font-semibold">{isEditing ? 'Edit Reminder' : 'Add Reminder'}</h2>
           </div>
           <button
@@ -294,7 +294,7 @@ export function AddReminderModal({
               value={title}
               onChange={(e) => setTitle(e.target.value)}
               placeholder="e.g., Review quiz scores, Parent meeting..."
-              className="w-full px-3 py-2 rounded-lg border border-border bg-background focus:outline-none focus:ring-2 focus:ring-[#22c55e]/50 focus:border-[#22c55e]/50"
+              className="w-full px-3 py-2 rounded-lg border border-border bg-background focus:outline-none focus:ring-2 focus:ring-primary/50 focus:border-primary/50"
               autoFocus
               disabled={isSubmitting}
               maxLength={200}
@@ -311,7 +311,7 @@ export function AddReminderModal({
               onChange={(e) => setDescription(e.target.value)}
               placeholder="Add any additional details..."
               rows={2}
-              className="w-full px-3 py-2 rounded-lg border border-border bg-background focus:outline-none focus:ring-2 focus:ring-[#22c55e]/50 focus:border-[#22c55e]/50 resize-none"
+              className="w-full px-3 py-2 rounded-lg border border-border bg-background focus:outline-none focus:ring-2 focus:ring-primary/50 focus:border-primary/50 resize-none"
               disabled={isSubmitting}
             />
           </div>

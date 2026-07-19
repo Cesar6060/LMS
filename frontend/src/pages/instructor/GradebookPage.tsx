@@ -8,8 +8,9 @@ import { AccessDenied } from '@/components/AccessDenied';
 import { Skeleton } from '@/components/ui/Skeleton';
 import { EditableGradeCell } from '@/components/gradebook/EditableGradeCell';
 import { GradingConfigModal } from '@/components/course/GradingConfigModal';
+import { PageContainer } from '@/components/layout/PageContainer';
 import {
-  ChevronLeft, Download, Table, AlertCircle, FileQuestion, BookOpen, Settings
+  ChevronLeft, Download, Table, AlertCircle, FileQuestion, BookOpen, Settings, Users
 } from 'lucide-react';
 
 export function GradebookPage() {
@@ -120,13 +121,13 @@ export function GradebookPage() {
 
   if (isLoading) {
     return (
-      <div className="container mx-auto px-4 py-8">
+      <PageContainer>
         <div className="mb-6">
           <Skeleton className="h-4 w-32 mb-4" />
           <Skeleton className="h-8 w-64 mb-2" />
         </div>
         <Skeleton className="h-96 w-full" />
-      </div>
+      </PageContainer>
     );
   }
 
@@ -136,7 +137,7 @@ export function GradebookPage() {
 
   if (error || !gradebook) {
     return (
-      <div className="container mx-auto px-4 py-8">
+      <PageContainer>
         <Card>
           <CardContent className="py-12 text-center">
             <AlertCircle className="h-12 w-12 text-destructive mx-auto mb-4" />
@@ -147,12 +148,12 @@ export function GradebookPage() {
             </Link>
           </CardContent>
         </Card>
-      </div>
+      </PageContainer>
     );
   }
 
   return (
-    <div className="container mx-auto px-4 py-8">
+    <PageContainer>
       {/* Header */}
       <div className="mb-8">
         <Link
@@ -165,7 +166,7 @@ export function GradebookPage() {
 
         <div className="flex items-start justify-between">
           <div>
-            <h1 className="text-2xl font-bold flex items-center gap-2">
+            <h1 className="text-3xl font-bold flex items-center gap-2">
               <Table className="h-6 w-6" />
               Gradebook
             </h1>
@@ -213,14 +214,28 @@ export function GradebookPage() {
       {/* Gradebook Table */}
       {gradebook.students.length === 0 ? (
         <Card>
-          <CardContent className="py-12 text-center text-muted-foreground">
-            No students enrolled in this course yet.
+          <CardContent className="py-12 text-center">
+            <Users className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
+            <h3 className="text-lg font-semibold mb-2">No Students Enrolled</h3>
+            <p className="text-muted-foreground">
+              Grades will appear here once students join the course.
+            </p>
+            <Link to={`/instructor/courses/${code}/students`}>
+              <Button className="mt-4">Go to Roster</Button>
+            </Link>
           </CardContent>
         </Card>
       ) : !gradebook.has_quizzes ? (
         <Card>
-          <CardContent className="py-12 text-center text-muted-foreground">
-            No quizzes created yet.
+          <CardContent className="py-12 text-center">
+            <FileQuestion className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
+            <h3 className="text-lg font-semibold mb-2">No Quizzes Yet</h3>
+            <p className="text-muted-foreground">
+              Create a quiz to start collecting grades.
+            </p>
+            <Link to={`/instructor/courses/${code}/quizzes`}>
+              <Button className="mt-4">Create Quiz</Button>
+            </Link>
           </CardContent>
         </Card>
       ) : (
@@ -322,6 +337,6 @@ export function GradebookPage() {
         isOpen={showConfigModal}
         onClose={handleConfigClose}
       />
-    </div>
+    </PageContainer>
   );
 }

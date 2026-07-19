@@ -59,13 +59,21 @@ export default {
         mono: ['JetBrains Mono', 'Fira Code', 'monospace'],
         gaming: ['Orbitron', 'sans-serif'],
       },
+      // Raised type scale (phase 20): xs-lg sit one notch above Tailwind
+      // defaults; xl and up keep the stock values.
+      fontSize: {
+        xs: ['0.8125rem', { lineHeight: '1.125rem' }],
+        sm: ['0.9375rem', { lineHeight: '1.375rem' }],
+        base: ['1.0625rem', { lineHeight: '1.625rem' }],
+        lg: ['1.1875rem', { lineHeight: '1.75rem' }],
+      },
       boxShadow: {
-        'neon-green': '0 0 10px #22c55e, 0 0 20px #22c55e40, 0 0 30px #22c55e20',
-        'neon-cyan': '0 0 10px #06b6d4, 0 0 20px #06b6d440, 0 0 30px #06b6d420',
-        'neon-yellow': '0 0 10px #fbbf24, 0 0 20px #fbbf2440',
-        'neon-purple': '0 0 10px #a855f7, 0 0 20px #a855f740',
-        'glow': '0 0 20px rgba(34, 197, 94, 0.3)',
-        'glow-lg': '0 0 40px rgba(34, 197, 94, 0.4)',
+        'neon-green': '0 0 8px #22c55e66, 0 0 16px #22c55e33',
+        'neon-cyan': '0 0 8px #06b6d466, 0 0 16px #06b6d433',
+        'neon-yellow': '0 0 8px #fbbf2466, 0 0 16px #fbbf2433',
+        'neon-purple': '0 0 8px #a855f766, 0 0 16px #a855f733',
+        'glow': '0 0 16px rgba(34, 197, 94, 0.2)',
+        'glow-lg': '0 0 32px rgba(34, 197, 94, 0.25)',
       },
       animation: {
         'pulse-glow': 'pulse-glow 2s ease-in-out infinite',
@@ -75,8 +83,8 @@ export default {
       },
       keyframes: {
         'pulse-glow': {
-          '0%, 100%': { boxShadow: '0 0 10px #22c55e, 0 0 20px #22c55e40' },
-          '50%': { boxShadow: '0 0 20px #22c55e, 0 0 40px #22c55e60' },
+          '0%, 100%': { boxShadow: '0 0 8px #22c55e59, 0 0 16px #22c55e26' },
+          '50%': { boxShadow: '0 0 14px #22c55e8c, 0 0 28px #22c55e40' },
         },
         'flicker': {
           '0%, 100%': { opacity: '1' },

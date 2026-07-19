@@ -8,6 +8,7 @@ import { quizzesService } from '@/services/quizzes';
 import { isForbidden } from '@/services/api';
 import { AccessDenied } from '@/components/AccessDenied';
 import type { Quiz, Question } from '@/types';
+import { PageContainer } from '@/components/layout/PageContainer';
 import {
   Loader2, ChevronLeft, Plus, Trash2, FileQuestion,
   Check, X
@@ -300,11 +301,11 @@ export function QuizEditorPage() {
 
   if (isLoading) {
     return (
-      <div className="container mx-auto px-4 py-8 max-w-4xl">
+      <PageContainer maxWidth="max-w-4xl">
         <div className="flex items-center justify-center py-12">
           <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
         </div>
-      </div>
+      </PageContainer>
     );
   }
 
@@ -314,13 +315,13 @@ export function QuizEditorPage() {
 
   if (error || !course) {
     return (
-      <div className="container mx-auto px-4 py-8 max-w-4xl">
+      <PageContainer maxWidth="max-w-4xl">
         <Card>
           <CardContent className="py-12 text-center">
             <p className="text-destructive">{error || 'Course not found'}</p>
           </CardContent>
         </Card>
-      </div>
+      </PageContainer>
     );
   }
 
@@ -331,7 +332,7 @@ export function QuizEditorPage() {
   });
 
   return (
-    <div className="container mx-auto px-4 py-8 max-w-4xl">
+    <PageContainer maxWidth="max-w-4xl">
       {/* Header */}
       <div className="mb-6">
         <Link
@@ -341,7 +342,7 @@ export function QuizEditorPage() {
           <ChevronLeft className="h-4 w-4" />
           Back to Manage Course
         </Link>
-        <h1 className="text-2xl font-bold flex items-center gap-3">
+        <h1 className="text-3xl font-bold flex items-center gap-3">
           <FileQuestion className="h-6 w-6" />
           Manage Quizzes
         </h1>
@@ -627,6 +628,6 @@ export function QuizEditorPage() {
           </form>
         </DialogContent>
       </Dialog>
-    </div>
+    </PageContainer>
   );
 }

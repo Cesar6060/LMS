@@ -134,7 +134,7 @@ export function MakeAnnouncementModal({
         {/* Header */}
         <div className="flex items-center justify-between p-4 border-b border-border">
           <div className="flex items-center gap-2">
-            <Megaphone className="h-5 w-5 text-[#06b6d4]" />
+            <Megaphone className="h-5 w-5 text-accent" />
             <h2 className="text-lg font-semibold">Make Announcement</h2>
           </div>
           <button
@@ -175,7 +175,7 @@ export function MakeAnnouncementModal({
                     return (
                       <span
                         key={courseId}
-                        className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-[#06b6d4]/10 border border-[#06b6d4]/30 text-sm"
+                        className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-accent/10 border border-accent/30 text-sm"
                       >
                         {course.code}
                         <button
@@ -196,7 +196,7 @@ export function MakeAnnouncementModal({
                   <button
                     type="button"
                     onClick={selectAllCourses}
-                    className="text-xs text-[#06b6d4] hover:underline"
+                    className="text-xs text-accent hover:underline"
                   >
                     {selectedCourses.length === courses.length ? 'Clear All' : 'Select All'}
                   </button>
@@ -207,7 +207,7 @@ export function MakeAnnouncementModal({
                         key={course.id}
                         type="button"
                         onClick={() => toggleCourse(course.id)}
-                        className="text-xs px-2 py-0.5 rounded border border-border hover:border-[#06b6d4]/50 hover:bg-[#06b6d4]/5 transition-colors"
+                        className="text-xs px-2 py-0.5 rounded border border-border hover:border-accent/50 hover:bg-accent/5 transition-colors"
                       >
                         + {course.code}
                       </button>
@@ -249,7 +249,7 @@ export function MakeAnnouncementModal({
               <div
                 className={`w-4 h-4 rounded border-2 flex items-center justify-center transition-colors ${
                   isPinned
-                    ? 'bg-[#06b6d4] border-[#06b6d4]'
+                    ? 'bg-accent border-accent'
                     : 'border-muted-foreground'
                 }`}
                 onClick={() => setIsPinned(!isPinned)}
@@ -263,7 +263,7 @@ export function MakeAnnouncementModal({
               <div
                 className={`w-4 h-4 rounded border-2 flex items-center justify-center transition-colors ${
                   sendEmail
-                    ? 'bg-[#06b6d4] border-[#06b6d4]'
+                    ? 'bg-accent border-accent'
                     : 'border-muted-foreground'
                 }`}
                 onClick={() => setSendEmail(!sendEmail)}
