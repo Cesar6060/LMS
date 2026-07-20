@@ -40,6 +40,15 @@ class LessonSectionCreateSerializer(serializers.ModelSerializer):
         read_only_fields = ['id']
 
 
+class LessonSectionBulkCreateSerializer(serializers.Serializer):
+    """Wrapper for atomically creating many sections at once (paste-to-split).
+
+    Incoming per-child ``order`` is ignored — the view assigns sequential order
+    appended after any existing sections. Bounded to 50 sections per request.
+    """
+    sections = LessonSectionCreateSerializer(many=True, min_length=1, max_length=50)
+
+
 class RequiredQuizSerializer(serializers.Serializer):
     """Lightweight serializer for required quiz info."""
     id = serializers.IntegerField()

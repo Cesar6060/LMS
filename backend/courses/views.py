@@ -20,7 +20,8 @@ from .serializers import (
     AnnouncementListSerializer, AnnouncementCreateSerializer,
     StudentRosterSerializer, LessonQuestionSerializer, LessonQuestionStudentSerializer,
     LessonQuestionCreateSerializer, AnswerQuestionSerializer, LessonAttachmentSerializer,
-    LessonSectionSerializer, LessonSectionCreateSerializer
+    LessonSectionSerializer, LessonSectionCreateSerializer,
+    LessonSectionBulkCreateSerializer
 )
 from rest_framework.exceptions import PermissionDenied
 from .permissions import (
@@ -2063,6 +2064,48 @@ def lesson_sections_reorder(request, lesson_id):
     sections = lesson.sections.all().order_by('order')
     serializer = LessonSectionSerializer(sections, many=True)
     return Response(serializer.data)
+
+
+@api_view(['POST'])
+@perm_classes([IsAuthenticated])
+def lesson_sections_bulk_create(request, lesson_id):
+    """
+    Atomically create many sections at once (paste-to-split authoring).
+    Expects: { "sections": [{ "title", "content", "video_type", "video_id" }, ...] }
+    New sections are appended after existing ones with server-assigned order.
+    All-or-nothing: a single invalid child rolls back the whole batch (400).
+    """
+    lesson = get_object_or_404(Lesson, pk=lesson_id)
+    course = lesson.unit.course
+
+    require_course_instructor(
+        request.user, course,
+        "Only instructors can create sections."
+    )
+
+    serializer = LessonSectionBulkCreateSerializer(data=request.data)
+    if not serializer.is_valid():
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+    sections_data = serializer.validated_data['sections']
+
+    with transaction.atomic():
+        max_order = lesson.sections.aggregate(Max('order'))['order__max']
+        start_order = (max_order or -1) + 1
+
+        created = []
+        for i, data in enumerate(sections_data):
+            data.pop('order', None)  # server assigns order; ignore any incoming value
+            created.append(
+                LessonSection.objects.create(
+                    lesson=lesson, order=start_order + i, **data
+                )
+            )
+
+    return Response(
+        LessonSectionSerializer(created, many=True).data,
+        status=status.HTTP_201_CREATED
+    )
 
 
 # ============================================

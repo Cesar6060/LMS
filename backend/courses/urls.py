@@ -57,6 +57,7 @@ urlpatterns = [
 
     # Lesson Sections (Phase 17: Lesson Pagination)
     path('lessons/<int:lesson_id>/sections/', views.lesson_sections, name='lesson-sections'),
+    path('lessons/<int:lesson_id>/sections/bulk/', views.lesson_sections_bulk_create, name='lesson-sections-bulk-create'),
     path('lessons/<int:lesson_id>/sections/<int:section_id>/', views.lesson_section_detail, name='lesson-section-detail'),
     path('lessons/<int:lesson_id>/sections/reorder/', views.lesson_sections_reorder, name='lesson-sections-reorder'),
 

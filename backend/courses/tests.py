@@ -1454,6 +1454,105 @@ class TestLessonSections:
         )
         assert reorder_resp.status_code == status.HTTP_403_FORBIDDEN
 
+    # ---- Bulk create (paste-to-split, Phase 29) ----
+
+    def test_bulk_create_appends_from_empty(self, api_client, instructor, lesson):
+        """Instructor bulk-creates 3 sections on a lesson with 0 existing → 201, order 0,1,2."""
+        api_client.force_authenticate(user=instructor)
+        response = api_client.post(
+            f'/api/courses/lessons/{lesson.id}/sections/bulk/',
+            {'sections': [
+                {'title': 'One', 'content': 'a'},
+                {'title': 'Two', 'content': 'b'},
+                {'title': 'Three', 'content': 'c'},
+            ]},
+            format='json',
+        )
+        assert response.status_code == status.HTTP_201_CREATED
+        assert len(response.data) == 3
+        assert [s['order'] for s in response.data] == [0, 1, 2]
+        assert [s['title'] for s in response.data] == ['One', 'Two', 'Three']
+
+    def test_bulk_create_appends_after_existing(self, api_client, instructor, lesson):
+        """New sections append after existing ones without unique_together collision."""
+        LessonSection.objects.create(lesson=lesson, title='Existing 0', order=0)
+        LessonSection.objects.create(lesson=lesson, title='Existing 1', order=1)
+
+        api_client.force_authenticate(user=instructor)
+        response = api_client.post(
+            f'/api/courses/lessons/{lesson.id}/sections/bulk/',
+            {'sections': [
+                {'title': 'New A', 'content': 'a'},
+                {'title': 'New B', 'content': 'b'},
+            ]},
+            format='json',
+        )
+        assert response.status_code == status.HTTP_201_CREATED
+        assert [s['order'] for s in response.data] == [2, 3]
+        assert lesson.sections.count() == 4
+
+    def test_bulk_create_is_atomic_on_invalid_child(self, api_client, instructor, lesson):
+        """A batch with one invalid section → 400 and zero sections created (rollback)."""
+        before = lesson.sections.count()
+        api_client.force_authenticate(user=instructor)
+        response = api_client.post(
+            f'/api/courses/lessons/{lesson.id}/sections/bulk/',
+            {'sections': [
+                {'title': 'Valid', 'content': 'ok'},
+                {'title': 'Bad', 'content': 'x', 'video_type': 'not_a_real_choice'},
+            ]},
+            format='json',
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert lesson.sections.count() == before
+
+    def test_bulk_create_empty_list_rejected(self, api_client, instructor, lesson):
+        api_client.force_authenticate(user=instructor)
+        response = api_client.post(
+            f'/api/courses/lessons/{lesson.id}/sections/bulk/',
+            {'sections': []},
+            format='json',
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert lesson.sections.count() == 0
+
+    def test_bulk_create_student_forbidden(self, api_client, student, lesson, enrollment):
+        api_client.force_authenticate(user=student)
+        response = api_client.post(
+            f'/api/courses/lessons/{lesson.id}/sections/bulk/',
+            {'sections': [{'title': 'Nope', 'content': 'x'}]},
+            format='json',
+        )
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+        assert lesson.sections.count() == 0
+
+    def test_bulk_create_unauthenticated_rejected(self, api_client, lesson):
+        response = api_client.post(
+            f'/api/courses/lessons/{lesson.id}/sections/bulk/',
+            {'sections': [{'title': 'Nope', 'content': 'x'}]},
+            format='json',
+        )
+        assert response.status_code == status.HTTP_401_UNAUTHORIZED
+        assert lesson.sections.count() == 0
+
+    def test_bulk_create_wrong_course_instructor_forbidden(self, api_client, lesson):
+        """An instructor who does not own this course cannot bulk-create sections."""
+        other = User.objects.create_user(
+            email='other-instructor@test.com',
+            password='testpass123',
+            first_name='Other',
+            last_name='Instructor',
+            is_instructor=True,
+        )
+        api_client.force_authenticate(user=other)
+        response = api_client.post(
+            f'/api/courses/lessons/{lesson.id}/sections/bulk/',
+            {'sections': [{'title': 'Nope', 'content': 'x'}]},
+            format='json',
+        )
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+        assert lesson.sections.count() == 0
+
 
 @pytest.mark.django_db
 class TestLessonCompletionGating:

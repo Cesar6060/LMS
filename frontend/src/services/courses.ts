@@ -529,6 +529,19 @@ export const courseService = {
     return response.data;
   },
 
+  async bulkCreateLessonSections(lessonId: number, sections: Array<{
+    title?: string;
+    content?: string;
+    video_type?: 'none' | 'youtube' | 'vimeo';
+    video_id?: string;
+  }>): Promise<LessonSection[]> {
+    const response = await api.post<LessonSection[]>(
+      `/courses/lessons/${lessonId}/sections/bulk/`,
+      { sections }
+    );
+    return response.data;
+  },
+
   async updateLessonSection(lessonId: number, sectionId: number, data: {
     title?: string;
     content?: string;
