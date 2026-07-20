@@ -79,9 +79,9 @@ phase — code and workflow files only.
 
 - [x] Local `/verify-stack` still green before pushing (pytest 346, tsc 0
       errors, lint 0 errors / 22 warnings).
-- [ ] Push the branch, open a PR against `lms/main`: both `backend` and
+- [x] Push the branch, open a PR against `lms/main`: both `backend` and
       `frontend` jobs run and pass on the PR.
-- [ ] Sanity-check the gate actually gates: push a temporary commit with a
+- [x] Sanity-check the gate actually gates: push a temporary commit with a
       deliberately failing assert in `backend/courses/tests.py` → backend job
       goes red on the PR; revert the commit → green again. (Two throwaway
       commits on the PR branch; revert before merge.)
