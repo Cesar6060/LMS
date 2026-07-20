@@ -15,6 +15,7 @@ from django.db import transaction
 from django.db.models import F
 from django.utils import timezone
 
+from .avatar_catalog import CATALOG, SLOTS, SLOT_DEFAULTS, get_item
 from .leveling import level_for_xp, level_progress
 from .models import GameProfile, XPEvent, Badge, UserBadge
 
@@ -251,10 +252,35 @@ def award_lesson_quiz_pass(user, lesson, today=None):
     return _award(user, XPEvent.SOURCE_LESSON_QUIZ, lesson.id, XP_LESSON_QUIZ, today=today)
 
 
+def avatar_payload(profile):
+    """
+    The avatar block for a student's profile (Phase 33). ``unlocked`` is
+    derived from the profile's level; an equipped key that no longer exists
+    in the catalog resolves to the slot default.
+    """
+    level = profile.level
+    equipped = {}
+    for slot in SLOTS:
+        key = getattr(profile, f'avatar_{slot}')
+        item = get_item(slot, key)
+        if item is None or level < item['required_level']:
+            key = SLOT_DEFAULTS[slot]
+        equipped[slot] = key
+    return {
+        'mascot_name': profile.mascot_name,
+        'equipped': equipped,
+        'catalog': [
+            {**item, 'unlocked': level >= item['required_level']}
+            for item in CATALOG
+        ],
+    }
+
+
 def profile_payload(profile):
     """
     Build the read-endpoint dict for a student's GameProfile (level ring +
-    streak fields). Badge lists are attached by the serializer/view.
+    streak fields + avatar block). Badge lists are attached by the
+    serializer/view.
     """
     ring = level_progress(profile.total_xp)
     return {
@@ -263,5 +289,6 @@ def profile_payload(profile):
         'longest_streak': profile.longest_streak,
         'last_activity_date': profile.last_activity_date,
         'streak_freezes': profile.streak_freezes,
+        'avatar': avatar_payload(profile),
         **ring,
     }

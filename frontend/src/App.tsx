@@ -1,5 +1,6 @@
 import { Routes, Route, Navigate, useLocation, useParams, useSearchParams } from 'react-router';
 import { useAuth } from '@/contexts/AuthContext';
+import { AvatarProvider } from '@/contexts/AvatarContext';
 import { AccessDenied } from '@/components/AccessDenied';
 import { Layout } from '@/components/layout/Layout';
 import { LoginPage } from '@/pages/auth/LoginPage';
@@ -122,6 +123,7 @@ function LegacyLessonRedirect() {
 
 function App() {
   return (
+    <AvatarProvider>
     <Layout>
         <Routes>
           {/* Public routes */}
@@ -335,6 +337,7 @@ function App() {
           <Route path="*" element={<NotFoundPage />} />
         </Routes>
     </Layout>
+    </AvatarProvider>
   );
 }
 
