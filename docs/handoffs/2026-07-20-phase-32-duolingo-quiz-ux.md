@@ -1,9 +1,12 @@
 # Handoff: Phase 32 — Duolingo-style quiz UX & deeper gamification
 
 ## Current state
-Phase 32 **implemented + verified + committed** on `feat/phase-31-instructor-analytics`
-(continues the unpushed chain per spec branch note). **Not pushed.**
-Commits: `feat: Duolingo-style quiz mastery sessions...` (code), docs commit follows this file.
+Phase 32 **implemented + verified + committed + pushed**. The whole unpushed
+chain (Phases 29–32) now lives on branch `feat/phase-32-duolingo-quiz-ux`
+(created at the old `feat/phase-31-instructor-analytics` HEAD, which it
+supersedes), pushed to remote `lms` — **PR #17 open against `Cesar6060/LMS`
+main: https://github.com/Cesar6060/LMS/pull/17**.
+Commits: `f930158` feat (Phase 32 code), `c45087a` docs (spec + this handoff).
 
 Backend:
 - `quizzes`: `QuizAttempt.status` (`in_progress`/`completed`, default completed) +
@@ -50,14 +53,15 @@ submit counting in-progress rows) all fixed and re-verified.
 - Duplicate in-progress sessions from *racing start requests* remain possible
   (no partial unique index); answer races are now safe via `get_or_create`.
   Reviewer rated LOW; acceptable for classroom use.
-- Chain still unpushed (Phases 29–32); no PRs.
+- Phase 31's manual click-through is also still open (see its handoff).
 
 ## Next steps
 1. Manual click-through per spec §Verification (unit-quiz mastery + resume +
    abandoned-attempt check, lesson-check loop, streak-freeze via backdated
    `last_activity_date` in dbshell, mascot in both themes, instructor checks).
 2. Check off the manual section in `docs/specs/phase-32-duolingo-quiz-ux.md`.
-3. Rebase chain onto `lms/main`, push, PR (`gh --repo Cesar6060/LMS`).
+3. Review + merge PR #17 (https://github.com/Cesar6060/LMS/pull/17 — carries
+   Phases 29–32). After merge, delete the superseded local phase branches.
 
 ## Decisions made
 - Session resume = `POST start` returns the existing in-progress attempt (200)
