@@ -4,7 +4,9 @@
 Phase 35 **implemented + verified + committed** on branch
 `feat/phase-35-course-map` (branched from `bdb028b` after Phase 34's PR #19
 merged; the branch is even with `lms/main` plus this work). Commit `45e95b8`
-feat, plus this docs commit. PR open against `lms/main`.
+feat, this docs commit, then two post-review user-directed follow-ups:
+`8556198` (dashboard Continue Learning → map) and `8ced813` (course detail
+Continue Learning CTA → map). PR #20 open against `lms/main`.
 
 Verified: **pytest 346 passed** (341 baseline + 5 new map tests);
 **tsc 0 errors**; **lint 0 errors / 22 warnings** (= Phase 34 baseline).
@@ -47,7 +49,13 @@ Frontend:
 - Entry points: Dashboard student course cards got a real "Map" button
   (footer is now two flex buttons; card's Link still opens the course);
   CoursePlayerPage header got a "Map" button next to Back to Course.
-  Continue Learning card untouched.
+  **User directive (supersedes the spec's original "unchanged" item): both
+  Continue Learning buttons — the dashboard card AND the course detail hero
+  CTA — now open `/courses/:code/map`.** The map is the student's main way
+  into a course; the current node on the map is one tap from the lesson.
+  Still pointing at `/learn`: the course detail page's small unit-milestone
+  timeline circles (offered to reroute; user hasn't asked) and the
+  instructor "Student View" link in `CourseToolsNav`.
 - `Layout.tsx`: the learning-mode regex is now
   `/\/courses\/[^/]+\/(learn|map)/` so the map hides the global header +
   AnimatedBackground and owns the full page.
