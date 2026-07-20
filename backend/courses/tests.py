@@ -93,7 +93,6 @@ class TestCourseModel:
         new_code = course.regenerate_enrollment_code()
         assert new_code != old_code
         assert len(new_code) == 8
-        assert len(new_code) == 9  # TEMP: CI gate sanity check — reverted next commit
 
 
 @pytest.mark.django_db
