@@ -1,6 +1,6 @@
 # STEM Quest
 
-A full-stack Learning Management System (LMS) built for video game development education, featuring real-time notifications, immersive learning mode, and comprehensive course management.
+A full-stack Learning Management System (LMS) built for Computer Science education, featuring real-time notifications, immersive learning mode, and comprehensive course management.
 
 ![Dashboard Preview](docs/screenshots/Dashboard.png)
 

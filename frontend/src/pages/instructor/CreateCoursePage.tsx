@@ -85,7 +85,7 @@ export function CreateCoursePage() {
               <Input
                 id="title"
                 type="text"
-                placeholder="e.g., Introduction to Game Development"
+                placeholder="e.g., Introduction to Programming with Java"
                 value={formData.title}
                 onChange={(e) => setFormData({ ...formData, title: e.target.value })}
                 maxLength={200}

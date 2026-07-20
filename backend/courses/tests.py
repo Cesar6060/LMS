@@ -40,8 +40,8 @@ def instructor():
 def course(instructor):
     return Course.objects.create(
         code='VGD101',
-        title='Intro to Game Development',
-        description='Learn the basics of game development.',
+        title='Intro to Programming',
+        description='Learn the basics of programming.',
         instructor=instructor
     )
 
@@ -75,7 +75,7 @@ class TestCourseModel:
     def test_create_course(self, instructor):
         course = Course.objects.create(
             code='VGD102',
-            title='Advanced Game Dev',
+            title='Advanced Programming',
             instructor=instructor
         )
         assert course.code == 'VGD102'

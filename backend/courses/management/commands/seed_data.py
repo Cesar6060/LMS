@@ -169,15 +169,15 @@ class Command(BaseCommand):
         course, created = Course.objects.get_or_create(
             code='VGD101',
             defaults={
-                'title': 'Introduction to Video Game Development',
-                'description': '''Welcome to Video Game Development! In this course, you'll learn the fundamentals of creating video games using industry-standard tools and techniques.
+                'title': 'Game Programming with Godot',
+                'description': '''Welcome to Game Programming with Godot! In this course, you'll learn programming fundamentals by building games with the open-source Godot engine and GDScript.
 
 ## What You'll Learn
-- Game design principles
 - Programming basics with GDScript
-- 2D and 3D game mechanics
-- Asset creation and management
-- Publishing your first game
+- Game loops and mechanics
+- 2D game logic
+- Working with the Godot editor
+- Building your first playable project
 
 ## Prerequisites
 No prior programming experience required!''',

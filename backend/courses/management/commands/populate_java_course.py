@@ -1,10 +1,14 @@
 """
-Management command to populate the VGD101 course with C# fundamentals content.
-This command:
-1. Deletes all users except the instructor "Cesar Villarreal"
-2. Creates 5 new test users with password "Admin123!"
-3. Clears existing course content (units, lessons, quizzes)
-4. Populates with comprehensive C# fundamentals curriculum
+Management command to create/refresh the JAVA101 course
+("Introduction to Programming with Java") with the full Java computer-science
+fundamentals curriculum.
+
+This command is NON-DESTRUCTIVE:
+1. Does NOT delete or create any users
+2. Does NOT touch any other course
+3. Creates (or idempotently refreshes) only the JAVA101 course and its content
+   (units -> lessons -> paginated sections + comprehension quizzes, plus a unit
+   quiz per unit)
 """
 from django.core.management.base import BaseCommand
 from django.contrib.auth import get_user_model
@@ -17,32 +21,24 @@ User = get_user_model()
 
 
 class Command(BaseCommand):
-    help = 'Populate VGD101 course with C# fundamentals content'
+    help = 'Create or refresh the JAVA101 Java course (non-destructive; no user or other-course changes)'
 
     def handle(self, *args, **options):
-        self.stdout.write('Starting course population...\n')
+        self.stdout.write('Populating JAVA101 course...\n')
 
-        # Step 1: Find and preserve the instructor
+        # Find the instructor (never modifies users)
         instructor = self._get_instructor()
         if not instructor:
             return
 
-        # Step 2: Delete all other users
-        self._delete_other_users(instructor)
-
-        # Step 3: Create test users
-        self._create_test_users()
-
-        # Step 4: Get or update the course
+        # Get or create JAVA101 (touches no other course)
         course = self._get_or_update_course(instructor)
 
-        # Step 5: Clear existing content
+        # Clear only this course's content, then rebuild it
         self._clear_course_content(course)
-
-        # Step 6: Create units and lessons
         self._create_course_content(course)
 
-        self.stdout.write(self.style.SUCCESS('\nCourse population complete!'))
+        self.stdout.write(self.style.SUCCESS('\nJAVA101 population complete (non-destructive).'))
 
     def _get_instructor(self):
         """Find the instructor Cesar Villarreal."""
@@ -58,52 +54,31 @@ class Command(BaseCommand):
             self.stdout.write(f'Found instructor: {instructor.email}')
             return instructor
 
-    def _delete_other_users(self, instructor):
-        """Delete all users except the instructor."""
-        deleted_count = User.objects.exclude(id=instructor.id).delete()[0]
-        self.stdout.write(f'Deleted {deleted_count} users')
-
-    def _create_test_users(self):
-        """Create 5 test student users."""
-        test_users = [
-            {'first_name': 'Alex', 'last_name': 'Johnson', 'email': 'alex.johnson@example.com'},
-            {'first_name': 'Sarah', 'last_name': 'Williams', 'email': 'sarah.williams@example.com'},
-            {'first_name': 'Michael', 'last_name': 'Chen', 'email': 'michael.chen@example.com'},
-            {'first_name': 'Emma', 'last_name': 'Garcia', 'email': 'emma.garcia@example.com'},
-            {'first_name': 'James', 'last_name': 'Brown', 'email': 'james.brown@example.com'},
-        ]
-
-        for user_data in test_users:
-            user, created = User.objects.get_or_create(
-                email=user_data['email'],
-                defaults={
-                    'first_name': user_data['first_name'],
-                    'last_name': user_data['last_name'],
-                    'is_instructor': False,
-                }
-            )
-            if created:
-                user.set_password('Admin123!')
-                user.save()
-                self.stdout.write(f'Created user: {user.email}')
-            else:
-                self.stdout.write(f'User already exists: {user.email}')
-
     def _get_or_update_course(self, instructor):
-        """Get or create the VGD101 course."""
+        """Get or create the JAVA101 course (non-destructive; no other course touched)."""
+        title = 'Introduction to Programming with Java'
+        description = (
+            'Learn the fundamental principles of computer science in Java - '
+            'variables, data types, operators, conditionals, loops, and methods. '
+            'A hands-on introductory course where you write and run real code from day one.'
+        )
         course, created = Course.objects.get_or_create(
-            code='VGD101',
+            code='JAVA101',
             defaults={
-                'title': 'Video Game Development - C# Fundamentals',
-                'description': 'Learn C# programming fundamentals through game development concepts and hands-on projects. Master variables, operators, conditionals, and methods while building interactive console games.',
+                'title': title,
+                'description': description,
                 'instructor': instructor,
             }
         )
         if not created:
-            course.title = 'Video Game Development - C# Fundamentals'
-            course.description = 'Learn C# programming fundamentals through game development concepts and hands-on projects. Master variables, operators, conditionals, and methods while building interactive console games.'
+            course.title = title
+            course.description = description
+            course.instructor = instructor
             course.save()
-        self.stdout.write(f'Course: {course.code} - {course.title}')
+        self.stdout.write(
+            f'Course: {course.code} - {course.title} '
+            f'({"created" if created else "refreshed"})'
+        )
         return course
 
     def _clear_course_content(self, course):
@@ -154,60 +129,48 @@ class Command(BaseCommand):
                 'title': 'Overview',
                 'content': '''# Hello World - Your First Program
 
-Welcome to your first C# lesson! In this lesson, you'll write and run your very first program.
+Welcome to your first Java lesson! In this lesson, you'll write and run your very first program.
 
 ## Learning Objectives
 
 By the end of this lesson, you will be able to:
-- Understand the basic structure of a C# program
+- Understand the basic structure of a Java program
 - Write and run a "Hello World" program
-- Use `Console.WriteLine()` and `Console.Write()` to display output
-- Identify the `Main` method as the program entry point
+- Use `System.out.println()` and `System.out.print()` to display output
+- Identify the `main` method as the program entry point
 
 ## Why This Matters
 
-Every programmer starts with "Hello World" - it's a rite of passage! This simple program teaches you the fundamental structure that every C# program follows.'''
+Every programmer starts with "Hello World" - it's a rite of passage! This simple program teaches you the fundamental structure that every Java program follows.'''
             },
             {
-                'title': 'Video: Output in C#',
-                'content': '''# Video Lesson: Output in C#
+                'title': 'Introduction to Java',
+                'content': '''# Welcome to Java Programming!
 
-Watch this video from **Bro Code** to see Console output in action!
+Java is one of the world's most widely used programming languages. It runs on billions of devices thanks to the Java Virtual Machine (JVM) - from Android phones to enterprise servers - and is a common first language for learning computer science.
 
-*After watching, continue to the next section to see the code examples.*''',
-                'video_type': 'youtube',
-                'video_id': 'b8BUFfgyjK4'
-            },
-            {
-                'title': 'Introduction to C#',
-                'content': '''# Welcome to C# Programming!
+## Why Learn Java?
 
-C# (pronounced "C-sharp") is a powerful programming language created by Microsoft. It's the primary language used in Unity, one of the world's most popular game engines.
-
-## Why Learn C#?
-
-- **Game Development**: Used in Unity for professional game development
-- **Versatile**: Works for games, apps, websites, and more
-- **Job Market**: High demand for C# developers
-- **Beginner Friendly**: Clear syntax that's easy to read
+- **Runs Everywhere**: "Write once, run anywhere" on the JVM
+- **Widely Used**: Android apps, web and enterprise back-ends, and data processing
+- **Job Market**: Consistently high demand for Java developers
+- **Beginner Friendly**: Clear, structured syntax that's easy to read
 
 By the end of this course, you'll be writing your own interactive programs!'''
             },
             {
                 'title': 'Your First Program',
-                'content': '''# Your First C# Program
+                'content': '''# Your First Java Program
 
 Let's write the classic "Hello, World!" program:
 
-```csharp
-using System;
-
+```java
 class HelloWorld
 {
-    static void Main(string[] args)
+    public static void main(String[] args)
     {
-        Console.WriteLine("Hello, World!");
-        Console.WriteLine("This is my first C# program.");
+        System.out.println("Hello, World!");
+        System.out.println("This is my first Java program.");
     }
 }
 ```
@@ -216,12 +179,11 @@ class HelloWorld
 
 | Code | Purpose |
 |------|---------|
-| `using System;` | Imports basic functionality |
 | `class HelloWorld` | Container for our code |
-| `static void Main()` | Entry point - where program starts |
-| `Console.WriteLine()` | Prints text to the screen |
+| `public static void main(String[] args)` | Entry point - where program starts |
+| `System.out.println()` | Prints text to the screen |
 
-Every C# program needs a `Main` method - this is where the computer starts reading your code!'''
+Every Java program needs a `main` method - this is where the computer starts reading your code!'''
             },
             {
                 'title': 'Console Output',
@@ -229,11 +191,11 @@ Every C# program needs a `Main` method - this is where the computer starts readi
 
 There are two main ways to output text:
 
-## Console.WriteLine()
+## System.out.println()
 Prints text and moves to a **new line**:
-```csharp
-Console.WriteLine("Line 1");
-Console.WriteLine("Line 2");
+```java
+System.out.println("Line 1");
+System.out.println("Line 2");
 ```
 Output:
 ```
@@ -241,11 +203,11 @@ Line 1
 Line 2
 ```
 
-## Console.Write()
+## System.out.print()
 Prints text but stays on the **same line**:
-```csharp
-Console.Write("Hello ");
-Console.Write("World!");
+```java
+System.out.print("Hello ");
+System.out.print("World!");
 ```
 Output:
 ```
@@ -258,16 +220,16 @@ Experiment with different messages. What happens when you use `\\n` inside the q
         ])
         self._create_lesson_questions(lesson1, [
             {
-                'text': 'Which method is the entry point of a C# program?',
+                'text': 'Which method is the entry point of a Java program?',
                 'choices': [
-                    ('Main()', True),
-                    ('Start()', False),
-                    ('Begin()', False),
-                    ('Run()', False),
+                    ('main()', True),
+                    ('start()', False),
+                    ('begin()', False),
+                    ('run()', False),
                 ]
             },
             {
-                'text': 'What does Console.WriteLine() do?',
+                'text': 'What does System.out.println() do?',
                 'choices': [
                     ('Prints text and moves to a new line', True),
                     ('Prints text and stays on the same line', False),
@@ -276,20 +238,20 @@ Experiment with different messages. What happens when you use `\\n` inside the q
                 ]
             },
             {
-                'text': 'What is the purpose of "using System;" at the top of a C# file?',
+                'text': 'What is the correct signature for the main method in Java?',
                 'choices': [
-                    ('It imports basic functionality like Console', True),
-                    ('It starts the program', False),
-                    ('It creates a new variable', False),
-                    ('It ends the program', False),
+                    ('public static void main(String[] args)', True),
+                    ('public static void main(String args)', False),
+                    ('public void main()', False),
+                    ('void start(String[] args)', False),
                 ]
             },
             {
-                'text': 'What is the difference between Console.WriteLine() and Console.Write()?',
+                'text': 'What is the difference between System.out.println() and System.out.print()?',
                 'choices': [
-                    ('WriteLine adds a new line after, Write stays on the same line', True),
-                    ('WriteLine is faster than Write', False),
-                    ('Write can only print numbers', False),
+                    ('println adds a new line after, print stays on the same line', True),
+                    ('println is faster than print', False),
+                    ('print can only display numbers', False),
                     ('There is no difference', False),
                 ]
             }
@@ -320,7 +282,7 @@ Comments are essential for teamwork and maintaining code over time. Even your fu
             },
             {
                 'title': 'Why Use Comments?',
-                'content': '''# Comments in C#
+                'content': '''# Comments in Java
 
 Comments are notes in your code that the computer **ignores**. They're for humans!
 
@@ -339,14 +301,14 @@ Comments are notes in your code that the computer **ignores**. They're for human
 
 ## Single-Line Comments
 Use `//` for short notes:
-```csharp
+```java
 // This is a single-line comment
-int score = 100;  // You can put comments at the end of lines too
+int counter = 100;  // You can put comments at the end of lines too
 ```
 
 ## Multi-Line Comments
 Use `/* */` for longer explanations:
-```csharp
+```java
 /*
  * This is a multi-line comment.
  * Use it for longer explanations
@@ -354,13 +316,13 @@ Use `/* */` for longer explanations:
  */
 ```
 
-## XML Documentation Comments
-Use `///` for documentation (advanced):
-```csharp
-/// <summary>
-/// Calculates the player's damage
-/// </summary>
-int CalculateDamage() { ... }
+## Documentation Comments
+Use `/** */` for documentation (advanced):
+```java
+/**
+ * Calculates the total price.
+ */
+int calculateTotal() { ... }
 ```'''
             },
             {
@@ -378,12 +340,12 @@ int CalculateDamage() { ... }
 - Leave commented-out code forever
 
 ## Example
-```csharp
-// BAD: Adds 1 to health
-health = health + 1;
+```java
+// BAD: Adds 1 to counter
+counter = counter + 1;
 
-// GOOD: Regenerate health each second
-health = health + 1;
+// GOOD: Advance to the next page of results
+counter = counter + 1;
 ```
 
 Remember: Good code with good variable names often needs fewer comments!'''
@@ -391,7 +353,7 @@ Remember: Good code with good variable names often needs fewer comments!'''
         ])
         self._create_lesson_questions(lesson2, [
             {
-                'text': 'Which symbol starts a single-line comment in C#?',
+                'text': 'Which symbol starts a single-line comment in Java?',
                 'choices': [
                     ('//', True),
                     ('/*', False),
@@ -400,7 +362,7 @@ Remember: Good code with good variable names often needs fewer comments!'''
                 ]
             },
             {
-                'text': 'How do you write a multi-line comment in C#?',
+                'text': 'How do you write a multi-line comment in Java?',
                 'choices': [
                     ('/* comment */', True),
                     ('// comment //', False),
@@ -428,12 +390,12 @@ Remember: Good code with good variable names often needs fewer comments!'''
                 'title': 'Overview',
                 'content': '''# Code Organization - Brackets & Blocks
 
-Learn how C# uses curly braces to organize code into logical sections.
+Learn how Java uses curly braces to organize code into logical sections.
 
 ## Learning Objectives
 
 By the end of this lesson, you will be able to:
-- Understand the purpose of curly braces `{ }` in C#
+- Understand the purpose of curly braces `{ }` in Java
 - Create properly nested code blocks
 - Apply consistent indentation for readable code
 - Recognize common bracket-related errors
@@ -446,14 +408,14 @@ Clean code organization makes programs easier to read, debug, and maintain. Prop
                 'title': 'Understanding Code Blocks',
                 'content': '''# Brackets and Code Blocks
 
-In C#, curly braces `{ }` create **code blocks** - sections of code that belong together.
+In Java, curly braces `{ }` create **code blocks** - sections of code that belong together.
 
-```csharp
-class MyGame
+```java
+class Program
 {                           // Block starts
-    static void Main()
+    public static void main(String[] args)
     {                       // Nested block starts
-        Console.WriteLine("Hello!");
+        System.out.println("Hello!");
     }                       // Nested block ends
 }                           // Block ends
 ```
@@ -470,25 +432,25 @@ class MyGame
 Indentation shows structure - it's **crucial** for readable code!
 
 ## Good Indentation
-```csharp
+```java
 class Program
 {
-    static void Main()
+    public static void main(String[] args)
     {
-        if (health > 0)
+        if (balance > 0)
         {
-            Console.WriteLine("Still alive!");
+            System.out.println("Account is in credit!");
         }
     }
 }
 ```
 
 ## Bad Indentation (Don't Do This!)
-```csharp
+```java
 class Program{
-static void Main(){
-if(health>0){
-Console.WriteLine("Still alive!");
+public static void main(String[] args){
+if(balance>0){
+System.out.println("Account is in credit!");
 }}}
 ```
 
@@ -497,7 +459,7 @@ Both compile, but which would you rather debug at 2 AM?'''
         ])
         self._create_lesson_questions(lesson3, [
             {
-                'text': 'What do curly braces { } define in C#?',
+                'text': 'What do curly braces { } define in Java?',
                 'choices': [
                     ('A code block', True),
                     ('A comment', False),
@@ -534,19 +496,19 @@ Both compile, but which would you rather debug at 2 AM?'''
                 'title': 'Overview',
                 'content': '''# Naming Conventions
 
-Learn the standard naming rules that make C# code readable and professional.
+Learn the standard naming rules that make Java code readable and professional.
 
 ## Learning Objectives
 
 By the end of this lesson, you will be able to:
-- Apply camelCase for variables and parameters
-- Apply PascalCase for classes and methods
-- Use UPPER_CASE for constants
+- Apply camelCase for variables and methods
+- Apply PascalCase for classes
+- Use UPPER_SNAKE_CASE for constants
 - Write self-documenting code with descriptive names
 
 ## Why This Matters
 
-Following naming conventions makes your code readable by any C# developer. It's the difference between amateur and professional code!'''
+Following naming conventions makes your code readable by any Java developer. It's the difference between amateur and professional code!'''
             },
             {
                 'title': 'Why Naming Matters',
@@ -554,82 +516,92 @@ Following naming conventions makes your code readable by any C# developer. It's 
 
 Good names make code self-documenting. Compare:
 
-```csharp
+```java
 // BAD
 int x = 100;
 int y = 25;
 int z = x - y;
 
 // GOOD
-int playerHealth = 100;
-int damageDealt = 25;
-int remainingHealth = playerHealth - damageDealt;
+int bankBalance = 100;
+int withdrawal = 25;
+int remainingBalance = bankBalance - withdrawal;
 ```
 
 Which would you rather maintain?'''
             },
             {
-                'title': 'C# Naming Rules',
-                'content': '''# C# Naming Conventions
+                'title': 'Java Naming Rules',
+                'content': '''# Java Naming Conventions
+
+Java conventions are different from some other languages: methods use **camelCase**, not PascalCase.
 
 ## camelCase
-For variables and parameters:
-```csharp
-int playerScore = 0;
-string userName = "Hero";
-float moveSpeed = 5.5f;
+For variables **and methods**:
+```java
+int itemCount = 0;
+String userName = "Ada";
+double calculateTotal() { ... }
 ```
 
 ## PascalCase
-For classes, methods, and properties:
-```csharp
-class PlayerController { }
-void CalculateDamage() { }
-public int MaxHealth { get; set; }
+For class names:
+```java
+class BankAccount { }
+class TemperatureSensor { }
 ```
 
-## UPPER_CASE
+## UPPER_SNAKE_CASE
 For constants:
-```csharp
-const int MAX_LEVEL = 99;
-const float GRAVITY = 9.81f;
+```java
+final int MAX_SIZE = 99;
+final double PI = 3.14159;
 ```
 
 ## Quick Reference
 | Type | Convention | Example |
 |------|------------|---------|
-| Variable | camelCase | `playerName` |
-| Method | PascalCase | `TakeDamage()` |
-| Class | PascalCase | `GameManager` |
-| Constant | UPPER_CASE | `MAX_SCORE` |'''
+| Variable | camelCase | `userAge` |
+| Method | camelCase | `calculateTotal()` |
+| Class | PascalCase | `BankAccount` |
+| Constant | UPPER_SNAKE_CASE | `MAX_SIZE` |'''
             }
         ])
         self._create_lesson_questions(lesson4, [
             {
-                'text': 'Which naming convention should be used for variables in C#?',
+                'text': 'Which naming convention should be used for variables in Java?',
                 'choices': [
                     ('camelCase', True),
                     ('PascalCase', False),
-                    ('UPPER_CASE', False),
+                    ('UPPER_SNAKE_CASE', False),
                     ('snake_case', False),
                 ]
             },
             {
-                'text': 'Which naming convention should be used for methods and classes?',
+                'text': 'Which naming convention should be used for methods in Java?',
                 'choices': [
-                    ('PascalCase', True),
-                    ('camelCase', False),
-                    ('UPPER_CASE', False),
+                    ('camelCase', True),
+                    ('PascalCase', False),
+                    ('UPPER_SNAKE_CASE', False),
                     ('lowercase', False),
                 ]
             },
             {
-                'text': 'Which variable name is INVALID in C#?',
+                'text': 'Which naming convention should be used for class names in Java?',
                 'choices': [
-                    ('2player', True),
-                    ('playerScore', False),
-                    ('_health', False),
-                    ('maxLevel', False),
+                    ('PascalCase', True),
+                    ('camelCase', False),
+                    ('UPPER_SNAKE_CASE', False),
+                    ('snake_case', False),
+                ]
+            },
+            {
+                'text': 'Which variable name is INVALID in Java?',
+                'choices': [
+                    ('2count', True),
+                    ('itemCount', False),
+                    ('_balance', False),
+                    ('maxSize', False),
                 ]
             },
             {
@@ -646,8 +618,8 @@ const float GRAVITY = 9.81f;
     def _create_unit1_quiz(self, unit):
         quiz = Quiz.objects.create(
             unit=unit,
-            title='Script Structure Quiz',
-            description='Test your knowledge of C# basics, comments, and code organization.',
+            title='Program Structure Quiz',
+            description='Test your knowledge of Java basics, comments, and code organization.',
             passing_score=70,
             points=20,
             max_attempts=3,
@@ -655,16 +627,16 @@ const float GRAVITY = 9.81f;
         )
         questions = [
             {
-                'text': 'What is the correct file extension for C# source files?',
-                'choices': [('.cs', True), ('.c#', False), ('.csharp', False), ('.cpp', False)]
+                'text': 'What is the correct file extension for Java source files?',
+                'choices': [('.java', True), ('.jv', False), ('.class', False), ('.js', False)]
             },
             {
-                'text': 'Which keyword is used to import namespaces in C#?',
-                'choices': [('using', True), ('import', False), ('include', False), ('require', False)]
+                'text': 'Which method prints a line of text to the console in Java?',
+                'choices': [('System.out.println', True), ('System.out.printLine', False), ('print()', False), ('echo', False)]
             },
             {
-                'text': 'What must every C# program have?',
-                'choices': [('A Main method', True), ('A Start method', False), ('A Run method', False), ('A Begin method', False)]
+                'text': 'What must every Java program have as its entry point?',
+                'choices': [('A public static void main(String[] args) method', True), ('A start method', False), ('A run method', False), ('A begin method', False)]
             },
             {
                 'text': 'How do you write a multi-line comment?',
@@ -684,7 +656,7 @@ const float GRAVITY = 9.81f;
                 'title': 'Overview',
                 'content': '''# Number Types - int, float, double
 
-Learn about the different ways C# stores numbers for games.
+Learn about the different ways Java stores numbers.
 
 ## Learning Objectives
 
@@ -692,21 +664,11 @@ By the end of this lesson, you will be able to:
 - Declare and use `int` variables for whole numbers
 - Declare and use `float` and `double` for decimal numbers
 - Understand when to use each number type
-- Create constants using the `const` keyword
+- Create constants using the `final` keyword
 
 ## Why This Matters
 
-Games are full of numbers - health, scores, positions, speeds. Choosing the right number type is crucial for both accuracy and performance!'''
-            },
-            {
-                'title': 'Video: Variables in C#',
-                'content': '''# Video Lesson: Variables in C#
-
-Watch this video from **Bro Code** to learn about variables and data types!
-
-*After watching, continue to the next section for detailed examples.*''',
-                'video_type': 'youtube',
-                'video_id': 'IxBMVztdlr4'
+Programs are full of numbers - prices, quantities, measurements, totals. Choosing the right number type is crucial for both accuracy and performance!'''
             },
             {
                 'title': 'Integer Numbers',
@@ -714,79 +676,83 @@ Watch this video from **Bro Code** to learn about variables and data types!
 
 Integers store **whole numbers** - no decimals allowed!
 
-```csharp
-// Player stats
-int playerLevel = 15;
-int goldCoins = 250;
-int healthPoints = 100;
-int enemiesDefeated = 7;
+```java
+// Store counts
+int userAge = 15;
+int quantity = 250;
+int itemCount = 100;
+int daysRemaining = 7;
 
-Console.WriteLine("Level: " + playerLevel);
-Console.WriteLine("Gold: " + goldCoins);
-Console.WriteLine("Health: " + healthPoints);
+System.out.println("Age: " + userAge);
+System.out.println("Quantity: " + quantity);
+System.out.println("Items: " + itemCount);
 ```
 
-## Common Uses in Games
-- Player health and mana
-- Score and currency
-- Level and experience
-- Inventory counts'''
+## Common Uses
+- Counts and quantities
+- Ages and years
+- Index positions
+- Whole-number totals
+
+For very large whole numbers, use `long` instead of `int`.'''
             },
             {
                 'title': 'Decimal Numbers',
                 'content': '''# Decimal Numbers
 
-## double - High Precision
-```csharp
-double accuracy = 0.875;
-double criticalChance = 0.225;
-double experienceMultiplier = 1.5;
+## double - Default for Decimals
+In Java, a decimal literal like `19.99` is a `double` by default.
+```java
+double price = 19.99;
+double taxRate = 0.225;
+double average = 1.5;
 
-Console.WriteLine("Accuracy: " + (accuracy * 100) + "%");
+System.out.println("Total: " + (price * 100) + " cents");
 ```
 
 ## float - Less Precision (needs 'f')
-```csharp
-float attackSpeed = 1.5f;    // Note the 'f'!
-float moveSpeed = 5.25f;
-float damageMultiplier = 2.0f;
+A `float` literal must end with `f`, or Java treats it as a `double`.
+```java
+float pi = 3.14f;        // Note the 'f'!
+float distance = 5.25f;
+float multiplier = 2.0f;
 ```
 
 ## When to Use Each
 | Type | Precision | Memory | Use Case |
 |------|-----------|--------|----------|
 | `int` | Exact | 4 bytes | Whole numbers |
-| `float` | ~7 digits | 4 bytes | 3D graphics, physics |
-| `double` | ~15 digits | 8 bytes | Financial calculations |'''
+| `float` | ~7 digits | 4 bytes | Memory-limited decimals |
+| `double` | ~15 digits | 8 bytes | Default decimal calculations |'''
             },
             {
                 'title': 'Constants',
-                'content': '''# Constants (const)
+                'content': '''# Constants (final)
 
-Constants are values that **never change** during program execution.
+Constants are values that **never change** during program execution. In Java, use the `final` keyword.
 
-```csharp
-const int MAX_LEVEL = 99;
-const int MAX_INVENTORY = 50;
-const double BASE_CRIT_MULTIPLIER = 2.0;
+```java
+final int MAX_USERS = 99;
+final int MAX_ITEMS = 50;
+final double TAX_RATE = 0.2;
 
 // Using constants
-int currentLevel = 15;
-int levelsToMax = MAX_LEVEL - currentLevel;
-Console.WriteLine("Levels until max: " + levelsToMax);
+int currentUsers = 15;
+int usersRemaining = MAX_USERS - currentUsers;
+System.out.println("Slots remaining: " + usersRemaining);
 ```
 
 ## Why Use Constants?
-1. **Self-documenting**: `MAX_LEVEL` is clearer than `99`
+1. **Self-documenting**: `MAX_USERS` is clearer than `99`
 2. **Easy updates**: Change one value, affects everywhere
 3. **Prevents errors**: Can't accidentally change the value
-4. **Performance**: Compiler optimizes constants'''
+4. **Convention**: Constant names are usually written in UPPER_CASE'''
             }
         ])
         self._create_lesson_questions(lesson1, [
             {
                 'text': 'Which data type stores whole numbers without decimals?',
-                'choices': [('int', True), ('float', False), ('double', False), ('string', False)]
+                'choices': [('int', True), ('float', False), ('double', False), ('String', False)]
             },
             {
                 'text': 'What suffix is required for float literals?',
@@ -797,8 +763,8 @@ Console.WriteLine("Levels until max: " + levelsToMax);
                 'choices': [('double', True), ('float', False), ('int', False), ('char', False)]
             },
             {
-                'text': 'What keyword makes a variable value unchangeable?',
-                'choices': [('const', True), ('static', False), ('final', False), ('fixed', False)]
+                'text': 'What keyword makes a variable value unchangeable in Java?',
+                'choices': [('final', True), ('static', False), ('const', False), ('fixed', False)]
             },
             {
                 'text': 'What is the result of 10 / 3 when both numbers are integers?',
@@ -815,52 +781,48 @@ Console.WriteLine("Levels until max: " + levelsToMax);
                 'title': 'Overview',
                 'content': '''# Text and Boolean Types
 
-Learn to work with text data and true/false values in C#.
+Learn to work with text data and true/false values in Java.
 
 ## Learning Objectives
 
 By the end of this lesson, you will be able to:
-- Create and use `string` variables for text
+- Create and use `String` variables for text
 - Concatenate (combine) strings together
-- Use `bool` variables for true/false conditions
+- Use `boolean` variables for true/false conditions
 - Apply proper variable declaration patterns
 
 ## Why This Matters
 
-Player names, dialogue, messages, and game states - strings and booleans are everywhere in games!'''
-            },
-            {
-                'title': 'Video: Type Casting in C#',
-                'content': '''# Video Lesson: Type Casting in C#
-
-Watch this video from **Bro Code** to learn about converting between data types!
-
-*After watching, continue to learn about strings and booleans.*''',
-                'video_type': 'youtube',
-                'video_id': 'uajWePMMs84'
+Names, messages, labels, and yes/no states - strings and booleans are everywhere in programs!'''
             },
             {
                 'title': 'String Variables',
                 'content': '''# Strings - Text Data
 
-Strings hold text and use double quotes:
+`String` (capital S) is a class, and its values use double quotes:
 
-```csharp
-string playerName = "Hero";
-string weaponName = "Sword of Destiny";
-string greeting = "Welcome to the game!";
+```java
+String userName = "Alex";
+String city = "Springfield";
+String greeting = "Welcome to the program!";
 
-Console.WriteLine(playerName);
-Console.WriteLine("Your weapon: " + weaponName);
+System.out.println(userName);
+System.out.println("Your city: " + city);
 ```
 
 ## String Concatenation
 Combine strings with `+`:
-```csharp
-string firstName = "Link";
-string lastName = "Hero";
-string fullName = firstName + " " + lastName;
-// Result: "Link Hero"
+```java
+String firstName = "Alex";
+String lastName = "Smith";
+String fullName = firstName + " " + lastName;
+// Result: "Alex Smith"
+```
+
+## Characters
+A single character uses `char` with single quotes:
+```java
+char grade = 'A';
 ```'''
             },
             {
@@ -869,52 +831,52 @@ string fullName = firstName + " " + lastName;
 
 Booleans store only two values: `true` or `false`
 
-```csharp
-bool isAlive = true;
-bool hasKey = false;
-bool canJump = true;
-bool isGameOver = false;
+```java
+boolean isActive = true;
+boolean hasAccess = false;
+boolean isValid = true;
+boolean isComplete = false;
 
-if (isAlive)
+if (isActive)
 {
-    Console.WriteLine("The player is alive!");
+    System.out.println("The account is active!");
 }
 
-if (!hasKey)  // ! means "not"
+if (!hasAccess)  // ! means "not"
 {
-    Console.WriteLine("You need a key!");
+    System.out.println("Access denied!");
 }
 ```
 
-## Common Game Uses
-- Player state (alive, dead, invincible)
-- Game flags (paused, started, ended)
-- Conditions (can attack, can move, has item)'''
+## Common Uses
+- Status flags (active, complete, valid)
+- Feature toggles (enabled, disabled)
+- Conditions (isEmpty, hasNext, isPositive)'''
             },
             {
                 'title': 'Variable Declaration Patterns',
                 'content': '''# Declaration Patterns
 
 ## Declare Then Assign
-```csharp
-int score;           // Declare
-score = 100;         // Assign later
+```java
+int total;           // Declare
+total = 100;         // Assign later
 ```
 
 ## Declare and Initialize
-```csharp
-int score = 100;     // Both at once (preferred)
+```java
+int total = 100;     // Both at once (preferred)
 ```
 
 ## Multiple Variables
-```csharp
+```java
 // Same type on one line
-int health = 100, mana = 50, stamina = 75;
+int width = 100, height = 50, depth = 75;
 
 // Or separately (clearer)
-int health = 100;
-int mana = 50;
-int stamina = 75;
+int width = 100;
+int height = 50;
+int depth = 75;
 ```
 
 ## Best Practice
@@ -928,72 +890,71 @@ Sometimes you need to convert between data types.
 
 ## Implicit Casting (Automatic)
 Small to large types convert automatically:
-```csharp
+```java
 int myInt = 10;
-double myDouble = myInt;  // OK! int → double
-Console.WriteLine(myDouble);  // 10.0
+double myDouble = myInt;  // OK! int -> double
+System.out.println(myDouble);  // 10.0
 ```
 
 ## Explicit Casting (Manual)
-Large to small types need explicit casting:
-```csharp
+Large to small types need an explicit cast:
+```java
 double myDouble = 9.78;
 int myInt = (int)myDouble;  // Cast with (int)
-Console.WriteLine(myInt);  // 9 (decimals lost!)
+System.out.println(myInt);  // 9 (decimals lost!)
 ```
 
-## Convert Class
-For converting strings to numbers:
-```csharp
-string numberText = "42";
-int number = Convert.ToInt32(numberText);  // 42
+## Parsing Strings to Numbers
+To turn text into a number, use the wrapper-class parse methods:
+```java
+String numberText = "42";
+int number = Integer.parseInt(numberText);  // 42
 
-string decimalText = "3.14";
-double pi = Convert.ToDouble(decimalText);  // 3.14
+String decimalText = "3.14";
+double pi = Double.parseDouble(decimalText);  // 3.14
 ```
 
 ## Common Conversions
 | From | To | Method |
 |------|-----|--------|
-| string | int | `int.Parse(str)` or `Convert.ToInt32(str)` |
-| string | double | `double.Parse(str)` or `Convert.ToDouble(str)` |
-| int | string | `num.ToString()` |
+| String | int | `Integer.parseInt(str)` |
+| String | double | `Double.parseDouble(str)` |
+| int | String | `String.valueOf(num)` or `Integer.toString(num)` |
 | double | int | `(int)doubleValue` |
 
-## Game Example
-```csharp
-// User enters score as text
-string input = Console.ReadLine();
-int score = int.Parse(input);
+## Example
+```java
+// Input arrives as text
+String input = "7";
+int hits = Integer.parseInt(input);
 
-// Calculate percentage (need double for decimals)
-int hits = 7;
+// Calculate a ratio (need double for decimals)
 int attempts = 10;
 double accuracy = (double)hits / attempts;  // 0.7
-Console.WriteLine($"Accuracy: {accuracy:P0}");  // 70%
+System.out.println("Accuracy: " + (accuracy * 100) + "%");  // 70.0%
 ```'''
             }
         ])
         self._create_lesson_questions(lesson2, [
             {
-                'text': 'What are the only two values a bool can hold?',
+                'text': 'What are the only two values a boolean can hold?',
                 'choices': [('true and false', True), ('0 and 1', False), ('yes and no', False), ('on and off', False)]
             },
             {
-                'text': 'What type of quotes does a string use?',
+                'text': 'What type of quotes does a String use?',
                 'choices': [('Double quotes "text"', True), ('Single quotes \'text\'', False), ('Back ticks `text`', False), ('No quotes needed', False)]
             },
             {
-                'text': 'What is the difference between string and char?',
-                'choices': [('string holds multiple characters, char holds exactly one', True), ('They are the same thing', False), ('char holds numbers, string holds text', False), ('string is faster than char', False)]
+                'text': 'What is the difference between String and char?',
+                'choices': [('String holds multiple characters, char holds exactly one', True), ('They are the same thing', False), ('char holds numbers, String holds text', False), ('String is faster than char', False)]
             },
             {
-                'text': 'Which is a valid bool variable declaration?',
-                'choices': [('bool isAlive = true;', True), ('bool isAlive = "true";', False), ('bool isAlive = 1;', False), ('boolean isAlive = true;', False)]
+                'text': 'Which is a valid boolean variable declaration?',
+                'choices': [('boolean isActive = true;', True), ('boolean isActive = "true";', False), ('boolean isActive = 1;', False), ('Boolean isActive = True;', False)]
             },
             {
                 'text': 'How do you convert a double to an int?',
-                'choices': [('Use explicit cast: (int)myDouble', True), ('It converts automatically', False), ('Use int.Parse()', False), ('It is not possible', False)]
+                'choices': [('Use explicit cast: (int)myDouble', True), ('It converts automatically', False), ('Use Integer.parseInt()', False), ('It is not possible', False)]
             },
             {
                 'text': 'What happens to decimals when casting double to int?',
@@ -1005,7 +966,7 @@ Console.WriteLine($"Accuracy: {accuracy:P0}");  // 70%
         quiz = Quiz.objects.create(
             unit=unit,
             title='Variables & Operators Quiz',
-            description='Test your knowledge of C# variables, data types, and operators.',
+            description='Test your knowledge of Java variables, data types, and operators.',
             passing_score=70,
             points=25,
             max_attempts=3,
@@ -1013,12 +974,12 @@ Console.WriteLine($"Accuracy: {accuracy:P0}");  // 70%
         )
         questions = [
             {
-                'text': 'Which variable type would you use to store a player\'s name?',
-                'choices': [('string', True), ('int', False), ('bool', False), ('float', False)]
+                'text': 'Which variable type would you use to store a user\'s name?',
+                'choices': [('String', True), ('int', False), ('boolean', False), ('float', False)]
             },
             {
-                'text': 'What is the correct way to declare a constant in C#?',
-                'choices': [('const int MAX = 100;', True), ('constant int MAX = 100;', False), ('final int MAX = 100;', False), ('int const MAX = 100;', False)]
+                'text': 'What is the correct way to declare a constant in Java?',
+                'choices': [('final int MAX = 100;', True), ('constant int MAX = 100;', False), ('int final MAX = 100;', False), ('finalize int MAX = 100;', False)]
             },
             {
                 'text': 'Which type uses more memory: float or double?',
@@ -1029,8 +990,8 @@ Console.WriteLine($"Accuracy: {accuracy:P0}");  // 70%
                 'choices': [('3', True), ('3.33', False), ('3.0', False), ('4', False)]
             },
             {
-                'text': 'What does `score++` do?',
-                'choices': [('Adds 1 to score', True), ('Multiplies score by 2', False), ('Sets score to 1', False), ('Does nothing', False)]
+                'text': 'What does `count++` do?',
+                'choices': [('Adds 1 to count', True), ('Multiplies count by 2', False), ('Sets count to 1', False), ('Does nothing', False)]
             },
         ]
         self._create_quiz_questions(quiz, questions)
@@ -1045,7 +1006,7 @@ Console.WriteLine($"Accuracy: {accuracy:P0}");  // 70%
                 'title': 'Overview',
                 'content': '''# Arithmetic Operators
 
-Learn how to perform calculations in C# using mathematical operators.
+Learn how to perform calculations in Java using mathematical operators.
 
 ## Learning Objectives
 
@@ -1053,37 +1014,17 @@ By the end of this lesson, you will be able to:
 - Use arithmetic operators: `+`, `-`, `*`, `/`, `%`
 - Understand integer division behavior
 - Apply the modulus operator for remainders
-- Calculate game values like damage, healing, and currency
+- Calculate values like totals, costs, and averages
 
 ## Why This Matters
 
-Every game needs math - damage calculations, score keeping, resource management. Mastering operators is essential!'''
-            },
-            {
-                'title': 'Video: Arithmetic Operators',
-                'content': '''# Video Lesson: Arithmetic Operators
-
-Watch this video from **Bro Code** to see arithmetic operators in action!
-
-*After watching, continue for game-specific examples.*''',
-                'video_type': 'youtube',
-                'video_id': 'k1ivOkhxxdw'
-            },
-            {
-                'title': 'Video: Math Class',
-                'content': '''# Video Lesson: Math Methods
-
-Watch this video from **Bro Code** to learn about the Math class!
-
-*Math.Max(), Math.Min(), Math.Abs(), Math.Pow() and more - essential for game calculations.*''',
-                'video_type': 'youtube',
-                'video_id': 'tzRK0QFEte0'
+Every program needs math - totals, pricing, statistics, resource management. Mastering operators is essential!'''
             },
             {
                 'title': 'Basic Math Operators',
                 'content': '''# Arithmetic Operators
 
-C# supports all basic math operations:
+Java supports all basic math operations:
 
 | Operator | Name | Example |
 |----------|------|---------|
@@ -1093,50 +1034,58 @@ C# supports all basic math operations:
 | `/` | Division | `6 / 3 = 2` |
 | `%` | Modulus (remainder) | `7 % 3 = 1` |
 
-```csharp
+```java
 int a = 10;
 int b = 3;
-Console.WriteLine(a + b);  // 13
-Console.WriteLine(a - b);  // 7
-Console.WriteLine(a * b);  // 30
-Console.WriteLine(a / b);  // 3 (integer division!)
-Console.WriteLine(a % b);  // 1
+System.out.println(a + b);  // 13
+System.out.println(a - b);  // 7
+System.out.println(a * b);  // 30
+System.out.println(a / b);  // 3 (integer division!)
+System.out.println(a % b);  // 1
+```
+
+## The Math Class
+Java's built-in `Math` class provides helpful methods:
+```java
+System.out.println(Math.max(8, 3));  // 8
+System.out.println(Math.abs(-5));    // 5
+System.out.println(Math.pow(2, 3));  // 8.0
 ```'''
             },
             {
-                'title': 'Game Math Examples',
-                'content': '''# Operators in Game Context
+                'title': 'Practical Math Examples',
+                'content': '''# Operators in Context
 
-## Addition: Healing
-```csharp
-int health = 50;
-int potion = 30;
-int newHealth = health + potion;
-Console.WriteLine("Health restored: " + newHealth); // 80
+## Addition: Adding to a Balance
+```java
+int bankBalance = 50;
+int deposit = 30;
+int newBalance = bankBalance + deposit;
+System.out.println("New balance: " + newBalance); // 80
 ```
 
-## Subtraction: Taking Damage
-```csharp
-int gold = 100;
+## Subtraction: Applying a Cost
+```java
+int budget = 100;
 int itemCost = 35;
-int remaining = gold - itemCost;
-Console.WriteLine("Gold left: " + remaining); // 65
+int remaining = budget - itemCost;
+System.out.println("Budget left: " + remaining); // 65
 ```
 
-## Multiplication: Damage Calculation
-```csharp
-int baseDamage = 25;
-int hits = 3;
-int totalDamage = baseDamage * hits;
-Console.WriteLine("Total damage: " + totalDamage); // 75
+## Multiplication: Line Total
+```java
+int price = 25;
+int quantity = 3;
+int total = price * quantity;
+System.out.println("Total cost: " + total); // 75
 ```
 
-## Modulus: Inventory Rows
-```csharp
-int items = 17;
+## Modulus: Items in the Last Row
+```java
+int itemCount = 17;
 int itemsPerRow = 5;
-int lastRowItems = items % itemsPerRow;
-Console.WriteLine("Items in last row: " + lastRowItems); // 2
+int lastRowItems = itemCount % itemsPerRow;
+System.out.println("Items in last row: " + lastRowItems); // 2
 ```'''
             }
         ])
@@ -1179,15 +1128,15 @@ By the end of this lesson, you will be able to:
 
 ## Why This Matters
 
-Assignment operators are used constantly in game loops for updating scores, health, and positions. They make your code shorter and clearer!'''
+Assignment operators are used constantly in loops for updating totals, counters, and running values. They make your code shorter and clearer!'''
             },
             {
                 'title': 'Compound Assignment',
                 'content': '''# Assignment Operators
 
 ## Basic Assignment
-```csharp
-int score = 100;  // Assign 100 to score
+```java
+int total = 100;  // Assign 100 to total
 ```
 
 ## Compound Assignment Operators
@@ -1195,16 +1144,16 @@ Shorthand for common operations:
 
 | Operator | Equivalent | Example |
 |----------|------------|---------|
-| `+=` | `x = x + y` | `score += 10;` |
-| `-=` | `x = x - y` | `health -= 25;` |
-| `*=` | `x = x * y` | `damage *= 2;` |
-| `/=` | `x = x / y` | `gold /= 2;` |
+| `+=` | `x = x + y` | `total += 10;` |
+| `-=` | `x = x - y` | `balance -= 25;` |
+| `*=` | `x = x * y` | `amount *= 2;` |
+| `/=` | `x = x / y` | `price /= 2;` |
 
-```csharp
-int score = 100;
-score += 50;    // score is now 150
-score -= 30;    // score is now 120
-score *= 2;     // score is now 240
+```java
+int total = 100;
+total += 50;    // total is now 150
+total -= 30;    // total is now 120
+total *= 2;     // total is now 240
 ```'''
             },
             {
@@ -1212,21 +1161,21 @@ score *= 2;     // score is now 240
                 'content': '''# Increment & Decrement
 
 ## Adding/Subtracting 1
-```csharp
-int level = 5;
-level++;        // level is now 6 (same as level += 1)
-level--;        // level is now 5 (same as level -= 1)
+```java
+int userAge = 5;
+userAge++;      // userAge is now 6 (same as userAge += 1)
+userAge--;      // userAge is now 5 (same as userAge -= 1)
 ```
 
 ## Prefix vs Postfix
-```csharp
+```java
 int a = 5;
-Console.WriteLine(a++);  // Prints 5, THEN a becomes 6
-Console.WriteLine(++a);  // a becomes 7, THEN prints 7
+System.out.println(a++);  // Prints 5, THEN a becomes 6
+System.out.println(++a);  // a becomes 7, THEN prints 7
 ```
 
 ## Common Use: Loops
-```csharp
+```java
 int count = 0;
 count++;  // 1
 count++;  // 2
@@ -1242,133 +1191,131 @@ Most of the time, `count++` and `++count` work the same. The difference only mat
                 'choices': [('x = x + 5', True), ('x = 5', False), ('x = x * 5', False), ('x == 5', False)]
             },
             {
-                'text': 'What does `score++` do?',
-                'choices': [('Adds 1 to score', True), ('Multiplies score by 2', False), ('Sets score to 1', False), ('Subtracts 1 from score', False)]
+                'text': 'What does `count++` do?',
+                'choices': [('Adds 1 to count', True), ('Multiplies count by 2', False), ('Sets count to 1', False), ('Subtracts 1 from count', False)]
             },
             {
-                'text': 'If x = 5, what does `Console.WriteLine(x++)` print?',
+                'text': 'If x = 5, what does `System.out.println(x++)` print?',
                 'choices': [('5 (prints first, then increments)', True), ('6', False), ('4', False), ('Error', False)]
             },
             {
-                'text': 'If x = 5, what does `Console.WriteLine(++x)` print?',
+                'text': 'If x = 5, what does `System.out.println(++x)` print?',
                 'choices': [('6 (increments first, then prints)', True), ('5', False), ('4', False), ('Error', False)]
             },
             {
-                'text': 'What is `health -= 25` equivalent to?',
-                'choices': [('health = health - 25', True), ('health = 25', False), ('health = health + 25', False), ('health == 25', False)]
+                'text': 'What is `balance -= 25` equivalent to?',
+                'choices': [('balance = balance - 25', True), ('balance = 25', False), ('balance = balance + 25', False), ('balance == 25', False)]
             }
         ])
 
     # ================== UNIT 3: Strings & User Input ==================
     def _create_unit3_text_lessons(self, unit):
         lesson1 = Lesson.objects.create(
-            unit=unit, title='String Interpolation', order=0, max_quiz_attempts=3
+            unit=unit, title='Formatting Text', order=0, max_quiz_attempts=3
         )
         self._create_sections(lesson1, [
             {
                 'title': 'Overview',
-                'content': '''# String Interpolation
+                'content': '''# Formatting Text
 
-Learn the modern, clean way to combine text and variables in C#.
+Learn how to combine variables with text and format your output cleanly in Java.
 
 ## Learning Objectives
 
 By the end of this lesson, you will be able to:
-- Use string interpolation with `$"text {variable}"`
-- Format numbers with currency, percentages, and decimals
-- Compare interpolation vs concatenation
-- Create dynamic game messages efficiently
+- Combine text and variables with concatenation (`+`)
+- Build formatted strings with `String.format`
+- Print formatted output with `System.out.printf`
+- Format numbers with a fixed number of decimal places
 
 ## Why This Matters
 
-Every game displays text - scores, messages, dialogue. String interpolation makes creating dynamic text clean and readable!'''
+Programs constantly display text built from data - totals, messages, reports. Java has no special syntax for embedding variables inside a string, so knowing concatenation and `String.format` is essential.'''
             },
             {
-                'title': 'Video: String Interpolation',
-                'content': '''# Video Lesson: String Interpolation
+                'title': 'Combining Text with Concatenation',
+                'content': '''# Concatenation
 
-Watch this video from **Bro Code** to see string interpolation in action!
+The simplest way to combine text and variables in Java is the `+` operator.
 
-*After watching, continue for more examples and formatting options.*''',
-                'video_type': 'youtube',
-                'video_id': 'taejaz9OwKY'
+## Basic Concatenation
+```java
+String name = "Ada";
+int age = 25;
+System.out.println("Name: " + name + " Age: " + age);
+```
+
+Output: `Name: Ada Age: 25`
+
+## Watch the Spacing
+You are responsible for the spaces inside the quotes:
+```java
+String city = "Paris";
+System.out.println("City: " + city);  // City: Paris
+```
+
+## You Can Include Expressions
+```java
+int total = 20;
+System.out.println("Double: " + (total * 2));  // Double: 40
+```
+
+Wrap math in parentheses so Java does the arithmetic before joining the text.'''
             },
             {
-                'title': 'String Interpolation Basics',
-                'content': '''# String Interpolation
+                'title': 'Formatting with String.format and printf',
+                'content': '''# String.format and printf
 
-String interpolation makes combining text and variables easy!
+When you need cleaner output or number formatting, use `String.format` or `System.out.printf`. Both use **placeholders** in the text.
 
-## The Old Way (Concatenation)
-```csharp
-string name = "Hero";
-int level = 25;
-Console.WriteLine("Player: " + name + " Level: " + level);
+## String.format
+Builds a `String` you can store or print:
+```java
+String name = "Ada";
+int age = 25;
+String message = String.format("Name: %s, Age: %d", name, age);
+System.out.println(message);  // Name: Ada, Age: 25
 ```
 
-## The Better Way (Interpolation)
-Use `$` before the string and `{variable}` inside:
-```csharp
-string name = "Hero";
-int level = 25;
-Console.WriteLine($"Player: {name} Level: {level}");
+## System.out.printf
+Prints directly. Use `%n` for a new line:
+```java
+String name = "Ada";
+System.out.printf("Hello %s%n", name);  // Hello Ada
 ```
 
-Both output: `Player: Hero Level: 25`
-
-## Why Interpolation is Better
-- Cleaner and easier to read
-- Less error-prone (fewer `+` signs)
-- Can include expressions: `$"Double: {level * 2}"`'''
-            },
-            {
-                'title': 'Formatting Numbers',
-                'content': '''# Number Formatting
-
-## Currency
-```csharp
-double price = 19.99;
-Console.WriteLine($"Price: {price:C}");  // $19.99
-```
-
-## Fixed Decimal Places
-```csharp
-double accuracy = 0.8567;
-Console.WriteLine($"Accuracy: {accuracy:P1}");  // 85.7%
-Console.WriteLine($"Value: {accuracy:F2}");     // 0.86
-```
-
-## Padding Numbers
-```csharp
-int score = 42;
-Console.WriteLine($"Score: {score:D5}");  // 00042
+## Decimal Places
+`%.2f` prints a decimal rounded to 2 places:
+```java
+double price = 19.999;
+System.out.printf("Price: %.2f%n", price);  // Price: 20.00
 ```
 
 ## Common Format Specifiers
-| Format | Description | Example |
-|--------|-------------|---------|
-| `:C` | Currency | $1,234.56 |
-| `:P` | Percent | 85.00% |
-| `:F2` | Fixed 2 decimals | 3.14 |
-| `:D4` | Pad with zeros | 0042 |'''
+| Specifier | Use For | Example |
+|-----------|---------|---------|
+| `%s` | String | `"Ada"` |
+| `%d` | Whole number (int) | `25` |
+| `%.2f` | Decimal, 2 places | `3.14` |
+| `%n` | New line | (line break) |'''
             }
         ])
         self._create_lesson_questions(lesson1, [
             {
-                'text': 'What character starts an interpolated string?',
-                'choices': [('$', True), ('@', False), ('#', False), ('&', False)]
+                'text': 'Which operator combines text and variables directly in Java?',
+                'choices': [('+', True), ('%', False), ('&', False), ('.', False)]
             },
             {
-                'text': 'Given `int level = 5;`, what does `$"Level: {level}"` produce?',
-                'choices': [('"Level: 5"', True), ('"Level: {level}"', False), ('"Level: $level"', False), ('Error', False)]
+                'text': 'Given `String name = "Ada";`, what does `String.format("Hi %s", name)` produce?',
+                'choices': [('"Hi Ada"', True), ('"Hi %s"', False), ('"Hi {name}"', False), ('Error', False)]
             },
             {
-                'text': 'Can you do math inside string interpolation like `$"Double: {x * 2}"`?',
-                'choices': [('Yes, expressions are evaluated inside { }', True), ('No, only variables allowed', False), ('Only addition is allowed', False), ('Only with parentheses', False)]
+                'text': 'In `String.format`, which specifier inserts a whole number (int)?',
+                'choices': [('%d', True), ('%s', False), ('%i', False), ('%n', False)]
             },
             {
-                'text': 'What does `{price:C}` do in string interpolation?',
-                'choices': [('Formats the number as currency ($)', True), ('Converts to Celsius', False), ('Counts the characters', False), ('Makes it a constant', False)]
+                'text': 'What does `System.out.printf("Price: %.2f%n", 3.14159)` print?',
+                'choices': [('Price: 3.14', True), ('Price: 3.14159', False), ('Price: 3', False), ('Price: %.2f', False)]
             }
         ])
 
@@ -1378,70 +1325,99 @@ Console.WriteLine($"Score: {score:D5}");  // 00042
         self._create_sections(lesson2, [
             {
                 'title': 'Overview',
-                'content': '''# String Methods & User Input
+                'content': '''# String Methods
 
-Learn powerful string operations and how to get input from players.
+Learn powerful built-in operations for inspecting and transforming text.
 
 ## Learning Objectives
 
 By the end of this lesson, you will be able to:
-- Use string methods: `ToUpper()`, `ToLower()`, `Length`, `Contains()`
-- Read user input with `Console.ReadLine()`
-- Convert string input to numbers with `int.Parse()` and `TryParse()`
-- Create interactive console programs
+- Use String methods: `toUpperCase()`, `toLowerCase()`, `length()`, `contains()`
+- Get a string's length with the `length()` method (note the parentheses)
+- Compare strings correctly with `equals()`
+- Search and transform text
 
 ## Why This Matters
 
-Interactive games need user input! Learning to read and process player choices is essential for any game.'''
-            },
-            {
-                'title': 'Video: String Methods',
-                'content': '''# Video Lesson: String Methods
-
-Watch this video from **Bro Code** to learn about useful string methods!
-
-*After watching, continue to see more examples.*''',
-                'video_type': 'youtube',
-                'video_id': 'BKYBiUAWZKM'
+Real programs constantly process text - names, emails, messages. Java's `String` class provides methods for almost anything you need to do with text.'''
             },
             {
                 'title': 'Common String Methods',
                 'content': '''# String Methods
 
 ## Changing Case
-```csharp
-string name = "Hero";
-Console.WriteLine(name.ToUpper());  // HERO
-Console.WriteLine(name.ToLower());  // hero
+```java
+String name = "Ada";
+System.out.println(name.toUpperCase());  // ADA
+System.out.println(name.toLowerCase());  // ada
 ```
 
-## String Properties
-```csharp
-string message = "Hello World";
-Console.WriteLine(message.Length);  // 11
+## Length is a METHOD in Java
+In Java, `length()` is a method - you must use parentheses:
+```java
+String message = "Hello World";
+System.out.println(message.length());  // 11
 ```
 
 ## Finding Content
-```csharp
-string text = "Game Over";
-Console.WriteLine(text.Contains("Over"));     // True
-Console.WriteLine(text.StartsWith("Game"));   // True
-Console.WriteLine(text.EndsWith("!"));        // False
+```java
+String text = "Welcome Back";
+System.out.println(text.contains("Back"));       // true
+System.out.println(text.startsWith("Welcome"));  // true
+System.out.println(text.endsWith("!"));          // false
+```
+
+## Transforming Text
+```java
+String raw = "  hello  ";
+System.out.println(raw.trim());                  // "hello"
+System.out.println("cat".replace("c", "b"));     // "bat"
+System.out.println("Hello".substring(0, 3));     // "Hel"
+```'''
+            },
+            {
+                'title': 'Comparing Strings',
+                'content': '''# Comparing Strings
+
+To check if two strings have the same text, use `.equals()` - NOT `==`.
+
+## Use equals()
+```java
+String input = "yes";
+System.out.println(input.equals("yes"));  // true
+```
+
+## Why Not ==
+In Java, `==` compares whether two variables point to the same object in memory, not whether the text matches. For text equality, always use `.equals()`:
+```java
+String a = "hello";
+String b = "hello";
+System.out.println(a.equals(b));  // true - compares the text
+```
+
+## Ignoring Case
+```java
+String answer = "YES";
+System.out.println(answer.equalsIgnoreCase("yes"));  // true
 ```'''
             },
         ])
         self._create_lesson_questions(lesson2, [
             {
-                'text': 'What does "Hello".Length return?',
-                'choices': [('5', True), ('4', False), ('6', False), ('"Hello"', False)]
+                'text': 'In Java, how do you get the number of characters in a String named text?',
+                'choices': [('text.length()', True), ('text.length', False), ('text.size()', False), ('length(text)', False)]
             },
             {
-                'text': 'What does "hero".ToUpper() return?',
-                'choices': [('"HERO"', True), ('"Hero"', False), ('"hero"', False), ('Error', False)]
+                'text': 'What does "ada".toUpperCase() return?',
+                'choices': [('"ADA"', True), ('"Ada"', False), ('"ada"', False), ('Error', False)]
             },
             {
-                'text': 'What does "Game Over".Contains("Over") return?',
-                'choices': [('true', True), ('false', False), ('"Over"', False), ('4', False)]
+                'text': 'What does "Welcome Back".contains("Back") return?',
+                'choices': [('true', True), ('false', False), ('"Back"', False), ('8', False)]
+            },
+            {
+                'text': 'Which is the correct way to check if two Strings have the same text?',
+                'choices': [('a.equals(b)', True), ('a == b', False), ('a.compare(b)', False), ('a.same(b)', False)]
             }
         ])
 
@@ -1454,40 +1430,38 @@ Console.WriteLine(text.EndsWith("!"));        // False
                 'title': 'Overview',
                 'content': '''# User Input
 
-Learn how to make your programs interactive by reading input from users!
+Learn how to make your programs interactive by reading input from users with `Scanner`.
 
 ## Learning Objectives
 
 By the end of this lesson, you will be able to:
-- Use `Console.ReadLine()` to get text input
-- Convert string input to numbers with `int.Parse()` and `double.Parse()`
-- Handle invalid input safely with `TryParse()`
-- Create interactive menu systems
+- Import and create a `Scanner` to read input
+- Read text with `nextLine()` and numbers with `nextInt()` / `nextDouble()`
+- Convert text to numbers with `Integer.parseInt()`
+- Build simple interactive programs
 
 ## Why This Matters
 
-Every game needs input! From entering player names to making menu choices, user input is what makes programs interactive and fun.'''
+Interactive programs need input! From entering a user name to making menu choices, reading input is what makes a program respond to the person using it.'''
             },
             {
-                'title': 'Video: User Input',
-                'content': '''# Video Lesson: User Input
-
-Watch this video from **Bro Code** to learn how to get input from users!
-
-*User input is essential for interactive programs and games.*''',
-                'video_type': 'youtube',
-                'video_id': '_SXJyA605bI'
-            },
-            {
-                'title': 'Console.ReadLine()',
+                'title': 'Reading Input with Scanner',
                 'content': '''# Reading Text Input
 
-`Console.ReadLine()` waits for the user to type and press Enter:
+Java reads console input with a `Scanner`. First, import it at the top of your file:
 
-```csharp
-Console.Write("Enter your name: ");
-string playerName = Console.ReadLine();
-Console.WriteLine($"Hello, {playerName}!");
+```java
+import java.util.Scanner;
+```
+
+Then create a `Scanner` connected to `System.in` and call `nextLine()`:
+
+```java
+Scanner scanner = new Scanner(System.in);
+
+System.out.print("Enter your name: ");
+String userName = scanner.nextLine();
+System.out.println("Hello, " + userName + "!");
 ```
 
 Output:
@@ -1496,163 +1470,156 @@ Enter your name: Alex
 Hello, Alex!
 ```
 
-## Write vs WriteLine
-- `Console.Write()` - stays on same line (for prompts)
-- `Console.WriteLine()` - moves to next line
+## print vs println
+- `System.out.print()` - stays on the same line (great for prompts)
+- `System.out.println()` - moves to the next line
 
-```csharp
-Console.Write("Name: ");      // Cursor stays after "Name: "
-string name = Console.ReadLine();
-Console.WriteLine("Done!");   // Moves to new line after
+```java
+System.out.print("Name: ");        // Cursor stays after "Name: "
+String name = scanner.nextLine();
+System.out.println("Done!");       // Moves to a new line
 ```'''
             },
             {
-                'title': 'Converting Input to Numbers',
-                'content': '''# Parsing Numbers
+                'title': 'Reading Numbers',
+                'content': '''# Reading Numbers
 
-User input is ALWAYS a string - you must convert it:
+A `Scanner` can read numbers directly, or you can convert text yourself.
 
-```csharp
-Console.Write("Enter your age: ");
-string input = Console.ReadLine();
-int age = int.Parse(input);  // Convert string to int
+## Reading Numbers Directly
+```java
+Scanner scanner = new Scanner(System.in);
 
-Console.Write("Enter price: ");
-string priceText = Console.ReadLine();
-double price = double.Parse(priceText);  // Convert to double
+System.out.print("Enter your age: ");
+int age = scanner.nextInt();
+
+System.out.print("Enter a price: ");
+double price = scanner.nextDouble();
 ```
 
-## Common Conversions
-| Type | Method |
-|------|--------|
-| int | `int.Parse(str)` |
-| double | `double.Parse(str)` |
-| float | `float.Parse(str)` |
-| bool | `bool.Parse(str)` |
+## Common Scanner Methods
+| Method | Reads |
+|--------|-------|
+| `nextLine()` | A full line of text (String) |
+| `nextInt()` | A whole number (int) |
+| `nextDouble()` | A decimal number (double) |
 
-## Warning!
-`Parse()` crashes if input is invalid:
-```csharp
-int num = int.Parse("hello");  // CRASH! "hello" isn't a number
-```'''
+## Converting Text to Numbers
+If you read a line as text, convert it with `Integer.parseInt`:
+```java
+System.out.print("Enter your age: ");
+String input = scanner.nextLine();
+int age = Integer.parseInt(input);  // Convert "25" to 25
+```
+
+`Double.parseDouble` works the same way for decimals.'''
             },
             {
-                'title': 'Safe Input with TryParse',
+                'title': 'Handling Invalid Input',
                 'content': '''# Handling Invalid Input
 
-Use `TryParse()` to safely handle bad input:
+`Integer.parseInt` throws an error if the text is not a valid number:
+```java
+int num = Integer.parseInt("hello");  // Error! "hello" isn't a number
+```
 
-```csharp
-Console.Write("Enter a number: ");
-string input = Console.ReadLine();
+## Checking Before You Read
+Use `hasNextInt()` to check whether the next value is a valid integer before reading it:
+```java
+Scanner scanner = new Scanner(System.in);
+System.out.print("Enter a number: ");
 
-if (int.TryParse(input, out int number))
-{
-    Console.WriteLine($"You entered: {number}");
-}
-else
-{
-    Console.WriteLine("That's not a valid number!");
+if (scanner.hasNextInt()) {
+    int number = scanner.nextInt();
+    System.out.println("You entered: " + number);
+} else {
+    System.out.println("That's not a valid number!");
 }
 ```
 
-## How TryParse Works
-- Returns `true` if conversion succeeds
-- Returns `false` if conversion fails (no crash!)
-- `out int number` creates the variable and stores the result
-
-## Game Example: Menu Selection
-```csharp
-Console.WriteLine("1. Start Game");
-Console.WriteLine("2. Options");
-Console.WriteLine("3. Exit");
-Console.Write("Choose: ");
-
-string choice = Console.ReadLine();
-
-if (int.TryParse(choice, out int menuChoice))
-{
-    switch (menuChoice)
-    {
-        case 1: StartGame(); break;
-        case 2: ShowOptions(); break;
-        case 3: Exit(); break;
-        default: Console.WriteLine("Invalid choice!"); break;
-    }
-}
-else
-{
-    Console.WriteLine("Please enter a number!");
-}
-```'''
+## How hasNextInt Works
+- Returns `true` if the next input is a valid integer
+- Returns `false` otherwise (so you can handle it without crashing)
+- Only reads the value after you confirm it is safe'''
             },
             {
-                'title': 'Game Input Examples',
-                'content': '''# Interactive Game Examples
+                'title': 'Interactive Examples',
+                'content': '''# Interactive Examples
 
-## Character Creation
-```csharp
-Console.WriteLine("=== CHARACTER CREATION ===");
+## Registration Form
+```java
+import java.util.Scanner;
 
-Console.Write("Enter character name: ");
-string name = Console.ReadLine();
+Scanner scanner = new Scanner(System.in);
+System.out.println("=== REGISTRATION ===");
 
-Console.Write("Enter starting gold (0-100): ");
-int gold = int.Parse(Console.ReadLine());
+System.out.print("Enter your name: ");
+String name = scanner.nextLine();
 
-Console.Write("Enter difficulty (easy/medium/hard): ");
-string difficulty = Console.ReadLine().ToLower();
+System.out.print("Enter your age: ");
+int age = Integer.parseInt(scanner.nextLine());
 
-Console.WriteLine($"\\nCreated {name} with {gold} gold on {difficulty} mode!");
+System.out.print("Enter your city: ");
+String city = scanner.nextLine().toLowerCase();
+
+System.out.printf("Welcome %s, age %d, from %s!%n", name, age, city);
 ```
 
-## Number Guessing Setup
-```csharp
-Console.Write("Enter max number for guessing game: ");
-if (int.TryParse(Console.ReadLine(), out int maxNum))
-{
-    Random rand = new Random();
-    int secret = rand.Next(1, maxNum + 1);
-    Console.WriteLine($"I'm thinking of a number 1-{maxNum}...");
+## Menu Selection
+```java
+Scanner scanner = new Scanner(System.in);
+System.out.println("1. View Profile");
+System.out.println("2. Settings");
+System.out.println("3. Exit");
+System.out.print("Choose: ");
+
+if (scanner.hasNextInt()) {
+    int menuChoice = scanner.nextInt();
+    switch (menuChoice) {
+        case 1: System.out.println("Opening profile..."); break;
+        case 2: System.out.println("Opening settings..."); break;
+        case 3: System.out.println("Goodbye!"); break;
+        default: System.out.println("Invalid choice!"); break;
+    }
+} else {
+    System.out.println("Please enter a number!");
 }
 ```
 
 ## Yes/No Confirmation
-```csharp
-Console.Write("Are you sure? (y/n): ");
-string answer = Console.ReadLine().ToLower();
+```java
+Scanner scanner = new Scanner(System.in);
+System.out.print("Are you sure? (y/n): ");
+String answer = scanner.nextLine().toLowerCase();
 
-if (answer == "y" || answer == "yes")
-{
-    Console.WriteLine("Confirmed!");
-}
-else
-{
-    Console.WriteLine("Cancelled.");
+if (answer.equals("y") || answer.equals("yes")) {
+    System.out.println("Confirmed!");
+} else {
+    System.out.println("Cancelled.");
 }
 ```'''
             }
         ])
         self._create_lesson_questions(lesson3, [
             {
-                'text': 'Which method reads a line of text from the user?',
-                'choices': [('Console.ReadLine()', True), ('Console.Read()', False), ('Console.GetInput()', False), ('Console.Input()', False)]
+                'text': 'Which class does Java use to read input from the console?',
+                'choices': [('Scanner', True), ('Reader', False), ('Input', False), ('Console', False)]
             },
             {
-                'text': 'What type does Console.ReadLine() always return?',
-                'choices': [('string', True), ('int', False), ('any type', False), ('void', False)]
+                'text': 'Which import is needed to use Scanner?',
+                'choices': [('import java.util.Scanner;', True), ('import java.io.Scanner;', False), ('import java.lang.Scanner;', False), ('No import is needed', False)]
             },
             {
-                'text': 'How do you convert the string "42" to an integer?',
-                'choices': [('int.Parse("42")', True), ('(int)"42"', False), ('"42".ToInt()', False), ('Convert("42")', False)]
+                'text': 'Which Scanner method reads a full line of text?',
+                'choices': [('nextLine()', True), ('readLine()', False), ('getLine()', False), ('nextText()', False)]
             },
             {
-                'text': 'What is the advantage of TryParse over Parse?',
-                'choices': [("It doesn't crash on invalid input", True), ("It's faster", False), ("It works with more types", False), ('There is no difference', False)]
+                'text': 'How do you convert the String "42" to an integer in Java?',
+                'choices': [('Integer.parseInt("42")', True), ('(int)"42"', False), ('"42".toInt()', False), ('int.parse("42")', False)]
             },
             {
-                'text': 'What does int.TryParse return?',
-                'choices': [('true if conversion succeeded, false if it failed', True), ('The converted number', False), ('An error message', False), ('Nothing (void)', False)]
+                'text': 'How can you check if the next input is a valid integer before reading it?',
+                'choices': [('scanner.hasNextInt()', True), ('scanner.isInt()', False), ('scanner.checkInt()', False), ('scanner.nextInt()', False)]
             }
         ])
 
@@ -1668,12 +1635,20 @@ else
         )
         questions = [
             {
-                'text': 'What does "Hello".Length return?',
+                'text': 'In Java, what does "Hello".length() return?',
                 'choices': [('5', True), ('4', False), ('6', False), ('"Hello"', False)]
             },
             {
-                'text': 'How do you convert a string "42" to an integer?',
-                'choices': [('int.Parse("42")', True), ('(int)"42"', False), ('"42".ToInt()', False), ('Convert("42")', False)]
+                'text': 'How do you convert the String "42" to an integer in Java?',
+                'choices': [('Integer.parseInt("42")', True), ('(int)"42"', False), ('"42".toInt()', False), ('int.parse("42")', False)]
+            },
+            {
+                'text': 'Which expression builds a formatted String in Java?',
+                'choices': [('String.format("Hi %s", name)', True), ('format("Hi %s", name)', False), ('"Hi " % name', False), ('"Hi " . name', False)]
+            },
+            {
+                'text': 'Which class reads user input from the console in Java?',
+                'choices': [('Scanner', True), ('Reader', False), ('Console', False), ('Input', False)]
             },
         ]
         self._create_quiz_questions(quiz, questions)
@@ -1688,7 +1663,7 @@ else
                 'title': 'Overview',
                 'content': '''# Comparison Operators
 
-Learn to compare values - the foundation of all game logic and decisions.
+Learn to compare values - the foundation of all program logic and decisions.
 
 ## Learning Objectives
 
@@ -1696,21 +1671,11 @@ By the end of this lesson, you will be able to:
 - Use comparison operators: `==`, `!=`, `>`, `<`, `>=`, `<=`
 - Understand that comparisons return boolean values
 - Compare numbers, strings, and other values
-- Build conditions for game logic
+- Build conditions for program logic
 
 ## Why This Matters
 
-Every game decision requires comparisons - Is health below 0? Is the score high enough? Did the player win? Comparisons are everywhere!'''
-            },
-            {
-                'title': 'Video: If Statements',
-                'content': '''# Video Lesson: If Statements
-
-Watch this video from **Bro Code** to learn about conditional logic!
-
-*If statements are the foundation of all decision-making in programs.*''',
-                'video_type': 'youtube',
-                'video_id': 'pSPQnXleaS8'
+Every decision a program makes requires comparisons - Is the temperature below freezing? Is the grade high enough to pass? Comparisons are everywhere!'''
             },
             {
                 'title': 'Comparison Operators',
@@ -1727,13 +1692,23 @@ Comparisons return `true` or `false`:
 | `>=` | Greater or equal | `5 >= 5` → true |
 | `<=` | Less or equal | `5 <= 3` → false |
 
-```csharp
-int health = 25;
-int maxHealth = 100;
+```java
+int temperature = 25;
+int maxTemperature = 100;
 
-Console.WriteLine(health < 30);      // true
-Console.WriteLine(health == 25);     // true
-Console.WriteLine(health >= maxHealth); // false
+System.out.println(temperature < 30);            // true
+System.out.println(temperature == 25);           // true
+System.out.println(temperature >= maxTemperature); // false
+```
+
+## Comparing Strings
+
+For numbers use `==`, but to compare `String` values use `.equals()`:
+
+```java
+String name = "Alice";
+System.out.println(name.equals("Alice"));  // true
+System.out.println(name == "Alice");       // avoid - compares references, not the text
 ```'''
             }
         ])
@@ -1776,17 +1751,7 @@ By the end of this lesson, you will be able to:
 
 ## Why This Matters
 
-Conditionals are the brain of your game! Every enemy AI decision, every player action check, every game rule uses if statements.'''
-            },
-            {
-                'title': 'Video: Logical Operators',
-                'content': '''# Video Lesson: Logical Operators
-
-Watch this video from **Bro Code** to learn about combining conditions with AND, OR, and NOT!
-
-*Logical operators let you create complex conditions for game logic.*''',
-                'video_type': 'youtube',
-                'video_id': 'uxS_0S0dNs8'
+Conditionals are the brain of your program! Every input check, every rule, every automated decision uses if statements.'''
             },
             {
                 'title': 'Basic If Statements',
@@ -1794,25 +1759,25 @@ Watch this video from **Bro Code** to learn about combining conditions with AND,
 
 Execute code only when a condition is true:
 
-```csharp
-int gold = 50;
-bool foundTreasure = true;
+```java
+int total = 50;
+boolean isMember = true;
 
-if (foundTreasure)
+if (isMember)
 {
-    gold = gold + 100;
-    Console.WriteLine("You found treasure! +100 gold!");
+    total = total + 100;
+    System.out.println("Member bonus! +100 points!");
 }
-Console.WriteLine($"Total gold: {gold}");
+System.out.println("Total points: " + total);
 ```
 
-## Game Example: Low Health Warning
-```csharp
-int playerHealth = 20;
+## Example: Low Temperature Warning
+```java
+int temperature = 20;
 
-if (playerHealth < 30)
+if (temperature < 30)
 {
-    Console.WriteLine("WARNING: Low health!");
+    System.out.println("WARNING: Low temperature!");
 }
 ```'''
             },
@@ -1822,30 +1787,30 @@ if (playerHealth < 30)
 
 Choose between two options:
 
-```csharp
-int score = 75;
+```java
+int grade = 75;
 
-if (score >= 60)
+if (grade >= 60)
 {
-    Console.WriteLine("You passed!");
+    System.out.println("You passed!");
 }
 else
 {
-    Console.WriteLine("Try again.");
+    System.out.println("Try again.");
 }
 ```
 
-## Game Example: Attack or Defend
-```csharp
-int enemyDistance = 5;
+## Example: Check a Limit
+```java
+int count = 5;
 
-if (enemyDistance < 10)
+if (count < 10)
 {
-    Console.WriteLine("Attack the enemy!");
+    System.out.println("Below the limit.");
 }
 else
 {
-    Console.WriteLine("Move closer first.");
+    System.out.println("Limit reached.");
 }
 ```'''
             },
@@ -1855,24 +1820,24 @@ else
 
 Handle multiple conditions:
 
-```csharp
-int score = 85;
+```java
+int grade = 85;
 
-if (score >= 90)
+if (grade >= 90)
 {
-    Console.WriteLine("Grade: A");
+    System.out.println("Grade: A");
 }
-else if (score >= 80)
+else if (grade >= 80)
 {
-    Console.WriteLine("Grade: B");
+    System.out.println("Grade: B");
 }
-else if (score >= 70)
+else if (grade >= 70)
 {
-    Console.WriteLine("Grade: C");
+    System.out.println("Grade: C");
 }
 else
 {
-    Console.WriteLine("Grade: F");
+    System.out.println("Grade: F");
 }
 ```
 
@@ -1890,26 +1855,28 @@ Combine multiple conditions:
 | `\\|\\|` | OR | Either true |
 | `!` | NOT | Reverses value |
 
-```csharp
-int mana = 50;
-bool hasSpellbook = true;
+```java
+int balance = 50;
+boolean hasAccount = true;
+boolean isFrozen = false;
+boolean hasKey = false;
 
 // AND - both must be true
-if (mana >= 20 && hasSpellbook)
+if (balance >= 20 && hasAccount)
 {
-    Console.WriteLine("You can cast spells!");
+    System.out.println("You can make a purchase!");
 }
 
 // OR - either can be true
-if (health <= 0 || isStunned)
+if (balance <= 0 || isFrozen)
 {
-    Console.WriteLine("Cannot move!");
+    System.out.println("Cannot withdraw!");
 }
 
 // NOT - reverses the condition
 if (!hasKey)
 {
-    Console.WriteLine("You need a key!");
+    System.out.println("You need a key!");
 }
 ```'''
             }
@@ -1946,7 +1913,7 @@ if (!hasKey)
                 'title': 'Overview',
                 'content': '''# Switch Statements
 
-Learn a cleaner way to handle multiple conditions - perfect for menus and game states!
+Learn a cleaner way to handle multiple conditions - perfect for menus and program states!
 
 ## Learning Objectives
 
@@ -1954,21 +1921,11 @@ By the end of this lesson, you will be able to:
 - Use `switch` statements for multi-way branching
 - Write `case` labels and `default` handlers
 - Understand when switch is better than if-else chains
-- Create game menus and state machines
+- Create menus and state machines
 
 ## Why This Matters
 
-Game menus, character classes, inventory items, enemy types - switch statements handle these choices elegantly without messy if-else chains!'''
-            },
-            {
-                'title': 'Video: Switch Statements',
-                'content': '''# Video Lesson: Switch Statements
-
-Watch this video from **Bro Code** to learn about switch statements in C#!
-
-*Switch is perfect for handling multiple specific values cleanly.*''',
-                'video_type': 'youtube',
-                'video_id': 'Qu93CRt-FGc'
+Menu selections, command handling, category lookups - switch statements handle these choices elegantly without messy if-else chains!'''
             },
             {
                 'title': 'Switch Syntax',
@@ -1976,22 +1933,22 @@ Watch this video from **Bro Code** to learn about switch statements in C#!
 
 Compare one value against many cases:
 
-```csharp
+```java
 int dayNumber = 3;
 
 switch (dayNumber)
 {
     case 1:
-        Console.WriteLine("Monday");
+        System.out.println("Monday");
         break;
     case 2:
-        Console.WriteLine("Tuesday");
+        System.out.println("Tuesday");
         break;
     case 3:
-        Console.WriteLine("Wednesday");
+        System.out.println("Wednesday");
         break;
     default:
-        Console.WriteLine("Unknown day");
+        System.out.println("Unknown day");
         break;
 }
 ```
@@ -2017,94 +1974,97 @@ switch (dayNumber)
 - Comparing multiple variables
 
 ## Comparison
-```csharp
+```java
 // If-else chain (harder to read)
-if (choice == 1) { Attack(); }
-else if (choice == 2) { Defend(); }
-else if (choice == 3) { UseItem(); }
-else if (choice == 4) { RunAway(); }
-else { Console.WriteLine("Invalid"); }
+if (choice == 1) { showProfile(); }
+else if (choice == 2) { showSettings(); }
+else if (choice == 3) { showHelp(); }
+else if (choice == 4) { logOut(); }
+else { System.out.println("Invalid"); }
 
 // Switch (cleaner!)
 switch (choice)
 {
-    case 1: Attack(); break;
-    case 2: Defend(); break;
-    case 3: UseItem(); break;
-    case 4: RunAway(); break;
-    default: Console.WriteLine("Invalid"); break;
+    case 1: showProfile(); break;
+    case 2: showSettings(); break;
+    case 3: showHelp(); break;
+    case 4: logOut(); break;
+    default: System.out.println("Invalid"); break;
 }
 ```'''
             },
             {
-                'title': 'Game Examples',
-                'content': '''# Switch in Games
+                'title': 'Switch Examples',
+                'content': '''# Switch in Action
 
-## Character Class Selection
-```csharp
-Console.WriteLine("Choose your class:");
-Console.WriteLine("1. Warrior  2. Mage  3. Rogue");
-int classChoice = int.Parse(Console.ReadLine());
+## Menu Selection
+```java
+import java.util.Scanner;
 
-switch (classChoice)
+Scanner scanner = new Scanner(System.in);
+System.out.println("Choose an option:");
+System.out.println("1. New  2. Open  3. Save");
+int menuChoice = scanner.nextInt();
+
+switch (menuChoice)
 {
     case 1:
-        Console.WriteLine("You chose Warrior!");
-        Console.WriteLine("High health, melee attacks");
+        System.out.println("Creating a new file...");
+        System.out.println("Starting from scratch");
         break;
     case 2:
-        Console.WriteLine("You chose Mage!");
-        Console.WriteLine("Powerful spells, low health");
+        System.out.println("Opening a file...");
+        System.out.println("Choose from recent files");
         break;
     case 3:
-        Console.WriteLine("You chose Rogue!");
-        Console.WriteLine("Fast attacks, stealth abilities");
+        System.out.println("Saving your work...");
+        System.out.println("File saved");
         break;
     default:
-        Console.WriteLine("Invalid choice!");
+        System.out.println("Invalid choice!");
         break;
 }
 ```
 
-## Game State Machine
-```csharp
-string gameState = "playing";
+## Program State Machine
+```java
+String programState = "running";
 
-switch (gameState)
+switch (programState)
 {
     case "menu":
-        ShowMainMenu();
+        showMainMenu();
         break;
-    case "playing":
-        UpdateGame();
+    case "running":
+        updateProgram();
         break;
     case "paused":
-        ShowPauseMenu();
+        showPauseMenu();
         break;
-    case "gameover":
-        ShowGameOver();
+    case "stopped":
+        showSummary();
         break;
 }
 ```
 
-## Grade Calculator
-```csharp
+## Grade Message
+```java
 char grade = 'B';
 
 switch (grade)
 {
     case 'A':
-        Console.WriteLine("Excellent!");
+        System.out.println("Excellent!");
         break;
     case 'B':
-        Console.WriteLine("Good job!");
+        System.out.println("Good job!");
         break;
     case 'C':
-        Console.WriteLine("You passed.");
+        System.out.println("You passed.");
         break;
     case 'D':
     case 'F':
-        Console.WriteLine("Need improvement.");
+        System.out.println("Need improvement.");
         break;
 }
 ```'''
@@ -2174,7 +2134,7 @@ switch (grade)
             },
             {
                 'text': 'Which loop is best when you don\'t know how many iterations you need?',
-                'choices': [('while loop', True), ('for loop', False), ('foreach loop', False), ('None of these', False)]
+                'choices': [('while loop', True), ('for loop', False), ('for-each loop', False), ('None of these', False)]
             },
             {
                 'text': 'What does "break" do inside a loop?',
@@ -2182,7 +2142,7 @@ switch (grade)
             },
             {
                 'text': 'Which loop automatically handles indexing through a collection?',
-                'choices': [('foreach', True), ('while', False), ('for', False), ('do-while', False)]
+                'choices': [('the for-each (enhanced for) loop', True), ('while', False), ('a counting for loop', False), ('do-while', False)]
             },
         ]
         self._create_quiz_questions(quiz, questions)
@@ -2198,7 +2158,7 @@ switch (grade)
                 'title': 'Overview',
                 'content': '''# While Loops
 
-Learn to repeat code as long as a condition is true - essential for game loops!
+Learn to repeat code as long as a condition is true - a fundamental building block!
 
 ## Learning Objectives
 
@@ -2210,17 +2170,7 @@ By the end of this lesson, you will be able to:
 
 ## Why This Matters
 
-Every game has loops - game loops, animation loops, spawn loops. Understanding while loops is crucial for creating dynamic, interactive programs!'''
-            },
-            {
-                'title': 'Video: While Loops',
-                'content': '''# Video Lesson: While Loops
-
-Watch this video from **Bro Code** to learn about while loops in C#!
-
-*While loops repeat code as long as a condition remains true.*''',
-                'video_type': 'youtube',
-                'video_id': 'EyghyKO4BlA'
+Many programs repeat work - reading input until it is valid, processing data until it is done, counting down a timer. Understanding while loops is crucial for creating dynamic programs!'''
             },
             {
                 'title': 'Basic While Loop',
@@ -2228,12 +2178,12 @@ Watch this video from **Bro Code** to learn about while loops in C#!
 
 A while loop repeats code **while** a condition is true:
 
-```csharp
+```java
 int count = 0;
 
 while (count < 5)
 {
-    Console.WriteLine($"Count: {count}");
+    System.out.println("Count: " + count);
     count++;  // Don't forget to update!
 }
 ```
@@ -2253,44 +2203,47 @@ Count: 4
 3. **Update**: Something must change to eventually exit!'''
             },
             {
-                'title': 'Game Examples',
-                'content': '''# While Loops in Games
+                'title': 'While Loop Examples',
+                'content': '''# While Loops in Action
 
 ## Countdown Timer
-```csharp
+```java
 int countdown = 10;
 
 while (countdown > 0)
 {
-    Console.WriteLine($"Starting in {countdown}...");
+    System.out.println("Starting in " + countdown + "...");
     countdown--;
 }
-Console.WriteLine("GO!");
+System.out.println("GO!");
 ```
 
-## Player Health Regeneration
-```csharp
-int health = 50;
-int maxHealth = 100;
+## Filling a Balance
+```java
+int balance = 50;
+int target = 100;
 
-while (health < maxHealth)
+while (balance < target)
 {
-    health += 5;  // Regen 5 HP
-    Console.WriteLine($"Health: {health}/{maxHealth}");
+    balance += 5;  // Add 5 each step
+    System.out.println("Balance: " + balance + "/" + target);
 }
-Console.WriteLine("Fully healed!");
+System.out.println("Target reached!");
 ```
 
 ## Input Validation (Keep Asking Until Valid)
-```csharp
-string password = "";
+```java
+import java.util.Scanner;
 
-while (password != "secret123")
+Scanner scanner = new Scanner(System.in);
+String password = "";
+
+while (!password.equals("secret123"))
 {
-    Console.Write("Enter password: ");
-    password = Console.ReadLine();
+    System.out.print("Enter password: ");
+    password = scanner.nextLine();
 }
-Console.WriteLine("Access granted!");
+System.out.println("Access granted!");
 ```'''
             },
             {
@@ -2298,24 +2251,24 @@ Console.WriteLine("Access granted!");
                 'content': '''# Loop Control
 
 ## break - Exit the loop immediately
-```csharp
-int health = 100;
+```java
+int number = 100;
 
 while (true)  // Infinite loop!
 {
-    health -= 10;
-    Console.WriteLine($"Health: {health}");
+    number -= 10;
+    System.out.println("Number: " + number);
 
-    if (health <= 0)
+    if (number <= 0)
     {
-        Console.WriteLine("Game Over!");
+        System.out.println("Done!");
         break;  // Exit the loop
     }
 }
 ```
 
 ## continue - Skip to next iteration
-```csharp
+```java
 int i = 0;
 
 while (i < 10)
@@ -2327,16 +2280,16 @@ while (i < 10)
         continue;  // Skip even numbers
     }
 
-    Console.WriteLine(i);  // Only prints odd: 1, 3, 5, 7, 9
+    System.out.println(i);  // Only prints odd: 1, 3, 5, 7, 9
 }
 ```
 
 ## Warning: Infinite Loops!
-```csharp
+```java
 // DANGER - This never ends!
 while (true)
 {
-    Console.WriteLine("Forever...");
+    System.out.println("Forever...");
 }
 // Make sure you have a way to exit!
 ```'''
@@ -2402,26 +2355,16 @@ By the end of this lesson, you will be able to:
 
 ## Why This Matters
 
-For loops are the workhorses of programming. Spawning enemies, processing inventory items, creating level tiles - for loops handle it all!'''
-            },
-            {
-                'title': 'Video: For Loops',
-                'content': '''# Video Lesson: For Loops
-
-Watch this video from **Bro Code** to learn about for loops in C#!
-
-*For loops are perfect when you know exactly how many iterations you need.*''',
-                'video_type': 'youtube',
-                'video_id': 'h4hY2hho73Q'
+For loops are the workhorses of programming. Processing lists of data, repeating a task a set number of times, building tables - for loops handle it all!'''
             },
             {
                 'title': 'For Loop Syntax',
                 'content': '''# For Loop Structure
 
-```csharp
+```java
 for (int i = 0; i < 5; i++)
 {
-    Console.WriteLine($"Iteration {i}");
+    System.out.println("Iteration " + i);
 }
 ```
 
@@ -2449,75 +2392,75 @@ for (initialization; condition; update)
                 'content': '''# Different Counting Patterns
 
 ## Count Up (0 to 9)
-```csharp
+```java
 for (int i = 0; i < 10; i++)
 {
-    Console.WriteLine(i);
+    System.out.println(i);
 }
 ```
 
 ## Count Down (10 to 1)
-```csharp
+```java
 for (int i = 10; i > 0; i--)
 {
-    Console.WriteLine(i);
+    System.out.println(i);
 }
-Console.WriteLine("Blast off!");
+System.out.println("Blast off!");
 ```
 
 ## Count by 2s (Even Numbers)
-```csharp
+```java
 for (int i = 0; i <= 10; i += 2)
 {
-    Console.WriteLine(i);  // 0, 2, 4, 6, 8, 10
+    System.out.println(i);  // 0, 2, 4, 6, 8, 10
 }
 ```
 
 ## Start at Different Number
-```csharp
+```java
 for (int i = 5; i <= 15; i++)
 {
-    Console.WriteLine(i);  // 5, 6, 7... 15
+    System.out.println(i);  // 5, 6, 7... 15
 }
 ```'''
             },
             {
-                'title': 'Game Examples',
-                'content': '''# For Loops in Games
+                'title': 'For Loop Examples',
+                'content': '''# For Loops in Action
 
-## Spawn 5 Enemies
-```csharp
+## Repeat a Task 5 Times
+```java
 for (int i = 0; i < 5; i++)
 {
-    Console.WriteLine($"Spawning enemy #{i + 1}");
+    System.out.println("Processing item #" + (i + 1));
 }
 ```
 
-## Display Inventory
-```csharp
-string[] items = {"Sword", "Shield", "Potion"};
+## Display a List
+```java
+String[] items = {"Pen", "Notebook", "Eraser"};
 
-for (int i = 0; i < items.Length; i++)
+for (int i = 0; i < items.length; i++)
 {
-    Console.WriteLine($"{i + 1}. {items[i]}");
+    System.out.println((i + 1) + ". " + items[i]);
 }
 ```
 
-## Draw Health Bar
-```csharp
-int health = 7;
-int maxHealth = 10;
+## Draw a Progress Bar
+```java
+int progress = 7;
+int total = 10;
 
-Console.Write("HP: [");
-for (int i = 0; i < maxHealth; i++)
+System.out.print("Progress: [");
+for (int i = 0; i < total; i++)
 {
-    if (i < health)
-        Console.Write("█");
+    if (i < progress)
+        System.out.print("#");
     else
-        Console.Write("░");
+        System.out.print("-");
 }
-Console.WriteLine("]");
-// Output: HP: [███████░░░]
+System.out.println("]");
+// Output: Progress: [#######---]
 ```'''
             }
         ])
@@ -2577,21 +2520,11 @@ By the end of this lesson, you will be able to:
 - Create loops inside other loops (nesting)
 - Understand how nested loop iterations multiply
 - Generate 2D patterns and grids
-- Create game boards and tile maps
+- Create tables and grids
 
 ## Why This Matters
 
-Game worlds are 2D grids! Tile maps, chess boards, inventory grids - nested loops create all of these structures.'''
-            },
-            {
-                'title': 'Video: Nested Loops',
-                'content': '''# Video Lesson: Nested Loops
-
-Watch this video from **Bro Code** to learn about putting loops inside loops!
-
-*Nested loops are essential for working with 2D data like game boards.*''',
-                'video_type': 'youtube',
-                'video_id': 'WFzLcZk137s'
+Grids are everywhere in programming! Spreadsheets, image pixels, tables of data - nested loops create all of these structures.'''
             },
             {
                 'title': 'Understanding Nested Loops',
@@ -2599,14 +2532,14 @@ Watch this video from **Bro Code** to learn about putting loops inside loops!
 
 The inner loop runs completely for EACH iteration of the outer loop:
 
-```csharp
+```java
 for (int i = 0; i < 3; i++)       // Outer: rows
 {
     for (int j = 0; j < 4; j++)   // Inner: columns
     {
-        Console.Write("* ");
+        System.out.print("* ");
     }
-    Console.WriteLine();  // New line after each row
+    System.out.println();  // New line after each row
 }
 ```
 
@@ -2627,14 +2560,14 @@ Output:
                 'content': '''# Practical Patterns
 
 ## Multiplication Table
-```csharp
+```java
 for (int i = 1; i <= 5; i++)
 {
     for (int j = 1; j <= 5; j++)
     {
-        Console.Write($"{i * j,4}");
+        System.out.printf("%4d", i * j);
     }
-    Console.WriteLine();
+    System.out.println();
 }
 ```
 Output:
@@ -2646,30 +2579,30 @@ Output:
    5  10  15  20  25
 ```
 
-## Game Board (Checkerboard)
-```csharp
+## Checkerboard Pattern
+```java
 for (int row = 0; row < 8; row++)
 {
     for (int col = 0; col < 8; col++)
     {
         if ((row + col) % 2 == 0)
-            Console.Write("□ ");
+            System.out.print("[] ");
         else
-            Console.Write("■ ");
+            System.out.print("## ");
     }
-    Console.WriteLine();
+    System.out.println();
 }
 ```
 
 ## Coordinate Grid
-```csharp
+```java
 for (int y = 0; y < 3; y++)
 {
     for (int x = 0; x < 3; x++)
     {
-        Console.Write($"({x},{y}) ");
+        System.out.print("(" + x + "," + y + ") ");
     }
-    Console.WriteLine();
+    System.out.println();
 }
 ```'''
             }
@@ -2704,65 +2637,55 @@ for (int y = 0; y < 3; y++)
             }
         ])
 
-        # Lesson 7: ForEach Loops
+        # Lesson 7: For-Each Loops (Enhanced For)
         lesson7 = Lesson.objects.create(
-            unit=unit, title='ForEach Loops', order=6, max_quiz_attempts=3
+            unit=unit, title='For-Each Loops (Enhanced For)', order=6, max_quiz_attempts=3
         )
         self._create_sections(lesson7, [
             {
                 'title': 'Overview',
-                'content': '''# ForEach Loops
+                'content': '''# For-Each Loops (Enhanced For)
 
 Discover the cleanest way to loop through collections - no index needed!
 
 ## Learning Objectives
 
 By the end of this lesson, you will be able to:
-- Use `foreach` to iterate through arrays and collections
-- Understand when foreach is better than for
+- Use the enhanced `for` loop to iterate through arrays and collections
+- Understand when for-each is better than a counting for loop
 - Process each item without managing an index
 - Work with different collection types
 
 ## Why This Matters
 
-Most game data lives in collections - inventories, enemy lists, high scores. ForEach makes processing these collections simple and readable!'''
+Most data lives in collections - lists of names, sets of numbers, records. The for-each loop makes processing these collections simple and readable!'''
             },
             {
-                'title': 'Video: ForEach Loops',
-                'content': '''# Video Lesson: ForEach Loops
-
-Watch this video from **Bro Code** to learn about the foreach loop!
-
-*ForEach is the cleanest way to process every item in a collection.*''',
-                'video_type': 'youtube',
-                'video_id': 'WhACXlObR8s'
-            },
-            {
-                'title': 'ForEach Syntax',
-                'content': '''# ForEach Loop
+                'title': 'For-Each Syntax',
+                'content': '''# For-Each Loop (Enhanced For)
 
 Process each item without managing an index:
 
-```csharp
-string[] weapons = {"Sword", "Bow", "Staff", "Axe"};
+```java
+String[] fruits = {"Apple", "Banana", "Cherry", "Date"};
 
-foreach (string weapon in weapons)
+for (String fruit : fruits)
 {
-    Console.WriteLine($"You have a {weapon}");
+    System.out.println("Item: " + fruit);
 }
 ```
 
 Output:
 ```
-You have a Sword
-You have a Bow
-You have a Staff
-You have a Axe
+Item: Apple
+Item: Banana
+Item: Cherry
+Item: Date
 ```
 
 ## Syntax Breakdown
-```csharp
-foreach (type variableName in collection)
+```java
+for (type variableName : collection)
 {
     // Use variableName
 }
@@ -2770,58 +2693,59 @@ foreach (type variableName in collection)
 
 - `type` - The type of items in the collection
 - `variableName` - Name for current item
-- `collection` - The array/list to loop through'''
+- `collection` - The array/list to loop through
+- The colon `:` reads as "in" - "for each item in the collection"'''
             },
             {
-                'title': 'ForEach vs For',
+                'title': 'For-Each vs Counting For',
                 'content': '''# When to Use Each
 
-## Use foreach when:
+## Use the for-each loop when:
 - You need every item
 - You don't need the index
 - You want cleaner code
 
-```csharp
+```java
 // Clean and simple
-foreach (string item in inventory)
+for (String item : inventory)
 {
-    Console.WriteLine(item);
+    System.out.println(item);
 }
 ```
 
-## Use for when:
+## Use a counting for loop when:
 - You need the index
 - You need to modify the array
 - You need to skip/select certain indices
 
-```csharp
+```java
 // Need index for numbering
-for (int i = 0; i < inventory.Length; i++)
+for (int i = 0; i < inventory.length; i++)
 {
-    Console.WriteLine($"{i + 1}. {inventory[i]}");
+    System.out.println((i + 1) + ". " + inventory[i]);
 }
 ```
 
-## Game Examples
-```csharp
-// Calculate total damage from all weapons
-int totalDamage = 0;
-int[] weaponDamages = {10, 25, 15, 30};
+## Examples
+```java
+// Add up all the numbers
+int total = 0;
+int[] numbers = {10, 25, 15, 30};
 
-foreach (int damage in weaponDamages)
+for (int number : numbers)
 {
-    totalDamage += damage;
+    total += number;
 }
-Console.WriteLine($"Total damage: {totalDamage}");
+System.out.println("Total: " + total);
 
-// Find all alive enemies
-string[] enemies = {"Goblin", "Dead", "Orc", "Dead", "Dragon"};
+// Print all valid names
+String[] names = {"Alice", "N/A", "Bob", "N/A", "Carol"};
 
-foreach (string enemy in enemies)
+for (String name : names)
 {
-    if (enemy != "Dead")
+    if (!name.equals("N/A"))
     {
-        Console.WriteLine($"{enemy} is still alive!");
+        System.out.println(name + " is valid!");
     }
 }
 ```'''
@@ -2829,7 +2753,7 @@ foreach (string enemy in enemies)
         ])
         self._create_lesson_questions(lesson7, [
             {
-                'text': 'What is the main advantage of foreach over for?',
+                'text': 'What is the main advantage of the for-each loop over a counting for loop?',
                 'choices': [
                     ('Cleaner syntax - no index management needed', True),
                     ('Runs faster', False),
@@ -2838,16 +2762,16 @@ foreach (string enemy in enemies)
                 ]
             },
             {
-                'text': 'When should you use a for loop instead of foreach?',
+                'text': 'When should you use a counting for loop instead of a for-each loop?',
                 'choices': [
                     ('When you need the index or need to modify items', True),
                     ('When you have a string array', False),
                     ('When you want cleaner code', False),
-                    ('Always - for is always better', False)
+                    ('Always - the counting for loop is always better', False)
                 ]
             },
             {
-                'text': 'In `foreach (int num in numbers)`, what does `num` represent?',
+                'text': 'In `for (int num : numbers)`, what does `num` represent?',
                 'choices': [
                     ('The current item being processed', True),
                     ('The index of the current item', False),
@@ -2867,99 +2791,121 @@ foreach (string enemy in enemies)
                 'title': 'Overview',
                 'content': '''# Built-in Methods
 
-Discover powerful pre-built methods that C# provides for math and randomness.
+Discover powerful pre-built methods that Java provides for math, text, and randomness.
 
 ## Learning Objectives
 
 By the end of this lesson, you will be able to:
-- Use `Math` methods: `Max()`, `Min()`, `Abs()`, `Pow()`, `Sqrt()`, `Round()`
-- Generate random numbers with the `Random` class
-- Apply random values for game mechanics like damage and dice rolls
+- Use `Math` methods: `max()`, `min()`, `abs()`, `pow()`, `sqrt()`, `round()`
+- Use common `String` methods like `toUpperCase()`, `length()`, and `substring()`
+- Generate random numbers with `Math.random()`
 - Understand how built-in methods save you time
 
 ## Why This Matters
 
-Don't reinvent the wheel! C# provides hundreds of useful methods. Learning to use them makes you a more efficient programmer.'''
+Don't reinvent the wheel! Java provides hundreds of useful methods. Learning to use them makes you a more efficient programmer.'''
             },
             {
                 'title': 'Math Methods',
                 'content': '''# Built-in Math Methods
 
-C# includes many useful methods:
+Java's `Math` class includes many useful methods (note the lowercase method names):
 
-```csharp
+```java
 // Find the larger/smaller value
-int max = Math.Max(10, 20);    // 20
-int min = Math.Min(10, 20);    // 10
+int max = Math.max(10, 20);    // 20
+int min = Math.min(10, 20);    // 10
 
 // Absolute value (removes negative)
-int abs = Math.Abs(-15);       // 15
+int abs = Math.abs(-15);       // 15
 
 // Power (exponent)
-double power = Math.Pow(2, 3); // 8.0
+double power = Math.pow(2, 3); // 8.0
 
 // Square root
-double sqrt = Math.Sqrt(16);   // 4.0
+double sqrt = Math.sqrt(16);   // 4.0
 
 // Round numbers
-double rounded = Math.Round(3.7);  // 4.0
-int floor = (int)Math.Floor(3.9);  // 3
-int ceiling = (int)Math.Ceiling(3.1); // 4
+long rounded = Math.round(3.7);   // 4
+int floor = (int) Math.floor(3.9);   // 3
+int ceiling = (int) Math.ceil(3.1);  // 4
+```'''
+            },
+            {
+                'title': 'String Methods',
+                'content': '''# Built-in String Methods
+
+Java `String` objects come with handy built-in methods:
+
+```java
+String name = "Ada Lovelace";
+
+// Number of characters
+int length = name.length();          // 12
+
+// Change case
+String upper = name.toUpperCase();   // "ADA LOVELACE"
+String lower = name.toLowerCase();   // "ada lovelace"
+
+// Extract part of the text
+String first = name.substring(0, 3); // "Ada"
+
+// Convert text to a number
+int count = Integer.parseInt("42");        // 42
+double price = Double.parseDouble("9.99"); // 9.99
 ```'''
             },
             {
                 'title': 'Random Numbers',
                 'content': '''# Generating Random Numbers
 
-Games need randomness for variety!
+`Math.random()` returns a `double` from 0.0 (inclusive) to 1.0 (exclusive):
 
-```csharp
-Random rand = new Random();
+```java
+// Random double from 0.0 to 1.0
+double chance = Math.random();
 
 // Random int from 1 to 10
-int roll = rand.Next(1, 11);  // Max is exclusive!
+int roll = (int) (Math.random() * 10) + 1;
 
 // Random int from 0 to 99
-int percent = rand.Next(100);
-
-// Random double from 0.0 to 1.0
-double chance = rand.NextDouble();
+int percent = (int) (Math.random() * 100);
 ```
 
-## Game Examples
-```csharp
-Random rand = new Random();
-
-// Dice roll (1-6)
-int dice = rand.Next(1, 7);
-
-// Critical hit chance (25%)
-if (rand.NextDouble() < 0.25)
-{
-    Console.WriteLine("Critical hit!");
+## Common Examples
+```java
+// Simulate a coin flip
+if (Math.random() < 0.5) {
+    System.out.println("Heads");
+} else {
+    System.out.println("Tails");
 }
 
-// Random damage (10-20)
-int damage = rand.Next(10, 21);
+// Random number between 10 and 20 (inclusive)
+int value = (int) (Math.random() * 11) + 10;
 ```'''
             }
         ])
         self._create_lesson_questions(lesson1, [
             {
-                'text': 'What does Math.Max(5, 10) return?',
+                'text': 'What does Math.max(5, 10) return?',
                 'choices': [('10 (the larger value)', True), ('5', False), ('15', False), ('50', False)]
             },
             {
-                'text': 'What does Math.Min(5, 10) return?',
+                'text': 'What does Math.min(5, 10) return?',
                 'choices': [('5 (the smaller value)', True), ('10', False), ('15', False), ('-5', False)]
             },
             {
-                'text': 'What does Math.Abs(-15) return?',
+                'text': 'What does Math.abs(-15) return?',
                 'choices': [('15 (absolute value removes negative)', True), ('-15', False), ('0', False), ('Error', False)]
             },
             {
-                'text': 'How do you generate a random number from 1 to 6 (like a dice)?',
-                'choices': [('rand.Next(1, 7) - max is exclusive', True), ('rand.Next(1, 6)', False), ('rand.Next(6)', False), ('Random(1, 6)', False)]
+                'text': 'What does "Java".length() return?',
+                'choices': [('4', True), ('3', False), ('5', False), ('"Java"', False)]
+            },
+            {
+                'text': 'What does Math.random() return?',
+                'choices': [('A double from 0.0 (inclusive) to 1.0 (exclusive)', True), ('An integer from 0 to 100', False), ('A double from 1.0 to 10.0', False), ('A random whole number of any size', False)]
             }
         ])
 
@@ -2983,60 +2929,36 @@ By the end of this lesson, you will be able to:
 
 ## Why This Matters
 
-Methods are the building blocks of professional software. Every game system - combat, inventory, AI - is built from well-organized methods!'''
-            },
-            {
-                'title': 'Video: Methods',
-                'content': '''# Video Lesson: Methods
-
-Watch this video from **Bro Code** to learn about creating and using methods!
-
-*Methods help you organize code into reusable pieces.*''',
-                'video_type': 'youtube',
-                'video_id': 'IPpEefuFiVM'
-            },
-            {
-                'title': 'Video: Return Keyword',
-                'content': '''# Video Lesson: Return Values
-
-Watch this video from **Bro Code** to learn about returning values from methods!
-
-*Return values let methods send data back to the caller.*''',
-                'video_type': 'youtube',
-                'video_id': 'FaK5Nh20gVA'
+Methods are the building blocks of professional software. Every program feature - calculations, formatting, validation - is built from well-organized methods!'''
             },
             {
                 'title': 'Basic Methods',
                 'content': '''# Creating Methods
 
-Methods are reusable blocks of code:
+Methods are reusable blocks of code. In Java they live inside a class:
 
-```csharp
-class Program
-{
-    static void Main()
-    {
-        Greet();  // Call the method
-        Greet();  // Call it again!
+```java
+public class Program {
+    public static void main(String[] args) {
+        printGreeting();  // Call the method
+        printGreeting();  // Call it again!
     }
 
-    static void Greet()
-    {
-        Console.WriteLine("Hello, adventurer!");
+    public static void printGreeting() {
+        System.out.println("Hello, world!");
     }
 }
 ```
 
 ## Anatomy of a Method
-```csharp
-static void MethodName()
-{
+```java
+public static void methodName() {
     // Code goes here
 }
 ```
-- `static` - belongs to the class
+- `public static` - beginner methods belong to the class
 - `void` - returns nothing
-- `MethodName` - use PascalCase!'''
+- `methodName` - use camelCase!'''
             },
             {
                 'title': 'Methods with Parameters',
@@ -3044,31 +2966,30 @@ static void MethodName()
 
 Pass data into methods:
 
-```csharp
-static void Main()
-{
-    Greet("Link");
-    Greet("Zelda");
-    Attack("Slime", 25);
+```java
+public static void main(String[] args) {
+    printGreeting("Ada");
+    printGreeting("Grace");
+    printLabel("Total", 25);
 }
 
-static void Greet(string name)
-{
-    Console.WriteLine($"Hello, {name}!");
+public static void printGreeting(String name) {
+    System.out.println("Hello, " + name + "!");
 }
 
-static void Attack(string enemy, int damage)
-{
-    Console.WriteLine($"You deal {damage} damage to {enemy}!");
+public static void printLabel(String label, int value) {
+    System.out.println(label + ": " + value);
 }
 ```
 
 Output:
 ```
-Hello, Link!
-Hello, Zelda!
-You deal 25 damage to Slime!
-```'''
+Hello, Ada!
+Hello, Grace!
+Total: 25
+```
+
+The values you pass in (`"Ada"`, `25`) are called **arguments**. The variables that receive them (`name`, `value`) are the method's **parameters**.'''
             },
             {
                 'title': 'Return Values',
@@ -3076,83 +2997,60 @@ You deal 25 damage to Slime!
 
 Methods can send data back:
 
-```csharp
-static void Main()
-{
-    int total = Add(5, 3);
-    Console.WriteLine(total);  // 8
+```java
+public static void main(String[] args) {
+    int total = addNumbers(5, 3);
+    System.out.println(total);  // 8
 
-    int damage = CalculateDamage(10, 1.5);
-    Console.WriteLine($"Damage: {damage}");
+    int price = applyDiscount(100, 0.25);
+    System.out.println("Price: " + price);
 }
 
-static int Add(int a, int b)
-{
+public static int addNumbers(int a, int b) {
     return a + b;
 }
 
-static int CalculateDamage(int baseDamage, double multiplier)
-{
-    return (int)(baseDamage * multiplier);
+public static int applyDiscount(int amount, double rate) {
+    return (int) (amount * (1 - rate));
 }
 ```
 
 ## Key Points
-- Replace `void` with the return type (`int`, `string`, etc.)
+- Replace `void` with the return type (`int`, `String`, etc.)
 - Use `return` to send the value back
 - The method call becomes that value'''
             },
             {
                 'title': 'Putting It All Together',
-                'content': '''# Complete Example: Combat System
+                'content': '''# Complete Example: Receipt Calculator
 
-```csharp
-class CombatGame
-{
-    static Random rand = new Random();
+```java
+public class ReceiptCalculator {
+    public static void main(String[] args) {
+        int subtotal = addNumbers(1200, 850);
+        int tax = calculateTax(subtotal, 0.08);
+        int total = addNumbers(subtotal, tax);
 
-    static void Main()
-    {
-        int playerHealth = 100;
-        int enemyHealth = 50;
-
-        while (playerHealth > 0 && enemyHealth > 0)
-        {
-            // Player attacks
-            int damage = CalculateDamage(10, 20);
-            enemyHealth = TakeDamage(enemyHealth, damage);
-            Console.WriteLine($"You deal {damage} damage!");
-
-            if (enemyHealth <= 0) break;
-
-            // Enemy attacks
-            int enemyDamage = CalculateDamage(5, 15);
-            playerHealth = TakeDamage(playerHealth, enemyDamage);
-            Console.WriteLine($"Enemy deals {enemyDamage} damage!");
-        }
-
-        DisplayResult(playerHealth, enemyHealth);
+        printReceipt(subtotal, tax, total);
     }
 
-    static int CalculateDamage(int min, int max)
-    {
-        return rand.Next(min, max + 1);
+    public static int addNumbers(int a, int b) {
+        return a + b;
     }
 
-    static int TakeDamage(int health, int damage)
-    {
-        return Math.Max(0, health - damage);
+    public static int calculateTax(int amount, double rate) {
+        return (int) (amount * rate);
     }
 
-    static void DisplayResult(int player, int enemy)
-    {
-        if (player > 0)
-            Console.WriteLine("Victory!");
-        else
-            Console.WriteLine("Defeat...");
+    public static void printReceipt(int subtotal, int tax, int total) {
+        System.out.println("Subtotal: " + subtotal);
+        System.out.println("Tax:      " + tax);
+        System.out.println("Total:    " + total);
     }
 }
-```'''
+```
+
+Each method does one job: `addNumbers` and `calculateTax` return values, while `printReceipt` performs an action and returns nothing (`void`).'''
             }
         ])
         self._create_lesson_questions(lesson2, [
@@ -3165,8 +3063,8 @@ class CombatGame
                 'choices': [('The method returns nothing', True), ('The method is empty', False), ('The method is invalid', False), ('The method has no parameters', False)]
             },
             {
-                'text': 'What naming convention should methods use?',
-                'choices': [('PascalCase (e.g., CalculateDamage)', True), ('camelCase', False), ('UPPER_CASE', False), ('snake_case', False)]
+                'text': 'What naming convention should Java methods use?',
+                'choices': [('camelCase (e.g., calculateTax)', True), ('PascalCase', False), ('UPPER_CASE', False), ('snake_case', False)]
             },
             {
                 'text': 'What is a parameter?',
@@ -3174,7 +3072,7 @@ class CombatGame
             },
             {
                 'text': 'If a method has return type `int`, what must it return?',
-                'choices': [('An integer value using the return keyword', True), ('Nothing (void)', False), ('A string', False), ('Any type of value', False)]
+                'choices': [('An integer value using the return keyword', True), ('Nothing (void)', False), ('A String', False), ('Any type of value', False)]
             }
         ])
 
@@ -3194,8 +3092,20 @@ class CombatGame
                 'choices': [('To organize and reuse code', True), ('To store data', False), ('To create variables', False), ('To import libraries', False)]
             },
             {
-                'text': 'What naming convention should methods use?',
-                'choices': [('PascalCase', True), ('camelCase', False), ('UPPER_CASE', False), ('snake_case', False)]
+                'text': 'What naming convention should Java methods use?',
+                'choices': [('camelCase', True), ('PascalCase', False), ('UPPER_CASE', False), ('snake_case', False)]
+            },
+            {
+                'text': 'Which is a correct method declaration in Java?',
+                'choices': [('public static int addNumbers(int a, int b)', True), ('public static addNumbers(int a, int b) int', False), ('static void addNumbers[int a, int b]', False), ('function addNumbers(int a, int b)', False)]
+            },
+            {
+                'text': 'What is the difference between a parameter and an argument?',
+                'choices': [('A parameter is the variable in the method definition; an argument is the value passed in when calling it', True), ('They are two words for exactly the same thing', False), ('A parameter is passed in; an argument is the return value', False), ('An argument must always be an int, a parameter can be any type', False)]
+            },
+            {
+                'text': 'What does the return type void mean?',
+                'choices': [('The method does not return any value', True), ('The method returns an empty String', False), ('The method returns 0', False), ('The method cannot take parameters', False)]
             },
             {
                 'text': 'What happens if a method has return type int but no return statement?',
