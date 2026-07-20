@@ -688,3 +688,48 @@ class InstructorReminderCreateSerializer(serializers.ModelSerializer):
 
         return data
 
+
+
+# ==================== Course Map (Phase 35) ====================
+# Read-only serializers for the Duolingo-style course map. Node states are
+# computed in the view (course_map); these only shape the payload.
+
+class CourseMapLessonNodeSerializer(serializers.Serializer):
+    """A lesson node on the course map."""
+    node_type = serializers.CharField()
+    id = serializers.IntegerField()
+    title = serializers.CharField()
+    order = serializers.IntegerField()
+    state = serializers.ChoiceField(
+        choices=['completed', 'current', 'unlocked', 'locked']
+    )
+
+
+class CourseMapQuizNodeSerializer(CourseMapLessonNodeSerializer):
+    """A quiz ("boss") node — additionally carries scores."""
+    passing_score = serializers.IntegerField()
+    best_score = serializers.FloatField(allow_null=True)
+
+
+class CourseMapUnitSerializer(serializers.Serializer):
+    id = serializers.IntegerField()
+    title = serializers.CharField()
+    order = serializers.IntegerField()
+    nodes = serializers.SerializerMethodField()
+
+    def get_nodes(self, obj):
+        return [
+            (CourseMapQuizNodeSerializer if node['node_type'] == 'quiz'
+             else CourseMapLessonNodeSerializer)(node).data
+            for node in obj['nodes']
+        ]
+
+
+class CourseMapSerializer(serializers.Serializer):
+    course_code = serializers.CharField()
+    course_title = serializers.CharField()
+    total_nodes = serializers.IntegerField()
+    completed_nodes = serializers.IntegerField()
+    # Composite "<node_type>-<id>" key (lesson and quiz ids can collide).
+    current_node_id = serializers.CharField(allow_null=True)
+    units = CourseMapUnitSerializer(many=True)

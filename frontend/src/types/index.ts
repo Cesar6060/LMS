@@ -571,3 +571,49 @@ export interface SessionAnswerResult<TResult = QuizAttempt | LessonSessionResult
 
 export type QuizSessionAnswerResult = SessionAnswerResult<QuizAttempt>;
 export type LessonSessionAnswerResult = SessionAnswerResult<LessonSessionResult>;
+
+// ============================================================
+// Phase 35: Duolingo-style course map
+// ============================================================
+
+/** Visual-only gating state; no route is actually blocked. */
+export type NodeState = 'completed' | 'current' | 'unlocked' | 'locked';
+
+export interface CourseMapLessonNode {
+  node_type: 'lesson';
+  id: number;
+  title: string;
+  order: number;
+  state: NodeState;
+}
+
+/** Unit quiz as a "boss" node at the end of its unit's stretch. */
+export interface CourseMapQuizNode {
+  node_type: 'quiz';
+  id: number;
+  title: string;
+  order: number;
+  state: NodeState;
+  passing_score: number;
+  /** Highest attempt %, null if never attempted. */
+  best_score: number | null;
+}
+
+export type CourseMapNode = CourseMapLessonNode | CourseMapQuizNode;
+
+export interface CourseMapUnit {
+  id: number;
+  title: string;
+  order: number;
+  nodes: CourseMapNode[];
+}
+
+export interface CourseMap {
+  course_code: string;
+  course_title: string;
+  total_nodes: number;
+  completed_nodes: number;
+  /** Composite "<node_type>-<id>" key (lesson and quiz ids can collide). */
+  current_node_id: string | null;
+  units: CourseMapUnit[];
+}

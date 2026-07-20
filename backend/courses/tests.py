@@ -2086,3 +2086,143 @@ class TestLessonQuizSession:
         status_resp = api_client.get(f'/api/courses/lessons/{lesson.id}/questions-status/')
         assert status_resp.data['attempt_count'] == 0
         assert status_resp.data['has_passed'] is False
+
+
+# ==================== Course Map (Phase 35) ====================
+
+@pytest.fixture
+def map_course(instructor):
+    """Two units: (A1, A2, Boss A) then (B1, Boss B) — 5 map nodes."""
+    from quizzes.models import Quiz
+
+    course = Course.objects.create(
+        code='MAP101', title='Map Course', instructor=instructor
+    )
+    unit1 = Unit.objects.create(course=course, title='Unit One', order=1)
+    unit2 = Unit.objects.create(course=course, title='Unit Two', order=2)
+    return {
+        'course': course,
+        'unit1': unit1,
+        'unit2': unit2,
+        'lesson_a1': Lesson.objects.create(unit=unit1, title='A1', order=1),
+        'lesson_a2': Lesson.objects.create(unit=unit1, title='A2', order=2),
+        'boss_a': Quiz.objects.create(unit=unit1, title='Boss A', order=1, passing_score=70),
+        'lesson_b1': Lesson.objects.create(unit=unit2, title='B1', order=1),
+        'boss_b': Quiz.objects.create(unit=unit2, title='Boss B', order=1, passing_score=70),
+    }
+
+
+@pytest.mark.django_db
+class TestCourseMap:
+    URL = '/api/courses/courses/MAP101/map/'
+
+    @staticmethod
+    def flat_nodes(data):
+        return [node for unit in data['units'] for node in unit['nodes']]
+
+    def test_enrolled_student_gets_full_tree_in_order(self, api_client, student, map_course):
+        """Units by order; each unit's lessons before its quizzes."""
+        Enrollment.objects.create(user=student, course=map_course['course'])
+        api_client.force_authenticate(user=student)
+
+        response = api_client.get(self.URL)
+        assert response.status_code == status.HTTP_200_OK
+        data = response.data
+
+        assert data['course_code'] == 'MAP101'
+        assert data['course_title'] == 'Map Course'
+        assert data['total_nodes'] == 5
+        assert data['completed_nodes'] == 0
+        assert [u['title'] for u in data['units']] == ['Unit One', 'Unit Two']
+
+        sequence = [(n['node_type'], n['id']) for n in self.flat_nodes(data)]
+        assert sequence == [
+            ('lesson', map_course['lesson_a1'].id),
+            ('lesson', map_course['lesson_a2'].id),
+            ('quiz', map_course['boss_a'].id),
+            ('lesson', map_course['lesson_b1'].id),
+            ('quiz', map_course['boss_b'].id),
+        ]
+        # Quiz nodes carry scores; lesson nodes don't.
+        boss_node = data['units'][0]['nodes'][2]
+        assert boss_node['passing_score'] == 70
+        assert boss_node['best_score'] is None
+        assert 'passing_score' not in data['units'][0]['nodes'][0]
+
+    def test_state_progression(self, api_client, student, map_course):
+        """Nothing done: node 1 current, rest locked. Complete lesson 1:
+        it flips to completed and node 2 becomes current."""
+        Enrollment.objects.create(user=student, course=map_course['course'])
+        api_client.force_authenticate(user=student)
+
+        data = api_client.get(self.URL).data
+        states = [n['state'] for n in self.flat_nodes(data)]
+        assert states == ['current', 'locked', 'locked', 'locked', 'locked']
+        assert data['current_node_id'] == f"lesson-{map_course['lesson_a1'].id}"
+
+        LessonProgress.objects.create(
+            user=student, lesson=map_course['lesson_a1'], completed=True
+        )
+        data = api_client.get(self.URL).data
+        states = [n['state'] for n in self.flat_nodes(data)]
+        assert states == ['completed', 'current', 'locked', 'locked', 'locked']
+        assert data['completed_nodes'] == 1
+        assert data['current_node_id'] == f"lesson-{map_course['lesson_a2'].id}"
+
+    def test_quiz_boss_node_scores(self, api_client, student, map_course):
+        """Failed attempt: not completed but best_score reported; passing
+        attempt completes the boss and advances current into unit 2."""
+        from quizzes.models import QuizAttempt
+
+        Enrollment.objects.create(user=student, course=map_course['course'])
+        for lesson in (map_course['lesson_a1'], map_course['lesson_a2']):
+            LessonProgress.objects.create(user=student, lesson=lesson, completed=True)
+        api_client.force_authenticate(user=student)
+
+        QuizAttempt.objects.create(
+            quiz=map_course['boss_a'], student=student, score=40.00, passed=False
+        )
+        data = api_client.get(self.URL).data
+        boss_node = data['units'][0]['nodes'][2]
+        assert boss_node['state'] == 'current'
+        assert boss_node['best_score'] == 40.0
+
+        QuizAttempt.objects.create(
+            quiz=map_course['boss_a'], student=student, score=85.00, passed=True
+        )
+        data = api_client.get(self.URL).data
+        boss_node = data['units'][0]['nodes'][2]
+        assert boss_node['state'] == 'completed'
+        assert boss_node['best_score'] == 85.0
+        assert data['current_node_id'] == f"lesson-{map_course['lesson_b1'].id}"
+        assert data['completed_nodes'] == 3
+
+    def test_required_quiz_unlocks_with_its_lesson(self, api_client, student, map_course):
+        """Deadlock exception: a lesson's required_quiz is unlocked while the
+        lesson is still incomplete (not locked behind its completion)."""
+        map_course['lesson_a2'].required_quiz = map_course['boss_a']
+        map_course['lesson_a2'].save()
+        Enrollment.objects.create(user=student, course=map_course['course'])
+        LessonProgress.objects.create(
+            user=student, lesson=map_course['lesson_a1'], completed=True
+        )
+        api_client.force_authenticate(user=student)
+
+        data = api_client.get(self.URL).data
+        nodes = self.flat_nodes(data)
+        assert nodes[1]['state'] == 'current'   # A2 (the gated lesson)
+        assert nodes[2]['state'] == 'unlocked'  # Boss A: unlocked, not current
+        assert nodes[3]['state'] == 'locked'    # B1 untouched by the exception
+
+    def test_permission_boundaries(self, api_client, student, instructor, map_course):
+        """Unenrolled student 403; course instructor 200; anonymous 401."""
+        response = api_client.get(self.URL)
+        assert response.status_code == status.HTTP_401_UNAUTHORIZED
+
+        api_client.force_authenticate(user=student)
+        response = api_client.get(self.URL)
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+
+        api_client.force_authenticate(user=instructor)
+        response = api_client.get(self.URL)
+        assert response.status_code == status.HTTP_200_OK

@@ -23,6 +23,9 @@ urlpatterns = [
     path('lessons/<int:lesson_id>/progress/', views.LessonProgressView.as_view(), name='lesson-progress'),
     path('courses/<str:course_code>/progress/', views.CourseProgressView.as_view(), name='course-progress'),
 
+    # Course Map (Phase 35)
+    path('courses/<str:course_code>/map/', views.course_map, name='course-map'),
+
     # Announcements
     path('courses/<str:course_code>/announcements/', views.CourseAnnouncementsView.as_view(), name='course-announcements'),
 
