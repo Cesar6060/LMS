@@ -21,7 +21,7 @@ from .serializers import (
     StudentRosterSerializer, LessonQuestionSerializer, LessonQuestionStudentSerializer,
     LessonQuestionCreateSerializer, AnswerQuestionSerializer, LessonAttachmentSerializer,
     LessonSectionSerializer, LessonSectionCreateSerializer,
-    LessonSectionBulkCreateSerializer
+    LessonSectionBulkCreateSerializer, CourseMapSerializer
 )
 from rest_framework.exceptions import PermissionDenied
 from .permissions import (
@@ -2838,3 +2838,133 @@ def instructor_calendar(request):
         'end_date': end_date.isoformat(),
         'events': events,
     })
+
+
+# ==================== Course Map (Phase 35) ====================
+
+@api_view(['GET'])
+@perm_classes([IsAuthenticated])
+def course_map(request, course_code):
+    """
+    Duolingo-style course map: every unit's lessons then its quizzes as one
+    flattened node sequence, with per-node completed/current/unlocked/locked
+    state for the requesting user. Gating is soft — this endpoint only
+    describes state; nothing new is enforced anywhere.
+
+    States: a node is unlocked if it is first in the sequence or the previous
+    node is completed; a quiz that is some lesson's required_quiz unlocks
+    together with that lesson (else the pair would deadlock); `current` is the
+    first unlocked-but-incomplete node. Everything else incomplete is locked.
+    """
+    from quizzes.models import QuizAttempt
+
+    course = get_object_or_404(
+        Course.objects.prefetch_related('units__lessons', 'units__quizzes'),
+        code=course_code
+    )
+    require_course_access(request.user, course)
+
+    # One query for the user's completed lessons in this course.
+    completed_lesson_ids = set(
+        LessonProgress.objects.filter(
+            user=request.user, lesson__unit__course=course, completed=True
+        ).values_list('lesson_id', flat=True)
+    )
+
+    # One query for the user's graded quiz attempts: best % and pass state.
+    quiz_stats = QuizAttempt.objects.filter(
+        student=request.user,
+        quiz__unit__course=course,
+        status=QuizAttempt.STATUS_COMPLETED,
+    ).values('quiz_id').annotate(
+        best_score=Max('score'),
+        passed_count=Count('id', filter=models.Q(passed=True)),
+    )
+    best_scores = {row['quiz_id']: float(row['best_score']) for row in quiz_stats}
+    passed_quiz_ids = {row['quiz_id'] for row in quiz_stats if row['passed_count']}
+
+    # Flatten: for each unit (by order), lessons (by order) then quizzes
+    # (by order) as boss nodes. Model Meta orderings apply to the prefetches.
+    nodes = []
+    unit_groups = []
+    for unit in course.units.all():
+        unit_start = len(nodes)
+        for lesson in unit.lessons.all():
+            nodes.append({
+                'node_type': 'lesson',
+                'obj': lesson,
+                'completed': lesson.id in completed_lesson_ids,
+            })
+        for quiz in unit.quizzes.all():
+            nodes.append({
+                'node_type': 'quiz',
+                'obj': quiz,
+                'completed': quiz.id in passed_quiz_ids,
+            })
+        unit_groups.append((unit, nodes[unit_start:]))
+
+    # Base unlock rule: first node, or previous node completed.
+    for i, node in enumerate(nodes):
+        node['unlocked'] = i == 0 or nodes[i - 1]['completed']
+
+    # Deadlock exception: a quiz required by a lesson unlocks with that lesson
+    # (the lesson can't complete until the quiz passes, so the quiz must never
+    # wait on the lesson's completion).
+    required_unlocked_quiz_ids = {
+        node['obj'].required_quiz_id
+        for node in nodes
+        if node['node_type'] == 'lesson'
+        and node['unlocked']
+        and node['obj'].required_quiz_id
+    }
+    for node in nodes:
+        if node['node_type'] == 'quiz' and node['obj'].id in required_unlocked_quiz_ids:
+            node['unlocked'] = True
+
+    # Current = first unlocked-but-incomplete node in the sequence.
+    current_node_id = None
+    for node in nodes:
+        if node['unlocked'] and not node['completed']:
+            node['current'] = True
+            current_node_id = f"{node['node_type']}-{node['obj'].id}"
+            break
+
+    def node_payload(node):
+        obj = node['obj']
+        if node['completed']:
+            state = 'completed'
+        elif node.get('current'):
+            state = 'current'
+        elif node['unlocked']:
+            state = 'unlocked'
+        else:
+            state = 'locked'
+        payload = {
+            'node_type': node['node_type'],
+            'id': obj.id,
+            'title': obj.title,
+            'order': obj.order,
+            'state': state,
+        }
+        if node['node_type'] == 'quiz':
+            payload['passing_score'] = obj.passing_score
+            payload['best_score'] = best_scores.get(obj.id)
+        return payload
+
+    data = {
+        'course_code': course.code,
+        'course_title': course.title,
+        'total_nodes': len(nodes),
+        'completed_nodes': sum(1 for node in nodes if node['completed']),
+        'current_node_id': current_node_id,
+        'units': [
+            {
+                'id': unit.id,
+                'title': unit.title,
+                'order': unit.order,
+                'nodes': [node_payload(node) for node in group],
+            }
+            for unit, group in unit_groups
+        ],
+    }
+    return Response(CourseMapSerializer(data).data)

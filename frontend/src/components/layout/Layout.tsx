@@ -12,8 +12,9 @@ export function Layout({ children }: LayoutProps) {
   const location = useLocation();
   const { isAuthenticated } = useAuth();
 
-  // Hide header in learning mode (CoursePlayerPage has its own header)
-  const isLearningMode = location.pathname.match(/\/courses\/[^/]+\/learn/);
+  // Hide header in learning mode (CoursePlayerPage has its own header) and
+  // on the course map (full-page backdrop scene with its own HUD header)
+  const isLearningMode = location.pathname.match(/\/courses\/[^/]+\/(learn|map)/);
 
   // Auth pages handle their own background
   const isAuthPage = ['/login', '/register', '/forgot-password', '/reset-password', '/verify-email'].some(

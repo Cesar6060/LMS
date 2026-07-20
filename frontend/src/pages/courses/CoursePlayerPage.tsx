@@ -14,7 +14,7 @@ import { useAuth } from '@/contexts/AuthContext';
 import { useGamificationFeedback } from '@/components/gamification/useGamificationFeedback';
 import type { LessonProgress, LessonQuestionsStatus, LessonAttachment, LessonSection, Quiz } from '@/types';
 import {
-  Loader2, ChevronLeft, ChevronRight, CheckCircle, Circle, FileQuestion
+  Loader2, ChevronLeft, ChevronRight, CheckCircle, Circle, FileQuestion, Map as MapIcon
 } from 'lucide-react';
 
 interface LessonDetail {
@@ -587,6 +587,19 @@ export function CoursePlayerPage() {
           >
             <ChevronLeft className="h-4 w-4" />
             <span className="hidden sm:inline">Back to Course</span>
+          </Button>
+        </Link>
+
+        {/* Course Map (Phase 35) */}
+        <Link to={`/courses/${code}/map`}>
+          <Button
+            variant="outline"
+            className="gap-2"
+            aria-label="Course Map"
+            title="Course Map"
+          >
+            <MapIcon className="h-4 w-4" />
+            <span className="hidden sm:inline">Map</span>
           </Button>
         </Link>
 

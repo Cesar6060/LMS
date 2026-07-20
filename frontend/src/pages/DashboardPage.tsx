@@ -5,7 +5,7 @@ import { Button } from '@/components/ui/Button';
 import { courseService, type InstructorCourse } from '@/services/courses';
 import { gamificationService } from '@/services/gamification';
 import type { Enrollment, EnhancedDashboard, InstructorReminder, CourseProgressItem, GamificationProfile } from '@/types';
-import { Plus, Play, BookOpen, Users, Megaphone, Trophy } from 'lucide-react';
+import { Plus, Play, BookOpen, Users, Megaphone, Trophy, Map as MapIcon } from 'lucide-react';
 import { DashboardHero } from '@/components/gamification/DashboardHero';
 import { AvatarCustomizerModal } from '@/components/gamification/AvatarCustomizerModal';
 import { EnrollmentModal } from '@/components/course/EnrollmentModal';
@@ -337,9 +337,21 @@ export function DashboardPage() {
                         </div>
                       )}
                     </div>
-                    <div className="mt-4 pt-4 border-t border-border">
-                      <Button variant="outline" className="w-full">
+                    <div className="mt-4 pt-4 border-t border-border flex gap-2">
+                      <Button variant="outline" className="flex-1">
                         View Course
+                      </Button>
+                      <Button
+                        variant="outline"
+                        className="flex-1"
+                        onClick={(e) => {
+                          e.preventDefault();
+                          e.stopPropagation();
+                          navigate(`/courses/${enrollment.course.code}/map`);
+                        }}
+                      >
+                        <MapIcon className="h-4 w-4 mr-2" />
+                        Map
                       </Button>
                     </div>
                   </Link>

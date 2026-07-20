@@ -1,5 +1,5 @@
 import api from './api';
-import type { Course, Unit, Lesson, Enrollment, LessonProgress, GradingConfig, GradeSummary, EnhancedDashboard, LessonQuestion, LessonQuestionsStatus, AnswerQuestionResult, QuizSubmissionResult, LessonAttachment, LessonSection, InstructorReminder, CalendarResponse, QuizSessionState, LessonSessionAnswerResult } from '../types';
+import type { Course, Unit, Lesson, Enrollment, LessonProgress, GradingConfig, GradeSummary, EnhancedDashboard, LessonQuestion, LessonQuestionsStatus, AnswerQuestionResult, QuizSubmissionResult, LessonAttachment, LessonSection, InstructorReminder, CalendarResponse, QuizSessionState, LessonSessionAnswerResult, CourseMap } from '../types';
 
 // Re-export types for convenience
 export type { Unit, Lesson } from '../types';
@@ -283,6 +283,12 @@ export const courseService = {
     progress_percentage: number;
   }> {
     const response = await api.get(`/courses/courses/${courseCode}/progress/`);
+    return response.data;
+  },
+
+  // Course map (Phase 35)
+  async getCourseMap(courseCode: string): Promise<CourseMap> {
+    const response = await api.get<CourseMap>(`/courses/courses/${courseCode}/map/`);
     return response.data;
   },
 
