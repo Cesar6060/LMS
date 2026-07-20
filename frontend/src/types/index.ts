@@ -117,13 +117,14 @@ export interface LessonProgress {
   required_quiz_passed?: boolean | null;
   required_quiz_info?: RequiredQuizInfo | null;
   lesson_questions_status?: LessonQuestionsStatus | null;
+  gamification?: GamificationDelta;
 }
 
 // Phase 5: Notification types
 export interface Notification {
   id: number;
   recipient: number;
-  type: 'enrollment' | 'new_lesson' | 'announcement' | 'reply';
+  type: 'enrollment' | 'new_lesson' | 'announcement' | 'reply' | 'badge_earned';
   title: string;
   message: string;
   is_read: boolean;
@@ -188,6 +189,7 @@ export interface QuizAttempt {
   points_earned: string;
   completed_at: string;
   answers: AttemptAnswer[];
+  gamification?: GamificationDelta;
 }
 
 // Gradebook types
@@ -351,6 +353,7 @@ export interface QuizSubmissionResult {
   }>;
   attempts_remaining: number | null;
   can_complete_lesson: boolean;
+  gamification?: GamificationDelta;
 }
 
 export interface AnswerQuestionResult {
@@ -427,4 +430,57 @@ export interface ThreadDetail {
   created_at: string;
   updated_at: string;
   replies: Reply[];
+}
+
+// ============================================================
+// Phase 30: Gamification
+// ============================================================
+
+/** A badge in the catalog, annotated with this user's earned state. */
+export interface BadgeInfo {
+  key: string;
+  name: string;
+  description: string;
+  icon: string;
+  criteria_type: string;
+  threshold: number | null;
+  order: number;
+  earned: boolean;
+  earned_at: string | null;
+}
+
+/** A newly-earned badge, as surfaced in an award delta. */
+export interface NewBadge {
+  key: string;
+  name: string;
+  description: string;
+  icon: string;
+}
+
+/** The full read-endpoint payload. Fields beyond `is_gamified` are
+ *  present only for students. */
+export interface GamificationProfile {
+  is_gamified: boolean;
+  total_xp?: number;
+  level?: number;
+  level_floor_xp?: number;
+  next_level_xp?: number;
+  xp_into_level?: number;
+  level_span?: number;
+  level_progress_pct?: number;
+  current_streak?: number;
+  longest_streak?: number;
+  last_activity_date?: string | null;
+  badges?: BadgeInfo[];
+  all_badges?: BadgeInfo[];
+}
+
+/** The delta returned by completion / quiz-pass endpoints. */
+export interface GamificationDelta {
+  xp_awarded: number;
+  total_xp: number;
+  level: number;
+  leveled_up: boolean;
+  new_badges: NewBadge[];
+  current_streak: number;
 }

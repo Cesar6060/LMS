@@ -242,8 +242,12 @@ def submit_quiz(request, quiz_id):
     attempt.passed = passed
     attempt.save()
 
-    # Return results
-    return Response(QuizAttemptSerializer(attempt).data, status=status.HTTP_201_CREATED)
+    # Return results (+ gamification delta on a pass)
+    data = dict(QuizAttemptSerializer(attempt).data)
+    if passed:
+        from gamification.services import award_quiz_pass
+        data['gamification'] = award_quiz_pass(request.user, quiz).as_dict()
+    return Response(data, status=status.HTTP_201_CREATED)
 
 
 @api_view(['GET'])

@@ -5,6 +5,7 @@ import { courseService } from '@/services/courses';
 import type { LessonQuestion, LessonQuestionsStatus, QuizSubmissionResult } from '@/types';
 import { CheckCircle, XCircle, HelpCircle, Loader2, Trophy, Target, RotateCcw } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { useGamificationFeedback } from '@/components/gamification/useGamificationFeedback';
 
 interface LessonQuizSectionProps {
   lessonId: number;
@@ -21,6 +22,7 @@ export function LessonQuizSection({ lessonId, onStatusChange, onComplete, isLess
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [quizResult, setQuizResult] = useState<QuizSubmissionResult | null>(null);
   const [showQuiz, setShowQuiz] = useState(false);
+  const { celebrate, gamificationModals } = useGamificationFeedback();
 
   useEffect(() => {
     loadData();
@@ -62,6 +64,9 @@ export function LessonQuizSection({ lessonId, onStatusChange, onComplete, isLess
     try {
       const result = await courseService.submitLessonQuiz(lessonId, selectedAnswers);
       setQuizResult(result);
+      if (result.passed) {
+        celebrate(result.gamification);
+      }
 
       const newStatus = await courseService.getLessonQuestionsStatus(lessonId);
       setStatus(newStatus);
@@ -190,6 +195,7 @@ export function LessonQuizSection({ lessonId, onStatusChange, onComplete, isLess
   // Show active quiz
   return (
     <div className="animate-in fade-in slide-in-from-bottom-4 duration-500">
+      {gamificationModals}
       <div className="max-w-2xl mx-auto">
         {/* Progress indicator */}
         <div className="flex items-center justify-between mb-6">

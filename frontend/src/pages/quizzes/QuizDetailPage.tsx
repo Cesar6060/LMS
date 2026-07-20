@@ -7,6 +7,7 @@ import { isForbidden } from '@/services/api';
 import { AccessDenied } from '@/components/AccessDenied';
 import { useAuth } from '@/contexts/AuthContext';
 import type { Quiz, QuizAttempt } from '@/types';
+import { useGamificationFeedback } from '@/components/gamification/useGamificationFeedback';
 import { PageContainer } from '@/components/layout/PageContainer';
 import { Skeleton } from '@/components/ui/Skeleton';
 import { BackLink } from '@/components/layout/BackLink';
@@ -19,6 +20,7 @@ import {
 export function QuizDetailPage() {
   const { code, quizId } = useParams<{ code: string; quizId: string }>();
   const { user } = useAuth();
+  const { celebrate, gamificationModals } = useGamificationFeedback();
   const [searchParams] = useSearchParams();
 
   // When the player linked here (?from=learn), the round trip returns to
@@ -81,6 +83,9 @@ export function QuizDetailPage() {
     try {
       const attempt = await quizzesService.submitQuiz(quiz.id, selectedAnswers);
       setResult(attempt);
+      if (attempt.passed) {
+        celebrate(attempt.gamification);
+      }
       // Reload quiz to update attempts_remaining
       await loadQuiz();
     } catch (err: unknown) {
@@ -144,6 +149,7 @@ export function QuizDetailPage() {
     const passed = result.passed;
     return (
       <PageContainer maxWidth="max-w-4xl">
+        {gamificationModals}
         <BackLink to={backTo} label={backLabel} className="mb-6" />
 
         <Card className={`mb-6 ${passed ? 'border-green-500' : 'border-red-500'}`}>

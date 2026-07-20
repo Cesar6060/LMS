@@ -412,11 +412,17 @@ class LessonProgressUpdateSerializer(serializers.ModelSerializer):
     def update(self, instance, validated_data):
         from django.utils import timezone
 
+        # Flag the not-completed -> completed transition so the view can award
+        # gamification XP. This is the single place a lesson "becomes done".
+        just_completed = bool(validated_data.get('completed')) and not instance.completed
+
         # Set completed_at when marking as complete
-        if validated_data.get('completed') and not instance.completed:
+        if just_completed:
             validated_data['completed_at'] = timezone.now()
 
-        return super().update(instance, validated_data)
+        updated = super().update(instance, validated_data)
+        updated._just_completed = just_completed
+        return updated
 
 
 class AnnouncementSerializer(serializers.ModelSerializer):

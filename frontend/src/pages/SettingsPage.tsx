@@ -1,25 +1,33 @@
 import { useState, useEffect, useRef } from 'react';
+import { useSearchParams } from 'react-router';
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { settingsService } from '@/services/settings';
+import { gamificationService } from '@/services/gamification';
 import { useAuth } from '@/contexts/AuthContext';
-import type { UserPreferences } from '@/types';
+import type { UserPreferences, GamificationProfile } from '@/types';
 import {
-  Settings, User, Bell, Loader2, Camera, Trash2, Check
+  Settings, User, Bell, Loader2, Camera, Trash2, Check, Trophy, Flame
 } from 'lucide-react';
 import { PageContainer } from '@/components/layout/PageContainer';
+import { LevelRing } from '@/components/gamification/LevelRing';
+import { StreakFlame } from '@/components/gamification/StreakFlame';
+import { BadgeGrid } from '@/components/gamification/BadgeGrid';
 
-type TabType = 'profile' | 'notifications';
+type TabType = 'profile' | 'notifications' | 'achievements';
 
 export function SettingsPage() {
   const { user, refreshUser } = useAuth();
+  const [searchParams] = useSearchParams();
+  const isInstructor = !!user?.is_instructor;
 
   const [activeTab, setActiveTab] = useState<TabType>('profile');
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
   const [saveMessage, setSaveMessage] = useState('');
   const [preferences, setPreferences] = useState<UserPreferences | null>(null);
+  const [gameProfile, setGameProfile] = useState<GamificationProfile | null>(null);
 
   // Profile form state
   const [firstName, setFirstName] = useState('');
@@ -45,12 +53,27 @@ export function SettingsPage() {
       setIsLoading(true);
       const data = await settingsService.getSettings();
       setPreferences(data);
+      // Achievements are student-only; instructors get an inert payload.
+      if (!user?.is_instructor) {
+        gamificationService
+          .getProfile()
+          .then(setGameProfile)
+          .catch((err) => console.error('Failed to load gamification profile:', err));
+      }
     } catch (err) {
       console.error('Failed to load settings:', err);
     } finally {
       setIsLoading(false);
     }
   };
+
+  // Deep link support: the badge notification links to ?tab=achievements.
+  useEffect(() => {
+    const tab = searchParams.get('tab');
+    if (tab === 'achievements' && !isInstructor) {
+      setActiveTab('achievements');
+    }
+  }, [searchParams, isInstructor]);
 
   const handleSaveProfile = async () => {
     setIsSaving(true);
@@ -128,6 +151,10 @@ export function SettingsPage() {
   const tabs = [
     { id: 'profile' as TabType, label: 'Profile', icon: User },
     { id: 'notifications' as TabType, label: 'Notifications', icon: Bell },
+    // Achievements tab is student-only.
+    ...(!isInstructor
+      ? [{ id: 'achievements' as TabType, label: 'Achievements', icon: Trophy }]
+      : []),
   ];
 
   if (isLoading) {
@@ -281,6 +308,61 @@ export function SettingsPage() {
               </div>
             </CardContent>
           </Card>
+        </div>
+      )}
+
+      {/* Achievements Tab (student-only) */}
+      {activeTab === 'achievements' && !isInstructor && (
+        <div className="space-y-6">
+          {gameProfile?.is_gamified ? (
+            <>
+              <Card>
+                <CardHeader>
+                  <CardTitle className="text-lg">Your Progress</CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <div className="flex flex-wrap items-center gap-8">
+                    <LevelRing
+                      level={gameProfile.level ?? 1}
+                      progressPct={gameProfile.level_progress_pct ?? 0}
+                      size={140}
+                      strokeWidth={10}
+                      subLabel={`${gameProfile.xp_into_level ?? 0} / ${gameProfile.level_span ?? 0} XP to next level`}
+                    />
+                    <div className="space-y-4">
+                      <div>
+                        <p className="text-sm text-muted-foreground">Total XP</p>
+                        <p className="text-3xl font-bold text-gradient-gaming">
+                          {gameProfile.total_xp ?? 0}
+                        </p>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <Flame className="h-5 w-5 text-orange-400" />
+                        <StreakFlame
+                          current={gameProfile.current_streak ?? 0}
+                          longest={gameProfile.longest_streak}
+                          size="lg"
+                        />
+                      </div>
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+
+              <Card>
+                <CardHeader>
+                  <CardTitle className="text-lg">Badges</CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <BadgeGrid badges={gameProfile.all_badges ?? []} />
+                </CardContent>
+              </Card>
+            </>
+          ) : (
+            <div className="flex items-center justify-center py-12">
+              <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+            </div>
+          )}
         </div>
       )}
 

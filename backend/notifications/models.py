@@ -11,6 +11,7 @@ class Notification(models.Model):
         ('new_lesson', 'New Lesson'),
         ('announcement', 'New Announcement'),
         ('reply', 'New Reply'),
+        ('badge_earned', 'Badge Earned'),
     ]
 
     recipient = models.ForeignKey(

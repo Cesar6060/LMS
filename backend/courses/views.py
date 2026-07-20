@@ -431,6 +431,24 @@ class LessonProgressView(generics.RetrieveUpdateAPIView):
         )
         return progress
 
+    def update(self, request, *args, **kwargs):
+        partial = kwargs.pop('partial', False)
+        instance = self.get_object()
+        serializer = self.get_serializer(instance, data=request.data, partial=partial)
+        serializer.is_valid(raise_exception=True)
+        self.perform_update(serializer)
+        updated = serializer.instance
+
+        data = dict(serializer.data)
+        # Award gamification XP on the not-completed -> completed transition
+        # only (flagged by the update serializer). Award in the view so the
+        # response shape is controlled here, not in the read serializer.
+        if getattr(updated, '_just_completed', False):
+            from gamification.services import award_lesson_completion
+            result = award_lesson_completion(request.user, updated.lesson)
+            data['gamification'] = result.as_dict()
+        return Response(data)
+
 
 class CourseProgressView(generics.RetrieveAPIView):
     """
@@ -1804,7 +1822,7 @@ def submit_lesson_quiz(request, lesson_id):
     if max_attempts > 0:
         attempts_remaining = max(0, max_attempts - (current_attempts + 1))
 
-    return Response({
+    response_data = {
         'attempt_number': attempt.attempt_number,
         'score': correct_count,
         'total_questions': total_questions,
@@ -1813,7 +1831,11 @@ def submit_lesson_quiz(request, lesson_id):
         'results': results,
         'attempts_remaining': attempts_remaining,
         'can_complete_lesson': passed,
-    })
+    }
+    if passed:
+        from gamification.services import award_lesson_quiz_pass
+        response_data['gamification'] = award_lesson_quiz_pass(request.user, lesson).as_dict()
+    return Response(response_data)
 
 
 # ============================================
