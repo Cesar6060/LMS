@@ -37,6 +37,12 @@ urlpatterns = [
     path('courses/<str:course_code>/students/invite/', views.send_course_invite, name='send-invite'),
     path('courses/<str:course_code>/students/<int:enrollment_id>/', views.remove_student, name='remove-student'),
 
+    # Instructor Analytics (Phase 31)
+    path('courses/<str:course_code>/analytics/overview/', views.analytics_overview, name='analytics-overview'),
+    path('courses/<str:course_code>/analytics/quizzes/', views.analytics_quizzes, name='analytics-quizzes'),
+    path('courses/<str:course_code>/analytics/students/', views.analytics_students, name='analytics-students'),
+    path('courses/<str:course_code>/analytics/activity/', views.analytics_activity, name='analytics-activity'),
+
     # Activity tracking
     path('courses/<str:course_code>/activity/', views.update_course_activity, name='update-activity'),
 
@@ -51,12 +57,18 @@ urlpatterns = [
     path('lessons/<int:lesson_id>/questions-status/', views.lesson_questions_status, name='lesson-questions-status'),
     path('lessons/<int:lesson_id>/submit-quiz/', views.submit_lesson_quiz, name='submit-lesson-quiz'),
 
+    # Lesson-Check Mastery Sessions (Phase 32)
+    path('lessons/<int:lesson_id>/quiz-session/start/', views.start_lesson_quiz_session, name='lesson-quiz-session-start'),
+    path('lessons/<int:lesson_id>/quiz-session/', views.get_lesson_quiz_session, name='lesson-quiz-session'),
+    path('lessons/<int:lesson_id>/quiz-session/answer/', views.answer_lesson_quiz_session, name='lesson-quiz-session-answer'),
+
     # Lesson Attachments (Phase 16)
     path('lessons/<int:lesson_id>/attachments/', views.lesson_attachments, name='lesson-attachments'),
     path('lessons/<int:lesson_id>/attachments/<int:attachment_id>/', views.lesson_attachment_detail, name='lesson-attachment-detail'),
 
     # Lesson Sections (Phase 17: Lesson Pagination)
     path('lessons/<int:lesson_id>/sections/', views.lesson_sections, name='lesson-sections'),
+    path('lessons/<int:lesson_id>/sections/bulk/', views.lesson_sections_bulk_create, name='lesson-sections-bulk-create'),
     path('lessons/<int:lesson_id>/sections/<int:section_id>/', views.lesson_section_detail, name='lesson-section-detail'),
     path('lessons/<int:lesson_id>/sections/reorder/', views.lesson_sections_reorder, name='lesson-sections-reorder'),
 

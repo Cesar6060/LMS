@@ -11,6 +11,7 @@ import { LessonAttachmentsList } from '@/components/lesson/LessonAttachmentsList
 import { courseService } from '@/services/courses';
 import { quizzesService } from '@/services/quizzes';
 import { useAuth } from '@/contexts/AuthContext';
+import { useGamificationFeedback } from '@/components/gamification/useGamificationFeedback';
 import type { LessonProgress, LessonQuestionsStatus, LessonAttachment, LessonSection, Quiz } from '@/types';
 import {
   Loader2, ChevronLeft, ChevronRight, CheckCircle, Circle, FileQuestion
@@ -66,6 +67,7 @@ export function CoursePlayerPage() {
   const { code, lessonId } = useParams<{ code: string; lessonId?: string }>();
   const navigate = useNavigate();
   const { user } = useAuth();
+  const { celebrate, gamificationModals } = useGamificationFeedback();
 
   const [course, setCourse] = useState<CourseWithProgress | null>(null);
   const [quizzes, setQuizzes] = useState<Quiz[]>([]);
@@ -280,6 +282,13 @@ export function CoursePlayerPage() {
         });
       }
 
+      // Gamification feedback (+XP toast, level-up / badge modals). Only fires
+      // on the not-completed -> completed transition, which is when the
+      // backend attaches a `gamification` delta.
+      if (updated.completed) {
+        celebrate(updated.gamification);
+      }
+
       // Auto-advance if marking complete
       if (updated.completed) {
         const nextLesson = getNextLesson();
@@ -336,6 +345,7 @@ export function CoursePlayerPage() {
         completed: true
       });
       setProgress(updated);
+      celebrate(updated.gamification);
 
       // Update course state
       if (course) {
@@ -364,7 +374,7 @@ export function CoursePlayerPage() {
     } catch (err) {
       console.error('Failed to mark lesson complete:', err);
     }
-  }, [currentLesson, progress?.completed, course, code, navigate, currentSectionIndex, handleSectionChange, questionsStatus]);
+  }, [currentLesson, progress?.completed, course, code, navigate, currentSectionIndex, handleSectionChange, questionsStatus, celebrate]);
 
   const getPreviousLesson = () => {
     if (!course || !currentLesson) return null;
@@ -564,6 +574,7 @@ export function CoursePlayerPage() {
 
   return (
     <div className="h-screen flex flex-col bg-background animate-in fade-in duration-300">
+      {gamificationModals}
       {/* Learning Mode Header */}
       <div className="h-16 border-b bg-card/95 backdrop-blur supports-[backdrop-filter]:bg-card/80 flex items-center px-6 gap-4">
         {/* Exit Learning Mode */}

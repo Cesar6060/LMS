@@ -109,6 +109,8 @@ export function NotificationBell() {
         return '📚';
       case 'announcement':
         return '📢';
+      case 'badge_earned':
+        return '🏅';
       default:
         return '🔔';
     }

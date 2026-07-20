@@ -55,7 +55,9 @@ class QuizListSerializer(serializers.ModelSerializer):
         user = self.context.get('request').user
         if user.is_instructor:
             return None
-        best_attempt = obj.attempts.filter(student=user).order_by('-score').first()
+        best_attempt = obj.attempts.filter(
+            student=user, status=QuizAttempt.STATUS_COMPLETED
+        ).order_by('-score').first()
         if best_attempt:
             return {
                 'score': float(best_attempt.score),
@@ -67,8 +69,10 @@ class QuizListSerializer(serializers.ModelSerializer):
     def get_attempt_count(self, obj):
         user = self.context.get('request').user
         if user.is_instructor:
-            return obj.attempts.count()
-        return obj.attempts.filter(student=user).count()
+            return obj.attempts.filter(status=QuizAttempt.STATUS_COMPLETED).count()
+        return obj.attempts.filter(
+            student=user, status=QuizAttempt.STATUS_COMPLETED
+        ).count()
 
     def get_attempts_remaining(self, obj):
         user = self.context.get('request').user
@@ -76,7 +80,9 @@ class QuizListSerializer(serializers.ModelSerializer):
             return None
         if obj.max_attempts == 0:
             return None  # Unlimited
-        user_attempts = obj.attempts.filter(student=user).count()
+        user_attempts = obj.attempts.filter(
+            student=user, status=QuizAttempt.STATUS_COMPLETED
+        ).count()
         return max(0, obj.max_attempts - user_attempts)
 
 
@@ -116,7 +122,9 @@ class QuizStudentDetailSerializer(serializers.ModelSerializer):
 
     def get_best_score(self, obj):
         user = self.context.get('request').user
-        best_attempt = obj.attempts.filter(student=user).order_by('-score').first()
+        best_attempt = obj.attempts.filter(
+            student=user, status=QuizAttempt.STATUS_COMPLETED
+        ).order_by('-score').first()
         if best_attempt:
             return {
                 'score': float(best_attempt.score),
@@ -127,13 +135,17 @@ class QuizStudentDetailSerializer(serializers.ModelSerializer):
 
     def get_attempt_count(self, obj):
         user = self.context.get('request').user
-        return obj.attempts.filter(student=user).count()
+        return obj.attempts.filter(
+            student=user, status=QuizAttempt.STATUS_COMPLETED
+        ).count()
 
     def get_attempts_remaining(self, obj):
         user = self.context.get('request').user
         if obj.max_attempts == 0:
             return None  # Unlimited
-        user_attempts = obj.attempts.filter(student=user).count()
+        user_attempts = obj.attempts.filter(
+            student=user, status=QuizAttempt.STATUS_COMPLETED
+        ).count()
         return max(0, obj.max_attempts - user_attempts)
 
 

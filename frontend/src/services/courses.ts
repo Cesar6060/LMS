@@ -1,5 +1,5 @@
 import api from './api';
-import type { Course, Unit, Lesson, Enrollment, LessonProgress, GradingConfig, GradeSummary, EnhancedDashboard, LessonQuestion, LessonQuestionsStatus, AnswerQuestionResult, QuizSubmissionResult, LessonAttachment, LessonSection, InstructorReminder, CalendarResponse } from '../types';
+import type { Course, Unit, Lesson, Enrollment, LessonProgress, GradingConfig, GradeSummary, EnhancedDashboard, LessonQuestion, LessonQuestionsStatus, AnswerQuestionResult, QuizSubmissionResult, LessonAttachment, LessonSection, InstructorReminder, CalendarResponse, QuizSessionState, LessonSessionAnswerResult } from '../types';
 
 // Re-export types for convenience
 export type { Unit, Lesson } from '../types';
@@ -484,6 +484,25 @@ export const courseService = {
     });
     return response.data;
   },
+
+  // Lesson-check mastery sessions (Phase 32)
+  async startLessonQuizSession(lessonId: number): Promise<QuizSessionState> {
+    const response = await api.post<QuizSessionState>(`/courses/lessons/${lessonId}/quiz-session/start/`);
+    return response.data;
+  },
+
+  async getLessonQuizSession(lessonId: number): Promise<QuizSessionState> {
+    const response = await api.get<QuizSessionState>(`/courses/lessons/${lessonId}/quiz-session/`);
+    return response.data;
+  },
+
+  async answerLessonQuizQuestion(lessonId: number, questionId: number, choiceId: number): Promise<LessonSessionAnswerResult> {
+    const response = await api.post<LessonSessionAnswerResult>(`/courses/lessons/${lessonId}/quiz-session/answer/`, {
+      question_id: questionId,
+      choice_id: choiceId,
+    });
+    return response.data;
+  },
   // Lesson Attachments (Phase 16)
   async getLessonAttachments(lessonId: number): Promise<LessonAttachment[]> {
     const response = await api.get<LessonAttachment[]>(`/courses/lessons/${lessonId}/attachments/`);
@@ -526,6 +545,19 @@ export const courseService = {
     order?: number;
   }): Promise<LessonSection> {
     const response = await api.post<LessonSection>(`/courses/lessons/${lessonId}/sections/`, data);
+    return response.data;
+  },
+
+  async bulkCreateLessonSections(lessonId: number, sections: Array<{
+    title?: string;
+    content?: string;
+    video_type?: 'none' | 'youtube' | 'vimeo';
+    video_id?: string;
+  }>): Promise<LessonSection[]> {
+    const response = await api.post<LessonSection[]>(
+      `/courses/lessons/${lessonId}/sections/bulk/`,
+      { sections }
+    );
     return response.data;
   },
 

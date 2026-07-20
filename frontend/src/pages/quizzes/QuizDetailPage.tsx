@@ -7,18 +7,21 @@ import { isForbidden } from '@/services/api';
 import { AccessDenied } from '@/components/AccessDenied';
 import { useAuth } from '@/contexts/AuthContext';
 import type { Quiz, QuizAttempt } from '@/types';
+import { useGamificationFeedback } from '@/components/gamification/useGamificationFeedback';
+import { QuizSessionFlow } from '@/components/quiz/QuizSessionFlow';
+import { Mascot } from '@/components/gamification/Mascot';
 import { PageContainer } from '@/components/layout/PageContainer';
 import { Skeleton } from '@/components/ui/Skeleton';
 import { BackLink } from '@/components/layout/BackLink';
-import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 import {
-  Loader2, CheckCircle, XCircle, Trophy, RotateCcw,
-  ChevronLeft, FileQuestion, Target, Clock, LogOut
+  CheckCircle, XCircle, Trophy, RotateCcw,
+  ChevronLeft, FileQuestion, Target, Clock, LogOut, PlayCircle
 } from 'lucide-react';
 
 export function QuizDetailPage() {
   const { code, quizId } = useParams<{ code: string; quizId: string }>();
   const { user } = useAuth();
+  const { celebrate, gamificationModals } = useGamificationFeedback();
   const [searchParams] = useSearchParams();
 
   // When the player linked here (?from=learn), the round trip returns to
@@ -38,15 +41,14 @@ export function QuizDetailPage() {
   const [error, setError] = useState('');
   const [forbidden, setForbidden] = useState(false);
 
-  // Quiz taking state
-  const [selectedAnswers, setSelectedAnswers] = useState<Record<string, number>>({});
-  const [isSubmitting, setIsSubmitting] = useState(false);
+  // Session flow state
+  const [hasInProgressSession, setHasInProgressSession] = useState(false);
   const [result, setResult] = useState<QuizAttempt | null>(null);
   const [showQuiz, setShowQuiz] = useState(false);
-  const [showExitConfirm, setShowExitConfirm] = useState(false);
 
   useEffect(() => {
     loadQuiz();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [quizId]);
 
   const loadQuiz = async () => {
@@ -55,6 +57,15 @@ export function QuizDetailPage() {
       setIsLoading(true);
       const data = await quizzesService.getQuiz(parseInt(quizId));
       setQuiz(data);
+      // Surface "resume in-progress attempt" on the intro screen (404 = none).
+      if (!user?.is_instructor) {
+        try {
+          await quizzesService.getQuizSession(parseInt(quizId));
+          setHasInProgressSession(true);
+        } catch {
+          setHasInProgressSession(false);
+        }
+      }
     } catch (err) {
       if (isForbidden(err)) {
         setForbidden(true);
@@ -67,47 +78,26 @@ export function QuizDetailPage() {
     }
   };
 
-  const handleSelectAnswer = (questionId: number, choiceId: number) => {
-    setSelectedAnswers(prev => ({
-      ...prev,
-      [questionId.toString()]: choiceId
-    }));
-  };
-
-  const handleSubmit = async () => {
-    if (!quiz) return;
-
-    setIsSubmitting(true);
+  const handleSessionComplete = async (attempt: QuizAttempt) => {
+    setResult(attempt);
+    setShowQuiz(false);
+    setHasInProgressSession(false);
+    if (attempt.passed) {
+      celebrate(attempt.gamification);
+    }
+    // Refresh attempts_remaining / best score for the result + intro screens.
     try {
-      const attempt = await quizzesService.submitQuiz(quiz.id, selectedAnswers);
-      setResult(attempt);
-      // Reload quiz to update attempts_remaining
-      await loadQuiz();
-    } catch (err: unknown) {
-      console.error('Failed to submit quiz:', err);
-      const error = err as { response?: { data?: { detail?: string } } };
-      setError(error.response?.data?.detail || 'Failed to submit quiz');
-    } finally {
-      setIsSubmitting(false);
+      const data = await quizzesService.getQuiz(attempt.quiz);
+      setQuiz(data);
+    } catch (err) {
+      console.error('Failed to refresh quiz:', err);
     }
   };
 
   const handleRetake = async () => {
-    setSelectedAnswers({});
     setResult(null);
-    // Reload quiz to get fresh attempts count
     await loadQuiz();
     setShowQuiz(true);
-  };
-
-  const handleStartQuiz = () => {
-    setShowQuiz(true);
-  };
-
-  const handleExitQuiz = () => {
-    setSelectedAnswers({});
-    setShowExitConfirm(false);
-    setShowQuiz(false);
   };
 
   if (isLoading) {
@@ -142,39 +132,38 @@ export function QuizDetailPage() {
   // Show results
   if (result) {
     const passed = result.passed;
+    const canRetake = !passed && quiz.attempts_remaining !== 0;
+    const firstTryCorrect = result.answers.filter(a => a.is_correct).length;
     return (
       <PageContainer maxWidth="max-w-4xl">
+        {gamificationModals}
         <BackLink to={backTo} label={backLabel} className="mb-6" />
 
         <Card className={`mb-6 ${passed ? 'border-green-500' : 'border-red-500'}`}>
           <CardHeader className="text-center">
             <div className="flex justify-center mb-4">
-              {passed ? (
-                <Trophy className="h-16 w-16 text-green-500" />
-              ) : (
-                <XCircle className="h-16 w-16 text-red-500" />
-              )}
+              <Mascot pose={passed ? 'celebrate' : 'encourage'} size={96} />
             </div>
             <CardTitle className="text-2xl">
-              {passed ? 'Congratulations!' : 'Keep Trying!'}
+              {passed ? 'Quiz Passed!' : 'Mastered — But Not Passed Yet'}
             </CardTitle>
-            <p className="text-muted-foreground mt-2">
+            <p className="text-muted-foreground mt-2 text-base">
               {passed
-                ? 'You passed the quiz!'
-                : `You need ${quiz.passing_score}% to pass`}
+                ? 'You mastered every question and passed the quiz!'
+                : `You mastered every question — nice persistence! But your first-try score is below the ${quiz.passing_score}% needed to pass.`}
             </p>
           </CardHeader>
           <CardContent>
             <div className="grid grid-cols-3 gap-4 text-center mb-6">
               <div>
                 <div className="text-3xl font-bold">{result.score}%</div>
-                <div className="text-sm text-muted-foreground">Score</div>
+                <div className="text-sm text-muted-foreground">First-Try Score</div>
               </div>
               <div>
                 <div className="text-3xl font-bold">
-                  {result.answers.filter(a => a.is_correct).length}/{result.answers.length}
+                  {firstTryCorrect}/{result.answers.length}
                 </div>
-                <div className="text-sm text-muted-foreground">Correct</div>
+                <div className="text-sm text-muted-foreground">Right First Try</div>
               </div>
               <div>
                 <div className="text-3xl font-bold">{result.points_earned}</div>
@@ -200,20 +189,23 @@ export function QuizDetailPage() {
                   </Link>
                 </Button>
               )}
-              <Button
-                onClick={handleRetake}
-                className="flex-1"
-                disabled={quiz.attempts_remaining === 0}
-              >
-                <RotateCcw className="h-4 w-4 mr-2" />
-                {quiz.attempts_remaining === 0 ? 'No Attempts Remaining' : 'Retake Quiz'}
-              </Button>
+              {canRetake && (
+                <Button onClick={handleRetake} className="flex-1">
+                  <RotateCcw className="h-4 w-4 mr-2" />
+                  Retake Quiz
+                </Button>
+              )}
+              {!passed && quiz.attempts_remaining === 0 && (
+                <p className="flex-1 self-center text-center text-sm text-destructive font-medium">
+                  No attempts remaining — contact your instructor if you need another try.
+                </p>
+              )}
             </div>
           </CardContent>
         </Card>
 
-        {/* Answer Review */}
-        <h2 className="text-xl font-semibold mb-4">Answer Review</h2>
+        {/* Answer Review (first-try answers — the score record) */}
+        <h2 className="text-xl font-semibold mb-4">First-Try Answer Review</h2>
         <div className="space-y-4">
           {result.answers.map((answer, index) => (
             <Card key={index} className={answer.is_correct ? 'border-green-200' : 'border-red-200'}>
@@ -227,7 +219,7 @@ export function QuizDetailPage() {
                   <div className="flex-1">
                     <p className="font-medium mb-2">{answer.question_text}</p>
                     <p className="text-sm">
-                      <span className="text-muted-foreground">Your answer: </span>
+                      <span className="text-muted-foreground">Your first answer: </span>
                       <span className={answer.is_correct ? 'text-green-600' : 'text-red-600'}>
                         {answer.selected_choice_text || 'No answer'}
                       </span>
@@ -283,6 +275,11 @@ export function QuizDetailPage() {
               </div>
             </div>
 
+            <p className="text-sm text-muted-foreground text-center mb-6">
+              One question at a time with instant feedback. Missed questions come
+              back until you master them — your score counts first tries only.
+            </p>
+
             {quiz.best_score && (
               <div className="mb-6 p-4 rounded-lg bg-muted/50">
                 <div className="flex items-center gap-2 mb-2">
@@ -306,6 +303,15 @@ export function QuizDetailPage() {
               </div>
             )}
 
+            {/* Resume banner */}
+            {!user?.is_instructor && hasInProgressSession && (
+              <div className="mb-4 p-3 rounded-lg border border-primary/40 bg-primary/5 text-center">
+                <p className="text-sm font-medium text-primary">
+                  You have a quiz in progress — pick up where you left off.
+                </p>
+              </div>
+            )}
+
             {/* Attempts info */}
             {!user?.is_instructor && quiz.max_attempts > 0 && (
               <div className="mb-4 p-3 rounded-lg bg-muted/50 text-center">
@@ -323,16 +329,23 @@ export function QuizDetailPage() {
 
             {!user?.is_instructor && quiz.question_count > 0 && (
               <Button
-                onClick={handleStartQuiz}
+                onClick={() => setShowQuiz(true)}
                 className="w-full"
                 size="lg"
-                disabled={quiz.attempts_remaining === 0}
+                disabled={quiz.attempts_remaining === 0 && !hasInProgressSession}
               >
-                {quiz.attempts_remaining === 0
-                  ? 'No Attempts Remaining'
-                  : quiz.best_score
-                  ? 'Retake Quiz'
-                  : 'Start Quiz'}
+                {hasInProgressSession ? (
+                  <>
+                    <PlayCircle className="h-5 w-5 mr-2" />
+                    Resume Quiz
+                  </>
+                ) : quiz.attempts_remaining === 0 ? (
+                  'No Attempts Remaining'
+                ) : quiz.best_score ? (
+                  'Retake Quiz'
+                ) : (
+                  'Start Quiz'
+                )}
               </Button>
             )}
 
@@ -353,98 +366,36 @@ export function QuizDetailPage() {
     );
   }
 
-  // Show quiz questions
-  const allAnswered = quiz.questions && quiz.questions.length > 0 &&
-    quiz.questions.every(q => selectedAnswers[q.id.toString()]);
-
+  // Active mastery session
   return (
     <PageContainer maxWidth="max-w-4xl">
+      {gamificationModals}
       <div className="flex items-center justify-between mb-6">
         <h1 className="text-3xl font-bold">{quiz.title}</h1>
-        <div className="flex items-center gap-4">
-          <span className="text-sm text-muted-foreground">
-            {Object.keys(selectedAnswers).length} / {quiz.question_count} answered
-          </span>
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={() => setShowExitConfirm(true)}
-            className="text-muted-foreground hover:text-foreground"
-          >
-            <LogOut className="h-4 w-4 mr-2" />
-            Exit Quiz
-          </Button>
-        </div>
-      </div>
-
-      <div className="space-y-6">
-        {quiz.questions?.map((question, qIndex) => (
-          <Card key={question.id}>
-            <CardContent className="pt-6">
-              <p className="font-medium mb-4">
-                <span className="text-muted-foreground mr-2">Q{qIndex + 1}.</span>
-                {question.text}
-              </p>
-              <div className="space-y-2">
-                {question.choices.map((choice) => (
-                  <label
-                    key={choice.id}
-                    className={`flex items-center gap-3 p-3 rounded-lg border cursor-pointer transition-colors ${
-                      selectedAnswers[question.id.toString()] === choice.id
-                        ? 'border-primary bg-primary/5'
-                        : 'border-muted hover:border-primary/50'
-                    }`}
-                  >
-                    <input
-                      type="radio"
-                      name={`question-${question.id}`}
-                      value={choice.id}
-                      checked={selectedAnswers[question.id.toString()] === choice.id}
-                      onChange={() => handleSelectAnswer(question.id, choice.id)}
-                      className="h-4 w-4"
-                    />
-                    <span>{choice.text}</span>
-                  </label>
-                ))}
-              </div>
-            </CardContent>
-          </Card>
-        ))}
-      </div>
-
-      <div className="mt-8 flex gap-4">
         <Button
-          variant="outline"
-          onClick={() => setShowExitConfirm(true)}
-          className="flex-1"
+          variant="ghost"
+          size="sm"
+          onClick={() => {
+            setShowQuiz(false);
+            setHasInProgressSession(true);
+          }}
+          className="text-muted-foreground hover:text-foreground"
+          title="Your progress is saved — resume any time"
         >
-          Cancel
-        </Button>
-        <Button
-          onClick={handleSubmit}
-          disabled={!allAnswered || isSubmitting}
-          className="flex-1"
-        >
-          {isSubmitting ? (
-            <>
-              <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-              Submitting...
-            </>
-          ) : (
-            'Submit Quiz'
-          )}
+          <LogOut className="h-4 w-4 mr-2" />
+          Exit (progress saved)
         </Button>
       </div>
 
-      <ConfirmDialog
-        open={showExitConfirm}
-        onOpenChange={setShowExitConfirm}
-        title="Exit Quiz?"
-        confirmLabel="Exit Quiz"
-        onConfirm={handleExitQuiz}
-      >
-        Are you sure you want to exit? Your answers will be discarded.
-      </ConfirmDialog>
+      <QuizSessionFlow<QuizAttempt>
+        questions={quiz.questions ?? []}
+        getSession={() => quizzesService.getQuizSession(quiz.id)}
+        startSession={() => quizzesService.startQuizSession(quiz.id)}
+        answerQuestion={(questionId, choiceId) =>
+          quizzesService.answerQuizQuestion(quiz.id, questionId, choiceId)
+        }
+        onSessionComplete={handleSessionComplete}
+      />
     </PageContainer>
   );
 }

@@ -117,13 +117,14 @@ export interface LessonProgress {
   required_quiz_passed?: boolean | null;
   required_quiz_info?: RequiredQuizInfo | null;
   lesson_questions_status?: LessonQuestionsStatus | null;
+  gamification?: GamificationDelta;
 }
 
 // Phase 5: Notification types
 export interface Notification {
   id: number;
   recipient: number;
-  type: 'enrollment' | 'new_lesson' | 'announcement' | 'reply';
+  type: 'enrollment' | 'new_lesson' | 'announcement' | 'reply' | 'badge_earned';
   title: string;
   message: string;
   is_read: boolean;
@@ -188,6 +189,7 @@ export interface QuizAttempt {
   points_earned: string;
   completed_at: string;
   answers: AttemptAnswer[];
+  gamification?: GamificationDelta;
 }
 
 // Gradebook types
@@ -351,6 +353,7 @@ export interface QuizSubmissionResult {
   }>;
   attempts_remaining: number | null;
   can_complete_lesson: boolean;
+  gamification?: GamificationDelta;
 }
 
 export interface AnswerQuestionResult {
@@ -428,3 +431,111 @@ export interface ThreadDetail {
   updated_at: string;
   replies: Reply[];
 }
+
+// ============================================================
+// Phase 30: Gamification
+// ============================================================
+
+/** A badge in the catalog, annotated with this user's earned state. */
+export interface BadgeInfo {
+  key: string;
+  name: string;
+  description: string;
+  icon: string;
+  criteria_type: string;
+  threshold: number | null;
+  order: number;
+  earned: boolean;
+  earned_at: string | null;
+}
+
+/** A newly-earned badge, as surfaced in an award delta. */
+export interface NewBadge {
+  key: string;
+  name: string;
+  description: string;
+  icon: string;
+}
+
+/** The full read-endpoint payload. Fields beyond `is_gamified` are
+ *  present only for students. */
+export interface GamificationProfile {
+  is_gamified: boolean;
+  total_xp?: number;
+  level?: number;
+  level_floor_xp?: number;
+  next_level_xp?: number;
+  xp_into_level?: number;
+  level_span?: number;
+  level_progress_pct?: number;
+  current_streak?: number;
+  longest_streak?: number;
+  last_activity_date?: string | null;
+  streak_freezes?: number;
+  badges?: BadgeInfo[];
+  all_badges?: BadgeInfo[];
+}
+
+/** The delta returned by completion / quiz-pass endpoints. */
+export interface GamificationDelta {
+  xp_awarded: number;
+  total_xp: number;
+  level: number;
+  leveled_up: boolean;
+  new_badges: NewBadge[];
+  current_streak: number;
+  streak_freezes?: number;
+  freezes_earned?: number;
+  freezes_used?: number;
+}
+
+// ============================================================
+// Phase 32: Duolingo-style quiz mastery sessions
+// ============================================================
+
+/** Per-question progress inside a mastery session. */
+export interface SessionQuestionStatus {
+  question_id: number;
+  answered: boolean;
+  first_try_correct: boolean | null;
+  mastered: boolean;
+}
+
+/** Resume/progress state for an in-progress mastery session
+ *  (shared shape between unit quizzes and lesson checks). */
+export interface QuizSessionState {
+  attempt_id: number;
+  quiz_id?: number;
+  lesson_id?: number;
+  status: 'in_progress' | 'completed';
+  questions: SessionQuestionStatus[];
+  remaining_question_ids: number[];
+  total_questions: number;
+  mastered_count: number;
+  answered_count: number;
+}
+
+/** Finalize payload for a lesson-check mastery session. */
+export interface LessonSessionResult {
+  attempt_number: number;
+  score: number;
+  total_questions: number;
+  percentage: number;
+  passed: boolean;
+  can_complete_lesson: boolean;
+  gamification?: GamificationDelta;
+}
+
+/** Response for one graded answer in a mastery session. `result` is present
+ *  only when this answer completed the session. */
+export interface SessionAnswerResult<TResult = QuizAttempt | LessonSessionResult> {
+  is_correct: boolean;
+  correct_choice_id: number | null;
+  correct_choice_text: string | null;
+  remaining_count: number;
+  session_complete: boolean;
+  result?: TResult;
+}
+
+export type QuizSessionAnswerResult = SessionAnswerResult<QuizAttempt>;
+export type LessonSessionAnswerResult = SessionAnswerResult<LessonSessionResult>;

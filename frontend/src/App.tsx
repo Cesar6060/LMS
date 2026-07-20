@@ -22,6 +22,7 @@ import { DiscussionsPage } from '@/pages/discussions/DiscussionsPage';
 import { ThreadDetailPage } from '@/pages/discussions/ThreadDetailPage';
 import { QuizDetailPage } from '@/pages/quizzes/QuizDetailPage';
 import { QuizEditorPage } from '@/pages/instructor/QuizEditorPage';
+import { AnalyticsPage } from '@/pages/instructor/AnalyticsPage';
 import { MyGradesPage } from '@/pages/student/MyGradesPage';
 import { SettingsPage } from '@/pages/SettingsPage';
 import { NotFoundPage } from '@/pages/NotFoundPage';
@@ -315,6 +316,14 @@ function App() {
             element={
               <InstructorRoute>
                 <QuizEditorPage />
+              </InstructorRoute>
+            }
+          />
+          <Route
+            path="/instructor/courses/:code/analytics"
+            element={
+              <InstructorRoute>
+                <AnalyticsPage />
               </InstructorRoute>
             }
           />

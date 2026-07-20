@@ -369,3 +369,238 @@ class TestQuizPermissionBoundaries:
         )
         assert response.status_code == status.HTTP_403_FORBIDDEN
         assert 'detail' in response.data
+
+
+# ---------------------------------------------------------------------------
+# Phase 32: Mastery session flow (Duolingo-style)
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture
+def two_question_quiz(quiz):
+    """Quiz with two questions, one correct choice each. passing_score=70."""
+    for i in (1, 2):
+        question = Question.objects.create(quiz=quiz, text=f'Session Q{i}', order=i)
+        Choice.objects.create(question=question, text='Right', is_correct=True, order=1)
+        Choice.objects.create(question=question, text='Wrong', is_correct=False, order=2)
+    return quiz
+
+
+def _session_answer(client, quiz, question, correct):
+    choice = question.choices.get(is_correct=correct)
+    return client.post(
+        f'/api/quizzes/{quiz.id}/session/answer/',
+        {'question_id': question.id, 'choice_id': choice.id},
+        format='json',
+    )
+
+
+@pytest.mark.django_db
+class TestQuizSessionPermissions:
+    """Boundary trio (unauth 401 / instructor 403 / unenrolled 403) per route."""
+
+    ROUTES = [
+        ('post', 'session/start/'),
+        ('get', 'session/'),
+        ('post', 'session/answer/'),
+    ]
+
+    @pytest.mark.parametrize('method,suffix', ROUTES)
+    def test_unauthenticated_401(self, api_client, two_question_quiz, method, suffix):
+        response = getattr(api_client, method)(f'/api/quizzes/{two_question_quiz.id}/{suffix}')
+        assert response.status_code == status.HTTP_401_UNAUTHORIZED
+
+    @pytest.mark.parametrize('method,suffix', ROUTES)
+    def test_instructor_403(self, api_client, instructor, two_question_quiz, method, suffix):
+        api_client.force_authenticate(user=instructor)
+        response = getattr(api_client, method)(f'/api/quizzes/{two_question_quiz.id}/{suffix}')
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+        assert 'detail' in response.data
+
+    @pytest.mark.parametrize('method,suffix', ROUTES)
+    def test_unenrolled_student_403(self, api_client, student, two_question_quiz, method, suffix):
+        api_client.force_authenticate(user=student)
+        response = getattr(api_client, method)(f'/api/quizzes/{two_question_quiz.id}/{suffix}')
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+
+
+@pytest.mark.django_db
+class TestQuizSessionFlow:
+    def test_start_no_questions_400(self, api_client, student, quiz, enrollment):
+        api_client.force_authenticate(user=student)
+        response = api_client.post(f'/api/quizzes/{quiz.id}/session/start/')
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+
+    def test_start_creates_in_progress_session(self, api_client, student, two_question_quiz, enrollment):
+        api_client.force_authenticate(user=student)
+        response = api_client.post(f'/api/quizzes/{two_question_quiz.id}/session/start/')
+        assert response.status_code == status.HTTP_201_CREATED
+        assert response.data['status'] == 'in_progress'
+        assert response.data['total_questions'] == 2
+        assert response.data['mastered_count'] == 0
+        assert len(response.data['remaining_question_ids']) == 2
+        attempt = QuizAttempt.objects.get(id=response.data['attempt_id'])
+        assert attempt.status == QuizAttempt.STATUS_IN_PROGRESS
+        assert attempt.completed_at is None
+
+    def test_start_resumes_existing_session(self, api_client, student, two_question_quiz, enrollment):
+        api_client.force_authenticate(user=student)
+        first = api_client.post(f'/api/quizzes/{two_question_quiz.id}/session/start/')
+        second = api_client.post(f'/api/quizzes/{two_question_quiz.id}/session/start/')
+        assert second.status_code == status.HTTP_200_OK
+        assert second.data['attempt_id'] == first.data['attempt_id']
+        assert QuizAttempt.objects.filter(quiz=two_question_quiz, student=student).count() == 1
+
+    def test_get_session_404_when_none(self, api_client, student, two_question_quiz, enrollment):
+        api_client.force_authenticate(user=student)
+        response = api_client.get(f'/api/quizzes/{two_question_quiz.id}/session/')
+        assert response.status_code == status.HTTP_404_NOT_FOUND
+
+    def test_get_session_returns_resume_state(self, api_client, student, two_question_quiz, enrollment):
+        api_client.force_authenticate(user=student)
+        api_client.post(f'/api/quizzes/{two_question_quiz.id}/session/start/')
+        q1, q2 = two_question_quiz.questions.all()
+        _session_answer(api_client, two_question_quiz, q1, correct=False)
+
+        response = api_client.get(f'/api/quizzes/{two_question_quiz.id}/session/')
+        assert response.status_code == status.HTTP_200_OK
+        assert response.data['answered_count'] == 1
+        assert response.data['mastered_count'] == 0
+        # q2 (unanswered) queues before the re-queued missed q1
+        assert response.data['remaining_question_ids'] == [q2.id, q1.id]
+        by_id = {s['question_id']: s for s in response.data['questions']}
+        assert by_id[q1.id]['answered'] is True
+        assert by_id[q1.id]['first_try_correct'] is False
+        assert by_id[q1.id]['mastered'] is False
+
+    def test_abandoned_session_does_not_burn_attempt(self, api_client, student, two_question_quiz, enrollment):
+        two_question_quiz.max_attempts = 1
+        two_question_quiz.save()
+        api_client.force_authenticate(user=student)
+        first = api_client.post(f'/api/quizzes/{two_question_quiz.id}/session/start/')
+        assert first.status_code == status.HTTP_201_CREATED
+        # Abandon and come back: resumes instead of a max-attempts 400.
+        again = api_client.post(f'/api/quizzes/{two_question_quiz.id}/session/start/')
+        assert again.status_code == status.HTTP_200_OK
+        assert again.data['attempt_id'] == first.data['attempt_id']
+
+    def test_start_respects_max_attempts_completed_only(self, api_client, student, two_question_quiz, enrollment):
+        two_question_quiz.max_attempts = 1
+        two_question_quiz.save()
+        api_client.force_authenticate(user=student)
+        api_client.post(f'/api/quizzes/{two_question_quiz.id}/session/start/')
+        for question in two_question_quiz.questions.all():
+            _session_answer(api_client, two_question_quiz, question, correct=True)
+
+        blocked = api_client.post(f'/api/quizzes/{two_question_quiz.id}/session/start/')
+        assert blocked.status_code == status.HTTP_400_BAD_REQUEST
+        assert 'maximum number of attempts' in blocked.data['detail']
+
+    def test_wrong_then_correct_masters_but_scores_zero(self, api_client, student, two_question_quiz, enrollment):
+        api_client.force_authenticate(user=student)
+        api_client.post(f'/api/quizzes/{two_question_quiz.id}/session/start/')
+        q1, q2 = two_question_quiz.questions.all()
+
+        miss = _session_answer(api_client, two_question_quiz, q1, correct=False)
+        assert miss.status_code == status.HTTP_200_OK
+        assert miss.data['is_correct'] is False
+        assert miss.data['correct_choice_id'] == q1.choices.get(is_correct=True).id
+        assert miss.data['remaining_count'] == 2
+        assert miss.data['session_complete'] is False
+
+        _session_answer(api_client, two_question_quiz, q2, correct=True)
+        retry = _session_answer(api_client, two_question_quiz, q1, correct=True)
+        assert retry.data['is_correct'] is True
+        assert retry.data['session_complete'] is True
+
+        # First-try record preserved: q1 wrong, mastered anyway. Score = 50%.
+        attempt = QuizAttempt.objects.get(quiz=two_question_quiz, student=student)
+        answer_q1 = attempt.answers.get(question=q1)
+        assert answer_q1.is_correct is False
+        assert answer_q1.mastered_at is not None
+        assert attempt.status == QuizAttempt.STATUS_COMPLETED
+        assert float(attempt.score) == 50.0
+        assert attempt.passed is False  # below passing_score=70
+
+        result = retry.data['result']
+        assert result['score'] == '50.00'
+        assert result['passed'] is False
+        assert 'gamification' not in result
+
+    def test_finalize_pass_awards_xp_once(self, api_client, student, two_question_quiz, enrollment):
+        api_client.force_authenticate(user=student)
+        api_client.post(f'/api/quizzes/{two_question_quiz.id}/session/start/')
+        last = None
+        for question in two_question_quiz.questions.all():
+            last = _session_answer(api_client, two_question_quiz, question, correct=True)
+
+        result = last.data['result']
+        assert result['score'] == '100.00'
+        assert result['passed'] is True
+        assert result['gamification']['xp_awarded'] == 20
+
+        # Re-pass on a fresh session: no double XP.
+        api_client.post(f'/api/quizzes/{two_question_quiz.id}/session/start/')
+        for question in two_question_quiz.questions.all():
+            last = _session_answer(api_client, two_question_quiz, question, correct=True)
+        assert last.data['result']['gamification']['xp_awarded'] == 0
+
+    def test_mastered_below_passing_allows_retake(self, api_client, student, two_question_quiz, enrollment):
+        two_question_quiz.max_attempts = 2
+        two_question_quiz.save()
+        api_client.force_authenticate(user=student)
+        api_client.post(f'/api/quizzes/{two_question_quiz.id}/session/start/')
+        q1, q2 = two_question_quiz.questions.all()
+        _session_answer(api_client, two_question_quiz, q1, correct=False)
+        _session_answer(api_client, two_question_quiz, q2, correct=False)
+        _session_answer(api_client, two_question_quiz, q1, correct=True)
+        final = _session_answer(api_client, two_question_quiz, q2, correct=True)
+        assert final.data['result']['passed'] is False
+
+        # Mastered-but-failed: a retake is still allowed (1 of 2 used).
+        retake = api_client.post(f'/api/quizzes/{two_question_quiz.id}/session/start/')
+        assert retake.status_code == status.HTTP_201_CREATED
+
+    def test_answer_rejects_foreign_and_mastered_questions(self, api_client, student, instructor, two_question_quiz, enrollment):
+        api_client.force_authenticate(user=student)
+        api_client.post(f'/api/quizzes/{two_question_quiz.id}/session/start/')
+        q1 = two_question_quiz.questions.first()
+
+        # Question from another quiz
+        other_quiz = Quiz.objects.create(
+            unit=two_question_quiz.unit, title='Other', passing_score=70, order=9
+        )
+        foreign_q = Question.objects.create(quiz=other_quiz, text='Foreign', order=1)
+        foreign_c = Choice.objects.create(question=foreign_q, text='X', is_correct=True, order=1)
+        response = api_client.post(
+            f'/api/quizzes/{two_question_quiz.id}/session/answer/',
+            {'question_id': foreign_q.id, 'choice_id': foreign_c.id}, format='json'
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+
+        # Already-mastered question
+        _session_answer(api_client, two_question_quiz, q1, correct=True)
+        again = _session_answer(api_client, two_question_quiz, q1, correct=True)
+        assert again.status_code == status.HTTP_400_BAD_REQUEST
+
+    def test_answer_without_session_400(self, api_client, student, two_question_quiz, enrollment):
+        api_client.force_authenticate(user=student)
+        q1 = two_question_quiz.questions.first()
+        response = _session_answer(api_client, two_question_quiz, q1, correct=True)
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+
+    def test_in_progress_ignored_by_best_score_and_attempts(self, api_client, student, two_question_quiz, enrollment):
+        two_question_quiz.max_attempts = 3
+        two_question_quiz.save()
+        api_client.force_authenticate(user=student)
+        api_client.post(f'/api/quizzes/{two_question_quiz.id}/session/start/')
+        q1 = two_question_quiz.questions.first()
+        _session_answer(api_client, two_question_quiz, q1, correct=True)
+
+        detail = api_client.get(f'/api/quizzes/{two_question_quiz.id}/')
+        assert detail.data['best_score'] is None
+        assert detail.data['attempt_count'] == 0
+        assert detail.data['attempts_remaining'] == 3
+
+        history = api_client.get(f'/api/quizzes/{two_question_quiz.id}/attempts/')
+        assert history.data == []

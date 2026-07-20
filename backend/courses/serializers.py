@@ -40,6 +40,15 @@ class LessonSectionCreateSerializer(serializers.ModelSerializer):
         read_only_fields = ['id']
 
 
+class LessonSectionBulkCreateSerializer(serializers.Serializer):
+    """Wrapper for atomically creating many sections at once (paste-to-split).
+
+    Incoming per-child ``order`` is ignored — the view assigns sequential order
+    appended after any existing sections. Bounded to 50 sections per request.
+    """
+    sections = LessonSectionCreateSerializer(many=True, min_length=1, max_length=50)
+
+
 class RequiredQuizSerializer(serializers.Serializer):
     """Lightweight serializer for required quiz info."""
     id = serializers.IntegerField()
@@ -403,11 +412,17 @@ class LessonProgressUpdateSerializer(serializers.ModelSerializer):
     def update(self, instance, validated_data):
         from django.utils import timezone
 
+        # Flag the not-completed -> completed transition so the view can award
+        # gamification XP. This is the single place a lesson "becomes done".
+        just_completed = bool(validated_data.get('completed')) and not instance.completed
+
         # Set completed_at when marking as complete
-        if validated_data.get('completed') and not instance.completed:
+        if just_completed:
             validated_data['completed_at'] = timezone.now()
 
-        return super().update(instance, validated_data)
+        updated = super().update(instance, validated_data)
+        updated._just_completed = just_completed
+        return updated
 
 
 class AnnouncementSerializer(serializers.ModelSerializer):

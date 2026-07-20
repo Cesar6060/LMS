@@ -832,6 +832,9 @@ When you finish reading, take the short comprehension check to complete the less
             student=student,
             score=score,
             passed=passed,
+            # completed_at is no longer auto_now_add (Phase 32); spread the
+            # seeded attempts over recent days so the activity chart has data.
+            completed_at=timezone.now() - timedelta(days=(student.id + quiz.id) % 7),
         )
         # Note: points_earned is a calculated property, not a field
 

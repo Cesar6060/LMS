@@ -3,8 +3,13 @@ import { Link, useNavigate } from 'react-router';
 import { useAuth } from '@/contexts/AuthContext';
 import { Button } from '@/components/ui/Button';
 import { courseService, type InstructorCourse } from '@/services/courses';
-import type { Enrollment, EnhancedDashboard, InstructorReminder, CourseProgressItem } from '@/types';
-import { Plus, Play, BookOpen, Users, CheckCircle2, Megaphone, Trophy, Target } from 'lucide-react';
+import { gamificationService } from '@/services/gamification';
+import type { Enrollment, EnhancedDashboard, InstructorReminder, CourseProgressItem, GamificationProfile } from '@/types';
+import { Plus, Play, BookOpen, Users, CheckCircle2, Megaphone, Trophy, Target, Flame } from 'lucide-react';
+import { LevelRing } from '@/components/gamification/LevelRing';
+import { StreakFlame } from '@/components/gamification/StreakFlame';
+import { StreakFreezeChip } from '@/components/gamification/StreakFreezeChip';
+import { Mascot } from '@/components/gamification/Mascot';
 import { EnrollmentModal } from '@/components/course/EnrollmentModal';
 import { Skeleton } from '@/components/ui/Skeleton';
 import { WeekCalendar } from '@/components/dashboard/WeekCalendar';
@@ -25,6 +30,7 @@ export function DashboardPage() {
   const [editingReminder, setEditingReminder] = useState<InstructorReminder | null>(null);
   const [calendarKey, setCalendarKey] = useState(0);
   const [showAnnouncementModal, setShowAnnouncementModal] = useState(false);
+  const [gameProfile, setGameProfile] = useState<GamificationProfile | null>(null);
 
   useEffect(() => {
     loadData();
@@ -41,6 +47,13 @@ export function DashboardPage() {
           : courseService.getMyEnrollments().then(setEnrolledCourses)
       ]);
       setEnhancedData(enhanced);
+      // Gamification tiles are student-only; instructors get an inert payload.
+      if (!user.is_instructor) {
+        gamificationService
+          .getProfile()
+          .then(setGameProfile)
+          .catch((err) => console.error('Failed to load gamification profile:', err));
+      }
     } catch (err) {
       console.error('Failed to load dashboard data:', err);
     } finally {
@@ -100,6 +113,17 @@ export function DashboardPage() {
 
   return (
     <PageContainer maxWidth="max-w-6xl">
+      {/* Mascot greeting - Students */}
+      {!isInstructor && gameProfile?.is_gamified && (
+        <div className="flex items-center gap-3 mb-5">
+          <Mascot pose="idle" size={52} className="flex-shrink-0" />
+          <p className="text-base text-muted-foreground">
+            <span className="font-semibold text-foreground">Circuit</span>
+            {' '}says: Welcome back{user?.first_name ? `, ${user.first_name}` : ''}! Ready for today's quest?
+          </p>
+        </div>
+      )}
+
       {/* Hero: Continue Learning - Students */}
       {hasCourses && !isInstructor && (
         <div className="relative rounded-xl p-8 mb-6 overflow-hidden border border-primary/20" style={{ background: 'linear-gradient(135deg, rgba(34, 197, 94, 0.1) 0%, rgba(6, 182, 212, 0.05) 50%, transparent 100%)' }}>
@@ -170,6 +194,39 @@ export function DashboardPage() {
       {/* Student Quick Stats */}
       {hasCourses && !isInstructor && (
         <div className="grid grid-cols-2 sm:grid-cols-3 gap-4 mb-8">
+          {gameProfile?.is_gamified && (
+            <div className="card-gaming rounded-xl p-5 flex items-center gap-4">
+              <LevelRing
+                level={gameProfile.level ?? 1}
+                progressPct={gameProfile.level_progress_pct ?? 0}
+                size={64}
+              />
+              <div>
+                <div className="flex items-center gap-2 text-muted-foreground mb-1">
+                  <Trophy className="h-5 w-5 text-yellow-400" />
+                  <span className="text-sm font-medium">Level</span>
+                </div>
+                <p className="text-2xl font-semibold text-gradient-gaming">
+                  {gameProfile.total_xp ?? 0} XP
+                </p>
+              </div>
+            </div>
+          )}
+          {gameProfile?.is_gamified && (
+            <div className="card-gaming rounded-xl p-5">
+              <div className="flex items-center gap-2 text-muted-foreground mb-2">
+                <Flame className="h-5 w-5 text-orange-400" />
+                <span className="text-sm font-medium">Streak</span>
+              </div>
+              <div className="flex items-center gap-3">
+                <StreakFlame
+                  current={gameProfile.current_streak ?? 0}
+                  longest={gameProfile.longest_streak}
+                />
+                <StreakFreezeChip count={gameProfile.streak_freezes ?? 0} />
+              </div>
+            </div>
+          )}
           <div className="card-gaming rounded-xl p-5">
             <div className="flex items-center gap-2 text-muted-foreground mb-2">
               <BookOpen className="h-5 w-5 text-primary" />

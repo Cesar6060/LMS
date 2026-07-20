@@ -1,5 +1,5 @@
 import api from './api';
-import type { Quiz, Question, QuizAttempt } from '../types';
+import type { Quiz, Question, QuizAttempt, QuizSessionState, QuizSessionAnswerResult } from '../types';
 
 export const quizzesService = {
   // Get all quizzes in a course
@@ -76,6 +76,25 @@ export const quizzesService = {
   // Submit quiz answers
   async submitQuiz(quizId: number, answers: Record<string, number>): Promise<QuizAttempt> {
     const response = await api.post<QuizAttempt>(`/quizzes/${quizId}/submit/`, { answers });
+    return response.data;
+  },
+
+  // Mastery session flow (Phase 32)
+  async startQuizSession(quizId: number): Promise<QuizSessionState> {
+    const response = await api.post<QuizSessionState>(`/quizzes/${quizId}/session/start/`);
+    return response.data;
+  },
+
+  async getQuizSession(quizId: number): Promise<QuizSessionState> {
+    const response = await api.get<QuizSessionState>(`/quizzes/${quizId}/session/`);
+    return response.data;
+  },
+
+  async answerQuizQuestion(quizId: number, questionId: number, choiceId: number): Promise<QuizSessionAnswerResult> {
+    const response = await api.post<QuizSessionAnswerResult>(`/quizzes/${quizId}/session/answer/`, {
+      question_id: questionId,
+      choice_id: choiceId,
+    });
     return response.data;
   },
 
