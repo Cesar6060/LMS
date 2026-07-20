@@ -325,7 +325,7 @@ export function CourseDetailPage() {
                   Next up: {nextLesson.lessonNumber}. {nextLesson.lessonTitle}
                 </p>
               )}
-              <Link to={`/courses/${course.code}/learn`}>
+              <Link to={`/courses/${course.code}/map`}>
                 <Button size="lg" className="gap-2 bg-green-600 text-white hover:bg-green-700">
                   <Play className="h-5 w-5" />
                   Continue Learning
