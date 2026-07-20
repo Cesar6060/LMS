@@ -32,6 +32,12 @@ export function useGamificationFeedback() {
       if (delta.xp_awarded > 0) {
         show({ message: `+${delta.xp_awarded} XP`, icon: '⚡', variant: 'xp' });
       }
+      if ((delta.freezes_used ?? 0) > 0) {
+        show({ message: 'Streak freeze used — streak saved!', icon: '🧊', variant: 'success' });
+      }
+      if ((delta.freezes_earned ?? 0) > 0) {
+        show({ message: 'Streak freeze earned!', icon: '🧊', variant: 'success' });
+      }
 
       const items: Celebration[] = [];
       if (delta.leveled_up) items.push({ type: 'level', level: delta.level });

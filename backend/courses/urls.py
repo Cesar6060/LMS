@@ -57,6 +57,11 @@ urlpatterns = [
     path('lessons/<int:lesson_id>/questions-status/', views.lesson_questions_status, name='lesson-questions-status'),
     path('lessons/<int:lesson_id>/submit-quiz/', views.submit_lesson_quiz, name='submit-lesson-quiz'),
 
+    # Lesson-Check Mastery Sessions (Phase 32)
+    path('lessons/<int:lesson_id>/quiz-session/start/', views.start_lesson_quiz_session, name='lesson-quiz-session-start'),
+    path('lessons/<int:lesson_id>/quiz-session/', views.get_lesson_quiz_session, name='lesson-quiz-session'),
+    path('lessons/<int:lesson_id>/quiz-session/answer/', views.answer_lesson_quiz_session, name='lesson-quiz-session-answer'),
+
     # Lesson Attachments (Phase 16)
     path('lessons/<int:lesson_id>/attachments/', views.lesson_attachments, name='lesson-attachments'),
     path('lessons/<int:lesson_id>/attachments/<int:attachment_id>/', views.lesson_attachment_detail, name='lesson-attachment-detail'),

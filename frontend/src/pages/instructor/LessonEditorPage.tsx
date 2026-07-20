@@ -28,7 +28,6 @@ interface LessonForm {
   video_type: 'none' | 'youtube' | 'vimeo';
   video_id: string;
   required_quiz: number | null;
-  max_quiz_attempts: number;
 }
 
 function formFromLesson(lesson: Lesson): LessonForm {
@@ -38,7 +37,6 @@ function formFromLesson(lesson: Lesson): LessonForm {
     video_type: lesson.video_type,
     video_id: lesson.video_id || '',
     required_quiz: lesson.required_quiz ?? null,
-    max_quiz_attempts: lesson.max_quiz_attempts ?? 0,
   };
 }
 
@@ -143,7 +141,6 @@ export function LessonEditorPage() {
         video_type: form.video_type,
         video_id: videoId,
         required_quiz: form.required_quiz,
-        max_quiz_attempts: form.max_quiz_attempts,
       });
       setLesson(updated);
       const next = formFromLesson(updated);
@@ -298,7 +295,7 @@ export function LessonEditorPage() {
           </div>
 
           {/* Quiz gating */}
-          <div className="grid gap-4 md:grid-cols-2 max-w-2xl">
+          <div className="grid gap-4 max-w-2xl">
             <div className="space-y-2">
               <label htmlFor="required-quiz" className="text-sm font-medium">
                 Required Quiz
@@ -321,21 +318,6 @@ export function LessonEditorPage() {
               <p className="text-xs text-muted-foreground">
                 Students must pass this quiz to complete the lesson.
               </p>
-            </div>
-            <div className="space-y-2">
-              <label htmlFor="max-quiz-attempts" className="text-sm font-medium">
-                Max Comprehension Quiz Attempts
-              </label>
-              <Input
-                id="max-quiz-attempts"
-                type="number"
-                min="0"
-                value={form.max_quiz_attempts}
-                onChange={(e) =>
-                  updateForm({ max_quiz_attempts: parseInt(e.target.value) || 0 })
-                }
-              />
-              <p className="text-xs text-muted-foreground">Set to 0 for unlimited attempts.</p>
             </div>
           </div>
 

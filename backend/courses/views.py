@@ -10,7 +10,7 @@ from django.http import HttpResponse
 from django.utils import timezone
 from datetime import timedelta
 
-from .models import Course, Unit, Lesson, Enrollment, LessonProgress, Announcement, LessonQuestion, LessonQuestionChoice, LessonQuestionAnswer, LessonQuizAttempt, LessonAttachment, LessonSection
+from .models import Course, Unit, Lesson, Enrollment, LessonProgress, Announcement, LessonQuestion, LessonQuestionChoice, LessonQuestionAnswer, LessonQuizAttempt, LessonAttemptAnswer, LessonAttachment, LessonSection
 from .serializers import (
     CourseSerializer, CourseListSerializer, CourseCreateSerializer,
     InstructorCourseSerializer, UnitSerializer, UnitCreateSerializer,
@@ -668,7 +668,8 @@ def enhanced_dashboard(request):
             QuizAttempt.objects.filter(
                 student=user,
                 quiz__unit__course_id__in=course_ids,
-                passed=True
+                passed=True,
+                status=QuizAttempt.STATUS_COMPLETED,
             ).values('quiz__unit__course_id').annotate(
                 count=Count('quiz', distinct=True)
             ).values_list('quiz__unit__course_id', 'count')
@@ -944,9 +945,10 @@ def gradebook(request, course_code):
         is_active=True
     ).select_related('user').order_by('user__last_name', 'user__first_name')
 
-    # Get all quiz attempts and build best score lookup
+    # Get all completed quiz attempts and build best score lookup
     quiz_attempts = QuizAttempt.objects.filter(
-        quiz__unit__course=course
+        quiz__unit__course=course,
+        status=QuizAttempt.STATUS_COMPLETED,
     ).select_related('quiz')
 
     # Build quiz best lookup: {(student_id, quiz_id): best_attempt}
@@ -1084,9 +1086,10 @@ def gradebook_export(request, course_code):
         is_active=True
     ).select_related('user').order_by('user__last_name', 'user__first_name')
 
-    # Get all quiz attempts and build best score lookup
+    # Get all completed quiz attempts and build best score lookup
     quiz_attempts = QuizAttempt.objects.filter(
-        quiz__unit__course=course
+        quiz__unit__course=course,
+        status=QuizAttempt.STATUS_COMPLETED,
     ).select_related('quiz')
 
     quiz_best_lookup = {}
@@ -1211,10 +1214,11 @@ def _analytics_student_rows(course):
         ).values('user_id').annotate(count=Count('id')).values_list('user_id', 'count')
     )
 
-    # Best attempt per (student, quiz), grouped by student
+    # Best completed attempt per (student, quiz), grouped by student
     best_by_student = {}
     for attempt in QuizAttempt.objects.filter(
-        quiz__unit__course=course
+        quiz__unit__course=course,
+        status=QuizAttempt.STATUS_COMPLETED,
     ).select_related('quiz'):
         per_quiz = best_by_student.setdefault(attempt.student_id, {})
         best = per_quiz.get(attempt.quiz_id)
@@ -1318,7 +1322,8 @@ def analytics_quizzes(request, course_code):
     # ---- Unit quizzes (graded, best attempt per student) ----
     quiz_stats = {}  # quiz_id -> {student_id: {'best': float, 'passed': bool}}
     for attempt in QuizAttempt.objects.filter(
-        quiz__unit__course=course, student_id__in=enrolled_ids
+        quiz__unit__course=course, student_id__in=enrolled_ids,
+        status=QuizAttempt.STATUS_COMPLETED,
     ):
         per_student = quiz_stats.setdefault(attempt.quiz_id, {})
         entry = per_student.setdefault(attempt.student_id, {'best': None, 'passed': False})
@@ -1357,7 +1362,8 @@ def analytics_quizzes(request, course_code):
     # ---- Lesson checks (perfect-score-to-pass, not graded) ----
     check_stats = {}  # lesson_id -> {user_id: {'passed': bool, 'first_pass': int|None}}
     for attempt in LessonQuizAttempt.objects.filter(
-        lesson__unit__course=course, user_id__in=enrolled_ids
+        lesson__unit__course=course, user_id__in=enrolled_ids,
+        status=LessonQuizAttempt.STATUS_COMPLETED,
     ).order_by('attempt_number'):
         per_student = check_stats.setdefault(attempt.lesson_id, {})
         entry = per_student.setdefault(attempt.user_id, {'passed': False, 'first_pass': None})
@@ -1471,6 +1477,7 @@ def analytics_activity(request, course_code):
         QuizAttempt.objects.filter(
             quiz__unit__course=course,
             student_id__in=enrolled_ids,
+            status=QuizAttempt.STATUS_COMPLETED,
         ),
         'completed_at',
     )
@@ -1478,6 +1485,7 @@ def analytics_activity(request, course_code):
         LessonQuizAttempt.objects.filter(
             lesson__unit__course=course,
             user_id__in=enrolled_ids,
+            status=LessonQuizAttempt.STATUS_COMPLETED,
             completed_at__isnull=False,
         ),
         'completed_at',
@@ -1682,7 +1690,8 @@ def student_grade_summary(request, course_code):
 
     for quiz in all_quizzes:
         best_attempt = QuizAttempt.objects.filter(
-            quiz=quiz, student=request.user
+            quiz=quiz, student=request.user,
+            status=QuizAttempt.STATUS_COMPLETED,
         ).order_by('-score').first()
 
         if best_attempt:
@@ -2002,20 +2011,16 @@ def lesson_questions_status(request, lesson_id):
     correct_count = answers.filter(is_correct=True).count()
     all_correct = correct_count == total_questions
 
-    # Get attempt info
+    # Attempt info (completed sessions only). Phase 32 retired the attempt
+    # cap — mastery-retry guarantees a pass, so the check is always
+    # attemptable. Keys are kept for the old-client response contract.
     attempts = LessonQuizAttempt.objects.filter(
         user=request.user,
-        lesson=lesson
+        lesson=lesson,
+        status=LessonQuizAttempt.STATUS_COMPLETED,
     )
     attempt_count = attempts.count()
-    best_attempt = attempts.filter(passed=True).first()
-    max_attempts = lesson.max_quiz_attempts  # 0 = unlimited
-
-    # Check if can attempt
-    can_attempt = max_attempts == 0 or attempt_count < max_attempts
-    attempts_remaining = None if max_attempts == 0 else max(0, max_attempts - attempt_count)
-
-    has_passed = best_attempt is not None
+    has_passed = attempts.filter(passed=True).exists()
 
     return Response({
         'total_questions': total_questions,
@@ -2024,9 +2029,9 @@ def lesson_questions_status(request, lesson_id):
         'all_correct': all_correct,
         'can_complete_lesson': has_passed or all_correct,
         'attempt_count': attempt_count,
-        'max_attempts': max_attempts if max_attempts > 0 else None,
-        'attempts_remaining': attempts_remaining,
-        'can_attempt': can_attempt,
+        'max_attempts': None,
+        'attempts_remaining': None,
+        'can_attempt': True,
         'has_passed': has_passed,
     })
 
@@ -2053,11 +2058,13 @@ def submit_lesson_quiz(request, lesson_id):
             status=status.HTTP_400_BAD_REQUEST
         )
 
-    # Check attempt limits
+    # Check attempt limits (completed sessions only — an abandoned in-progress
+    # mastery session must not inflate the cap or the attempt number)
     max_attempts = lesson.max_quiz_attempts
     current_attempts = LessonQuizAttempt.objects.filter(
         user=request.user,
-        lesson=lesson
+        lesson=lesson,
+        status=LessonQuizAttempt.STATUS_COMPLETED,
     ).count()
 
     if max_attempts > 0 and current_attempts >= max_attempts:
@@ -2120,12 +2127,16 @@ def submit_lesson_quiz(request, lesson_id):
             'correct_choice_id': correct_choice.id if correct_choice else None,
         })
 
-    # Create attempt record
+    # Create attempt record (number from Max over ALL rows so an in-progress
+    # session row can't collide with the unique attempt_number)
     passed = correct_count == total_questions
+    last_number = LessonQuizAttempt.objects.filter(
+        user=request.user, lesson=lesson
+    ).aggregate(Max('attempt_number'))['attempt_number__max'] or 0
     attempt = LessonQuizAttempt.objects.create(
         user=request.user,
         lesson=lesson,
-        attempt_number=current_attempts + 1,
+        attempt_number=last_number + 1,
         score=correct_count,
         total_questions=total_questions,
         passed=passed,
@@ -2151,6 +2162,228 @@ def submit_lesson_quiz(request, lesson_id):
         from gamification.services import award_lesson_quiz_pass
         response_data['gamification'] = award_lesson_quiz_pass(request.user, lesson).as_dict()
     return Response(response_data)
+
+
+# ============================================
+# Lesson-Check Mastery Sessions (Phase 32)
+# ============================================
+# Duolingo-style flow for lesson comprehension checks: one question at a
+# time, instant feedback, missed questions re-queued until mastered. The
+# attempt cap (Lesson.max_quiz_attempts) is retired — mastery guarantees a
+# pass — but the model field stays for painless rollback.
+
+def _lesson_session_state(lesson, attempt):
+    """Resume/progress payload for an in-progress lesson-check session."""
+    questions = list(lesson.questions.all())
+    answers = {a.question_id: a for a in attempt.session_answers.all()}
+
+    question_status = []
+    for question in questions:
+        answer = answers.get(question.id)
+        question_status.append({
+            'question_id': question.id,
+            'answered': answer is not None,
+            'first_try_correct': answer.is_correct if answer else None,
+            'mastered': bool(answer and answer.mastered_at),
+        })
+
+    unanswered = [q.id for q in questions if q.id not in answers]
+    requeued = [
+        q.id for q in questions
+        if q.id in answers and not answers[q.id].mastered_at
+    ]
+
+    mastered_count = sum(1 for s in question_status if s['mastered'])
+    return {
+        'attempt_id': attempt.id,
+        'lesson_id': lesson.id,
+        'status': attempt.status,
+        'questions': question_status,
+        'remaining_question_ids': unanswered + requeued,
+        'total_questions': len(questions),
+        'mastered_count': mastered_count,
+        'answered_count': len(answers),
+    }
+
+
+@api_view(['POST'])
+@perm_classes([IsAuthenticated])
+def start_lesson_quiz_session(request, lesson_id):
+    """
+    Start (or resume) a mastery session for a lesson's comprehension check.
+    Students only. max_quiz_attempts is intentionally ignored (cap retired).
+    """
+    lesson = get_object_or_404(Lesson, pk=lesson_id)
+    require_enrollment(request.user, lesson.unit.course)
+
+    if not lesson.questions.exists():
+        return Response(
+            {'detail': 'This lesson has no quiz questions.'},
+            status=status.HTTP_400_BAD_REQUEST
+        )
+
+    existing = LessonQuizAttempt.objects.filter(
+        user=request.user, lesson=lesson,
+        status=LessonQuizAttempt.STATUS_IN_PROGRESS,
+    ).first()
+    if existing:
+        return Response(_lesson_session_state(lesson, existing))
+
+    last_number = LessonQuizAttempt.objects.filter(
+        user=request.user, lesson=lesson
+    ).aggregate(Max('attempt_number'))['attempt_number__max'] or 0
+    attempt = LessonQuizAttempt.objects.create(
+        user=request.user,
+        lesson=lesson,
+        attempt_number=last_number + 1,
+        score=0,
+        total_questions=lesson.questions.count(),
+        passed=False,
+        status=LessonQuizAttempt.STATUS_IN_PROGRESS,
+    )
+    return Response(_lesson_session_state(lesson, attempt), status=status.HTTP_201_CREATED)
+
+
+@api_view(['GET'])
+@perm_classes([IsAuthenticated])
+def get_lesson_quiz_session(request, lesson_id):
+    """Resume state for the current in-progress session; 404 if none."""
+    lesson = get_object_or_404(Lesson, pk=lesson_id)
+    require_enrollment(request.user, lesson.unit.course)
+
+    attempt = LessonQuizAttempt.objects.filter(
+        user=request.user, lesson=lesson,
+        status=LessonQuizAttempt.STATUS_IN_PROGRESS,
+    ).first()
+    if attempt is None:
+        return Response(
+            {'detail': 'No in-progress session for this lesson check.'},
+            status=status.HTTP_404_NOT_FOUND
+        )
+    return Response(_lesson_session_state(lesson, attempt))
+
+
+@api_view(['POST'])
+@perm_classes([IsAuthenticated])
+def answer_lesson_quiz_session(request, lesson_id):
+    """
+    Grade one answer in a lesson-check mastery session. First answers are the
+    permanent first-try record; every graded answer also updates the legacy
+    LessonQuestionAnswer row (latest answer) so questions-status and lesson
+    completion gating stay consistent. Finalizes when all mastered:
+    score = first-try correct count, passed=True, XP awarded once.
+    """
+    lesson = get_object_or_404(Lesson, pk=lesson_id)
+    require_enrollment(request.user, lesson.unit.course)
+
+    attempt = LessonQuizAttempt.objects.filter(
+        user=request.user, lesson=lesson,
+        status=LessonQuizAttempt.STATUS_IN_PROGRESS,
+    ).first()
+    if attempt is None:
+        return Response(
+            {'detail': 'No in-progress session for this lesson check. Start one first.'},
+            status=status.HTTP_400_BAD_REQUEST
+        )
+
+    question_id = request.data.get('question_id')
+    choice_id = request.data.get('choice_id')
+    if question_id is None or choice_id is None:
+        return Response(
+            {'detail': 'question_id and choice_id are required.'},
+            status=status.HTTP_400_BAD_REQUEST
+        )
+
+    try:
+        question = lesson.questions.get(id=question_id)
+    except LessonQuestion.DoesNotExist:
+        return Response(
+            {'detail': 'Question does not belong to this lesson.'},
+            status=status.HTTP_400_BAD_REQUEST
+        )
+    try:
+        choice = question.choices.get(id=choice_id)
+    except LessonQuestionChoice.DoesNotExist:
+        return Response(
+            {'detail': 'Choice does not belong to this question.'},
+            status=status.HTTP_400_BAD_REQUEST
+        )
+
+    is_correct = choice.is_correct
+    # First try creates the permanent score record; get_or_create is
+    # race-safe under the (attempt, question) uniqueness — a concurrent
+    # duplicate answer can't 500, the loser just sees the winner's row.
+    answer, created = LessonAttemptAnswer.objects.get_or_create(
+        attempt=attempt,
+        question=question,
+        defaults={
+            'selected_choice': choice,
+            'is_correct': is_correct,
+            'mastered_at': timezone.now() if is_correct else None,
+        },
+    )
+    if not created:
+        if answer.mastered_at:
+            return Response(
+                {'detail': 'This question is already mastered.'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        if is_correct:
+            # Mastery retry: never touch the first-try record.
+            answer.mastered_at = timezone.now()
+            answer.save(update_fields=['mastered_at'])
+
+    # Keep the legacy latest-answer record in sync on every graded answer so
+    # questions-status (all_correct / can_complete_lesson) stays consistent.
+    # NOTE: update_or_create would pass update_fields=['selected_choice'] on
+    # the update path (Django 4.2+), silently dropping the is_correct value
+    # recomputed in LessonQuestionAnswer.save() — use a full save instead.
+    legacy_answer, legacy_created = LessonQuestionAnswer.objects.get_or_create(
+        user=request.user,
+        question=question,
+        defaults={'selected_choice': choice}
+    )
+    if not legacy_created:
+        legacy_answer.selected_choice = choice
+        legacy_answer.save()
+
+    total_questions = lesson.questions.count()
+    mastered_count = attempt.session_answers.filter(mastered_at__isnull=False).count()
+    remaining_count = total_questions - mastered_count
+
+    correct_choice = question.choices.filter(is_correct=True).first()
+    data = {
+        'is_correct': is_correct,
+        'correct_choice_id': correct_choice.id if correct_choice else None,
+        'correct_choice_text': correct_choice.text if correct_choice else None,
+        'remaining_count': remaining_count,
+        'session_complete': remaining_count == 0,
+    }
+
+    if remaining_count == 0:
+        # Auto-finalize: mastery means the session passed; score records
+        # first-try correctness for analytics.
+        first_try_correct = attempt.session_answers.filter(is_correct=True).count()
+        attempt.score = first_try_correct
+        attempt.total_questions = total_questions
+        attempt.passed = True
+        attempt.status = LessonQuizAttempt.STATUS_COMPLETED
+        attempt.completed_at = timezone.now()
+        attempt.save()
+
+        from gamification.services import award_lesson_quiz_pass
+        result = {
+            'attempt_number': attempt.attempt_number,
+            'score': first_try_correct,
+            'total_questions': total_questions,
+            'percentage': attempt.percentage,
+            'passed': True,
+            'can_complete_lesson': True,
+            'gamification': award_lesson_quiz_pass(request.user, lesson).as_dict(),
+        }
+        data['result'] = result
+
+    return Response(data)
 
 
 # ============================================

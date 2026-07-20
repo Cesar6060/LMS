@@ -471,6 +471,7 @@ export interface GamificationProfile {
   current_streak?: number;
   longest_streak?: number;
   last_activity_date?: string | null;
+  streak_freezes?: number;
   badges?: BadgeInfo[];
   all_badges?: BadgeInfo[];
 }
@@ -483,4 +484,58 @@ export interface GamificationDelta {
   leveled_up: boolean;
   new_badges: NewBadge[];
   current_streak: number;
+  streak_freezes?: number;
+  freezes_earned?: number;
+  freezes_used?: number;
 }
+
+// ============================================================
+// Phase 32: Duolingo-style quiz mastery sessions
+// ============================================================
+
+/** Per-question progress inside a mastery session. */
+export interface SessionQuestionStatus {
+  question_id: number;
+  answered: boolean;
+  first_try_correct: boolean | null;
+  mastered: boolean;
+}
+
+/** Resume/progress state for an in-progress mastery session
+ *  (shared shape between unit quizzes and lesson checks). */
+export interface QuizSessionState {
+  attempt_id: number;
+  quiz_id?: number;
+  lesson_id?: number;
+  status: 'in_progress' | 'completed';
+  questions: SessionQuestionStatus[];
+  remaining_question_ids: number[];
+  total_questions: number;
+  mastered_count: number;
+  answered_count: number;
+}
+
+/** Finalize payload for a lesson-check mastery session. */
+export interface LessonSessionResult {
+  attempt_number: number;
+  score: number;
+  total_questions: number;
+  percentage: number;
+  passed: boolean;
+  can_complete_lesson: boolean;
+  gamification?: GamificationDelta;
+}
+
+/** Response for one graded answer in a mastery session. `result` is present
+ *  only when this answer completed the session. */
+export interface SessionAnswerResult<TResult = QuizAttempt | LessonSessionResult> {
+  is_correct: boolean;
+  correct_choice_id: number | null;
+  correct_choice_text: string | null;
+  remaining_count: number;
+  session_complete: boolean;
+  result?: TResult;
+}
+
+export type QuizSessionAnswerResult = SessionAnswerResult<QuizAttempt>;
+export type LessonSessionAnswerResult = SessionAnswerResult<LessonSessionResult>;

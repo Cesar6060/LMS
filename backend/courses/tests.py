@@ -1845,7 +1845,8 @@ class TestInstructorAnalytics:
         now = timezone.now()
         LessonProgress.objects.create(
             user=student, lesson=lesson, completed=True, completed_at=now)
-        QuizAttempt.objects.create(quiz=quiz, student=student, score=80.00, passed=True)
+        QuizAttempt.objects.create(
+            quiz=quiz, student=student, score=80.00, passed=True, completed_at=now)
         LessonQuizAttempt.objects.create(
             user=student, lesson=lesson, attempt_number=1,
             score=1, total_questions=1, passed=True, completed_at=now)
@@ -1890,3 +1891,198 @@ class TestInstructorAnalytics:
         api_client.force_authenticate(user=instructor)
         response = api_client.get(self._url(course, 'activity'))
         assert all(d['lessons_completed'] == 0 for d in response.data['days'])
+
+
+# ---------------------------------------------------------------------------
+# Phase 32: Lesson-check mastery sessions
+# ---------------------------------------------------------------------------
+
+
+def _lesson_session_answer(client, lesson, question, correct):
+    choice = question.choices.get(is_correct=correct)
+    return client.post(
+        f'/api/courses/lessons/{lesson.id}/quiz-session/answer/',
+        {'question_id': question.id, 'choice_id': choice.id},
+        format='json',
+    )
+
+
+@pytest.mark.django_db
+class TestLessonQuizSessionPermissions:
+    """Boundary trio (unauth 401 / instructor 403 / unenrolled 403) per route."""
+
+    ROUTES = [
+        ('post', 'quiz-session/start/'),
+        ('get', 'quiz-session/'),
+        ('post', 'quiz-session/answer/'),
+    ]
+
+    @pytest.mark.parametrize('method,suffix', ROUTES)
+    def test_unauthenticated_401(self, api_client, lesson, method, suffix):
+        _add_comprehension_quiz(lesson)
+        response = getattr(api_client, method)(f'/api/courses/lessons/{lesson.id}/{suffix}')
+        assert response.status_code == status.HTTP_401_UNAUTHORIZED
+
+    @pytest.mark.parametrize('method,suffix', ROUTES)
+    def test_instructor_403(self, api_client, instructor, lesson, method, suffix):
+        _add_comprehension_quiz(lesson)
+        api_client.force_authenticate(user=instructor)
+        response = getattr(api_client, method)(f'/api/courses/lessons/{lesson.id}/{suffix}')
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+        assert 'detail' in response.data
+
+    @pytest.mark.parametrize('method,suffix', ROUTES)
+    def test_unenrolled_student_403(self, api_client, student, lesson, method, suffix):
+        _add_comprehension_quiz(lesson)
+        api_client.force_authenticate(user=student)
+        response = getattr(api_client, method)(f'/api/courses/lessons/{lesson.id}/{suffix}')
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+
+
+@pytest.mark.django_db
+class TestLessonQuizSession:
+    def test_start_no_questions_400(self, api_client, student, lesson, enrollment):
+        api_client.force_authenticate(user=student)
+        response = api_client.post(f'/api/courses/lessons/{lesson.id}/quiz-session/start/')
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+
+    def test_start_and_resume(self, api_client, student, lesson, enrollment):
+        _add_comprehension_quiz(lesson)
+        api_client.force_authenticate(user=student)
+        first = api_client.post(f'/api/courses/lessons/{lesson.id}/quiz-session/start/')
+        assert first.status_code == status.HTTP_201_CREATED
+        assert first.data['status'] == 'in_progress'
+        assert first.data['total_questions'] == 2
+
+        again = api_client.post(f'/api/courses/lessons/{lesson.id}/quiz-session/start/')
+        assert again.status_code == status.HTTP_200_OK
+        assert again.data['attempt_id'] == first.data['attempt_id']
+
+        get_resp = api_client.get(f'/api/courses/lessons/{lesson.id}/quiz-session/')
+        assert get_resp.status_code == status.HTTP_200_OK
+        assert get_resp.data['attempt_id'] == first.data['attempt_id']
+
+    def test_get_session_404_when_none(self, api_client, student, lesson, enrollment):
+        _add_comprehension_quiz(lesson)
+        api_client.force_authenticate(user=student)
+        response = api_client.get(f'/api/courses/lessons/{lesson.id}/quiz-session/')
+        assert response.status_code == status.HTTP_404_NOT_FOUND
+
+    def test_mastery_loop_finalizes_passed_with_first_try_score(
+        self, api_client, student, lesson, enrollment
+    ):
+        q1, q2 = _add_comprehension_quiz(lesson)
+        api_client.force_authenticate(user=student)
+        api_client.post(f'/api/courses/lessons/{lesson.id}/quiz-session/start/')
+
+        miss = _lesson_session_answer(api_client, lesson, q1, correct=False)
+        assert miss.data['is_correct'] is False
+        assert miss.data['correct_choice_id'] == q1.choices.get(is_correct=True).id
+        assert miss.data['session_complete'] is False
+
+        _lesson_session_answer(api_client, lesson, q2, correct=True)
+        final = _lesson_session_answer(api_client, lesson, q1, correct=True)
+        assert final.data['session_complete'] is True
+
+        result = final.data['result']
+        assert result['passed'] is True
+        assert result['score'] == 1  # first-try correct count
+        assert result['total_questions'] == 2
+        assert result['can_complete_lesson'] is True
+        assert result['gamification']['xp_awarded'] == 20
+
+        attempt = LessonQuizAttempt.objects.get(user=student, lesson=lesson)
+        assert attempt.status == LessonQuizAttempt.STATUS_COMPLETED
+        assert attempt.passed is True
+        assert attempt.score == 1
+        first_try = attempt.session_answers.get(question=q1)
+        assert first_try.is_correct is False
+        assert first_try.mastered_at is not None
+
+    def test_mastery_updates_legacy_answers_and_unblocks_completion(
+        self, api_client, student, lesson, enrollment
+    ):
+        q1, q2 = _add_comprehension_quiz(lesson)
+        api_client.force_authenticate(user=student)
+        api_client.post(f'/api/courses/lessons/{lesson.id}/quiz-session/start/')
+        _lesson_session_answer(api_client, lesson, q1, correct=False)
+        _lesson_session_answer(api_client, lesson, q2, correct=True)
+        _lesson_session_answer(api_client, lesson, q1, correct=True)
+
+        # Legacy latest-answer rows now all correct -> status contract holds.
+        status_resp = api_client.get(f'/api/courses/lessons/{lesson.id}/questions-status/')
+        assert status_resp.data['all_correct'] is True
+        assert status_resp.data['can_complete_lesson'] is True
+        assert status_resp.data['has_passed'] is True
+
+        # Lesson completion is unblocked.
+        progress = api_client.patch(
+            f'/api/courses/lessons/{lesson.id}/progress/', {'completed': True}
+        )
+        assert progress.status_code == status.HTTP_200_OK
+        assert progress.data['completed'] is True
+
+    def test_attempt_cap_ignored(self, api_client, student, lesson, enrollment):
+        """max_quiz_attempts is retired: prior completed attempts never block."""
+        _add_comprehension_quiz(lesson)
+        lesson.max_quiz_attempts = 1
+        lesson.save()
+        LessonQuizAttempt.objects.create(
+            user=student, lesson=lesson, attempt_number=1,
+            score=0, total_questions=2, passed=False,
+        )
+
+        api_client.force_authenticate(user=student)
+        response = api_client.post(f'/api/courses/lessons/{lesson.id}/quiz-session/start/')
+        assert response.status_code == status.HTTP_201_CREATED
+
+        status_resp = api_client.get(f'/api/courses/lessons/{lesson.id}/questions-status/')
+        assert status_resp.data['can_attempt'] is True
+        assert status_resp.data['attempts_remaining'] is None
+        assert status_resp.data['max_attempts'] is None
+
+    def test_xp_awarded_once_across_sessions(self, api_client, student, lesson, enrollment):
+        q1, q2 = _add_comprehension_quiz(lesson)
+        api_client.force_authenticate(user=student)
+
+        for expected_xp in (20, 0):
+            api_client.post(f'/api/courses/lessons/{lesson.id}/quiz-session/start/')
+            _lesson_session_answer(api_client, lesson, q1, correct=True)
+            final = _lesson_session_answer(api_client, lesson, q2, correct=True)
+            assert final.data['result']['gamification']['xp_awarded'] == expected_xp
+
+    def test_answer_rejects_foreign_and_mastered(self, api_client, student, lesson, unit, enrollment):
+        q1, _q2 = _add_comprehension_quiz(lesson)
+        other_lesson = Lesson.objects.create(unit=unit, title='Other', order=9)
+        foreign_q = LessonQuestion.objects.create(lesson=other_lesson, text='F?', order=1)
+        foreign_c = LessonQuestionChoice.objects.create(
+            question=foreign_q, text='X', is_correct=True, order=1
+        )
+
+        api_client.force_authenticate(user=student)
+        api_client.post(f'/api/courses/lessons/{lesson.id}/quiz-session/start/')
+
+        foreign = api_client.post(
+            f'/api/courses/lessons/{lesson.id}/quiz-session/answer/',
+            {'question_id': foreign_q.id, 'choice_id': foreign_c.id}, format='json'
+        )
+        assert foreign.status_code == status.HTTP_400_BAD_REQUEST
+
+        _lesson_session_answer(api_client, lesson, q1, correct=True)
+        again = _lesson_session_answer(api_client, lesson, q1, correct=True)
+        assert again.status_code == status.HTTP_400_BAD_REQUEST
+
+    def test_answer_without_session_400(self, api_client, student, lesson, enrollment):
+        q1, _q2 = _add_comprehension_quiz(lesson)
+        api_client.force_authenticate(user=student)
+        response = _lesson_session_answer(api_client, lesson, q1, correct=True)
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+
+    def test_in_progress_ignored_by_questions_status(self, api_client, student, lesson, enrollment):
+        _add_comprehension_quiz(lesson)
+        api_client.force_authenticate(user=student)
+        api_client.post(f'/api/courses/lessons/{lesson.id}/quiz-session/start/')
+
+        status_resp = api_client.get(f'/api/courses/lessons/{lesson.id}/questions-status/')
+        assert status_resp.data['attempt_count'] == 0
+        assert status_resp.data['has_passed'] is False

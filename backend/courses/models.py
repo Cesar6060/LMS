@@ -368,8 +368,19 @@ class LessonQuestionAnswer(models.Model):
 class LessonQuizAttempt(models.Model):
     """
     Tracks a student's attempt at a lesson's comprehension quiz.
-    Each attempt represents submitting answers for all questions.
+
+    Phase 32: attempts can be session-based (mastery flow). ``score`` records
+    FIRST-TRY correct count and ``passed`` means "session completed via
+    mastery" for session attempts; legacy batch submits keep their original
+    semantics and are created directly as ``completed``.
     """
+    STATUS_IN_PROGRESS = 'in_progress'
+    STATUS_COMPLETED = 'completed'
+    STATUS_CHOICES = [
+        (STATUS_IN_PROGRESS, 'In progress'),
+        (STATUS_COMPLETED, 'Completed'),
+    ]
+
     user = models.ForeignKey(
         settings.AUTH_USER_MODEL,
         on_delete=models.CASCADE,
@@ -382,10 +393,13 @@ class LessonQuizAttempt(models.Model):
     )
     attempt_number = models.PositiveIntegerField(default=1)
     score = models.PositiveIntegerField(
-        help_text='Number of correct answers'
+        help_text='Number of first-try correct answers'
     )
     total_questions = models.PositiveIntegerField()
     passed = models.BooleanField(default=False)
+    status = models.CharField(
+        max_length=20, choices=STATUS_CHOICES, default=STATUS_COMPLETED
+    )
     started_at = models.DateTimeField(auto_now_add=True)
     completed_at = models.DateTimeField(null=True, blank=True)
 
@@ -402,6 +416,43 @@ class LessonQuizAttempt(models.Model):
         if self.total_questions == 0:
             return 0
         return round((self.score / self.total_questions) * 100)
+
+
+class LessonAttemptAnswer(models.Model):
+    """
+    A per-question answer inside a lesson-check mastery session (Phase 32).
+
+    ``selected_choice``/``is_correct`` always record the FIRST try — never
+    overwritten by mastery retries. ``mastered_at`` is stamped when the
+    question is eventually answered correctly.
+    """
+    attempt = models.ForeignKey(
+        LessonQuizAttempt,
+        on_delete=models.CASCADE,
+        related_name='session_answers'
+    )
+    question = models.ForeignKey(
+        LessonQuestion,
+        on_delete=models.CASCADE,
+        related_name='session_answers'
+    )
+    selected_choice = models.ForeignKey(
+        LessonQuestionChoice,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='session_selections'
+    )
+    is_correct = models.BooleanField(default=False)
+    mastered_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        db_table = 'courses_lessonattemptanswer'
+        unique_together = ['attempt', 'question']
+
+    def __str__(self):
+        status = "correct" if self.is_correct else "incorrect"
+        return f"Attempt {self.attempt_id} - Q{self.question.order}: {status} (first try)"
 
 
 class LessonAttachment(models.Model):

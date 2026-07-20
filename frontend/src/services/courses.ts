@@ -1,5 +1,5 @@
 import api from './api';
-import type { Course, Unit, Lesson, Enrollment, LessonProgress, GradingConfig, GradeSummary, EnhancedDashboard, LessonQuestion, LessonQuestionsStatus, AnswerQuestionResult, QuizSubmissionResult, LessonAttachment, LessonSection, InstructorReminder, CalendarResponse } from '../types';
+import type { Course, Unit, Lesson, Enrollment, LessonProgress, GradingConfig, GradeSummary, EnhancedDashboard, LessonQuestion, LessonQuestionsStatus, AnswerQuestionResult, QuizSubmissionResult, LessonAttachment, LessonSection, InstructorReminder, CalendarResponse, QuizSessionState, LessonSessionAnswerResult } from '../types';
 
 // Re-export types for convenience
 export type { Unit, Lesson } from '../types';
@@ -481,6 +481,25 @@ export const courseService = {
   async submitLessonQuiz(lessonId: number, answers: Record<string, number>): Promise<QuizSubmissionResult> {
     const response = await api.post<QuizSubmissionResult>(`/courses/lessons/${lessonId}/submit-quiz/`, {
       answers,
+    });
+    return response.data;
+  },
+
+  // Lesson-check mastery sessions (Phase 32)
+  async startLessonQuizSession(lessonId: number): Promise<QuizSessionState> {
+    const response = await api.post<QuizSessionState>(`/courses/lessons/${lessonId}/quiz-session/start/`);
+    return response.data;
+  },
+
+  async getLessonQuizSession(lessonId: number): Promise<QuizSessionState> {
+    const response = await api.get<QuizSessionState>(`/courses/lessons/${lessonId}/quiz-session/`);
+    return response.data;
+  },
+
+  async answerLessonQuizQuestion(lessonId: number, questionId: number, choiceId: number): Promise<LessonSessionAnswerResult> {
+    const response = await api.post<LessonSessionAnswerResult>(`/courses/lessons/${lessonId}/quiz-session/answer/`, {
+      question_id: questionId,
+      choice_id: choiceId,
     });
     return response.data;
   },

@@ -14,6 +14,11 @@ urlpatterns = [
     path('quizzes/<int:quiz_id>/submit/', views.submit_quiz, name='submit-quiz'),
     path('quizzes/<int:quiz_id>/attempts/', views.quiz_attempts, name='quiz-attempts'),
 
+    # Mastery session flow (Phase 32)
+    path('quizzes/<int:quiz_id>/session/start/', views.start_quiz_session, name='quiz-session-start'),
+    path('quizzes/<int:quiz_id>/session/', views.get_quiz_session, name='quiz-session'),
+    path('quizzes/<int:quiz_id>/session/answer/', views.answer_quiz_session, name='quiz-session-answer'),
+
     # Course-level quiz list
     path('courses/<str:course_code>/quizzes/', views.course_quizzes, name='course-quizzes'),
 

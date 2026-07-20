@@ -421,3 +421,119 @@ class TestBackfill:
         LessonProgress.objects.create(user=instructor, lesson=lesson, completed=True)
         call_command('backfill_gamification')
         assert not GameProfile.objects.filter(user=instructor).exists()
+
+
+# --------------------------------------------------------------------------
+# Streak freezes (Phase 32)
+# --------------------------------------------------------------------------
+
+@pytest.mark.django_db
+class TestStreakFreezes:
+    def test_earned_on_level_up(self, student, lessons):
+        """Crossing a level threshold grants +1 freeze and surfaces it."""
+        today = date(2026, 7, 19)
+        first = award_lesson_completion(student, lessons[0], today=today)  # 50 XP
+        assert first.freezes_earned == 0
+
+        second = award_lesson_completion(student, lessons[1], today=today)  # 100 XP -> L2
+        assert second.leveled_up is True
+        assert second.freezes_earned == 1
+        assert second.streak_freezes == 1
+        assert GameProfile.objects.get(user=student).streak_freezes == 1
+
+    def test_earn_capped_at_two(self, student, lessons):
+        profile, _ = GameProfile.objects.get_or_create(user=student)
+        profile.streak_freezes = 2
+        profile.total_xp = 90
+        profile.save()
+
+        result = award_lesson_completion(student, lessons[0], today=date(2026, 7, 19))
+        assert result.leveled_up is True  # 90 -> 140 crosses level 2
+        assert result.freezes_earned == 0
+        assert result.streak_freezes == 2
+
+    def test_multi_level_jump_respects_cap(self, student):
+        """A single award crossing 2 levels grants 2 freezes, never more."""
+        from gamification.services import _award
+        from gamification.models import XPEvent
+
+        result = _award(student, XPEvent.SOURCE_LESSON, 999, 350)  # 0 -> 350 = L1 -> L3
+        assert result.level == 3
+        assert result.freezes_earned == 2
+        assert result.streak_freezes == 2
+
+        # Another jump with a full bank earns nothing.
+        result2 = _award(student, XPEvent.SOURCE_LESSON, 998, 700)  # 350 -> 1050
+        assert result2.leveled_up is True
+        assert result2.freezes_earned == 0
+        assert result2.streak_freezes == 2
+
+    def test_one_day_gap_consumed_streak_continues(self, student, lessons):
+        d1 = date(2026, 7, 19)
+        award_lesson_completion(student, lessons[0], today=d1)
+        profile = GameProfile.objects.get(user=student)
+        profile.total_xp = 100  # mid-level so the next +50 can't level up
+        profile.streak_freezes = 1
+        profile.current_streak = 5
+        profile.save()
+
+        # Miss one day: freeze absorbs it, streak continues.
+        result = award_lesson_completion(student, lessons[1], today=d1 + timedelta(days=2))
+        assert result.freezes_used == 1
+        assert result.current_streak == 6
+        profile.refresh_from_db()
+        assert profile.streak_freezes == 0
+        assert profile.current_streak == 6
+
+    def test_gap_larger_than_freezes_resets_and_keeps_freezes(self, student, lessons):
+        d1 = date(2026, 7, 19)
+        award_lesson_completion(student, lessons[0], today=d1)
+        profile = GameProfile.objects.get(user=student)
+        profile.total_xp = 100  # mid-level so the next +50 can't level up
+        profile.streak_freezes = 1
+        profile.current_streak = 5
+        profile.longest_streak = 5
+        profile.save()
+
+        # Two missed days with only 1 freeze: reset, consume nothing.
+        result = award_lesson_completion(student, lessons[1], today=d1 + timedelta(days=3))
+        assert result.freezes_used == 0
+        assert result.current_streak == 1
+        profile.refresh_from_db()
+        assert profile.streak_freezes == 1
+        assert profile.longest_streak == 5
+
+    def test_two_day_gap_two_freezes_consumed(self, student, lessons):
+        d1 = date(2026, 7, 19)
+        award_lesson_completion(student, lessons[0], today=d1)
+        profile = GameProfile.objects.get(user=student)
+        profile.total_xp = 100  # mid-level so the next +50 can't level up
+        profile.streak_freezes = 2
+        profile.current_streak = 3
+        profile.save()
+
+        result = award_lesson_completion(student, lessons[1], today=d1 + timedelta(days=3))
+        assert result.freezes_used == 2
+        assert result.current_streak == 4
+        profile.refresh_from_db()
+        assert profile.streak_freezes == 0
+
+    def test_instructor_still_inert(self, instructor, lesson):
+        result = award_lesson_completion(instructor, lesson, today=date(2026, 7, 19))
+        assert result.freezes_earned == 0
+        assert result.freezes_used == 0
+        assert not GameProfile.objects.filter(user=instructor).exists()
+
+    def test_profile_endpoint_includes_freezes(self, api_client, student):
+        profile, _ = GameProfile.objects.get_or_create(user=student)
+        profile.streak_freezes = 2
+        profile.save()
+        api_client.force_authenticate(user=student)
+        response = api_client.get('/api/gamification/profile/')
+        assert response.data['streak_freezes'] == 2
+
+    def test_delta_shape_includes_freeze_fields(self, student, lesson):
+        result = award_lesson_completion(student, lesson, today=date(2026, 7, 19))
+        payload = result.as_dict()
+        for key in ('streak_freezes', 'freezes_earned', 'freezes_used'):
+            assert key in payload

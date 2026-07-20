@@ -13,6 +13,7 @@ import {
 import { PageContainer } from '@/components/layout/PageContainer';
 import { LevelRing } from '@/components/gamification/LevelRing';
 import { StreakFlame } from '@/components/gamification/StreakFlame';
+import { StreakFreezeChip } from '@/components/gamification/StreakFreezeChip';
 import { BadgeGrid } from '@/components/gamification/BadgeGrid';
 
 type TabType = 'profile' | 'notifications' | 'achievements';
@@ -336,13 +337,14 @@ export function SettingsPage() {
                           {gameProfile.total_xp ?? 0}
                         </p>
                       </div>
-                      <div className="flex items-center gap-2">
+                      <div className="flex items-center gap-3">
                         <Flame className="h-5 w-5 text-orange-400" />
                         <StreakFlame
                           current={gameProfile.current_streak ?? 0}
                           longest={gameProfile.longest_streak}
                           size="lg"
                         />
+                        <StreakFreezeChip count={gameProfile.streak_freezes ?? 0} />
                       </div>
                     </div>
                   </div>

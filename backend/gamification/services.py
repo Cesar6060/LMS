@@ -21,6 +21,7 @@ from .models import GameProfile, XPEvent, Badge, UserBadge
 XP_LESSON = 50
 XP_QUIZ = 20
 XP_LESSON_QUIZ = 20
+MAX_STREAK_FREEZES = 2
 
 
 @dataclass
@@ -32,6 +33,9 @@ class GamificationResult:
     leveled_up: bool = False
     new_badges: list = field(default_factory=list)  # list[Badge]
     current_streak: int = 0
+    streak_freezes: int = 0
+    freezes_earned: int = 0
+    freezes_used: int = 0
 
     def as_dict(self):
         return {
@@ -41,6 +45,9 @@ class GamificationResult:
             'leveled_up': self.leveled_up,
             'new_badges': [_badge_brief(b) for b in self.new_badges],
             'current_streak': self.current_streak,
+            'streak_freezes': self.streak_freezes,
+            'freezes_earned': self.freezes_earned,
+            'freezes_used': self.freezes_used,
         }
 
 
@@ -73,11 +80,25 @@ def _resolve_today(user, today=None):
 
 
 def _update_streak(profile, today):
-    """Advance/reset the daily streak. Called ONLY on lesson completion."""
+    """
+    Advance/reset the daily streak. Called ONLY on lesson completion.
+
+    Streak freezes (Phase 32): a gap of N missed days is absorbed when the
+    profile holds at least N freezes — they are consumed and the streak
+    continues (+1 for today). A gap larger than the freeze balance resets
+    the streak to 1 and consumes nothing. Returns the number of freezes used.
+    """
     last = profile.last_activity_date
     if last == today:
-        return  # already counted today
-    if last == today - timedelta(days=1):
+        return 0  # already counted today
+
+    freezes_used = 0
+    missed_days = (today - last).days - 1 if last is not None else None
+    if missed_days == 0:
+        profile.current_streak += 1
+    elif missed_days is not None and 0 < missed_days <= profile.streak_freezes:
+        profile.streak_freezes -= missed_days
+        freezes_used = missed_days
         profile.current_streak += 1
     else:
         profile.current_streak = 1
@@ -85,8 +106,10 @@ def _update_streak(profile, today):
     if profile.current_streak > profile.longest_streak:
         profile.longest_streak = profile.current_streak
     profile.save(update_fields=[
-        'current_streak', 'last_activity_date', 'longest_streak', 'updated_at',
+        'current_streak', 'last_activity_date', 'longest_streak',
+        'streak_freezes', 'updated_at',
     ])
+    return freezes_used
 
 
 # ---------------------------------------------------------------------------
@@ -176,11 +199,24 @@ def _award(user, source_type, source_id, amount, advance_streak=False, today=Non
 
         created = _award_xp(user, source_type, source_id, amount)
 
+        freezes_used = 0
         if advance_streak:
             resolved_today = _resolve_today(user, today)
-            _update_streak(profile, resolved_today)
+            freezes_used = _update_streak(profile, resolved_today)
 
         profile.refresh_from_db()
+
+        # Streak freezes: +1 per level gained, capped at MAX_STREAK_FREEZES.
+        levels_gained = level_for_xp(profile.total_xp) - level_for_xp(before_xp)
+        freezes_earned = 0
+        if levels_gained > 0:
+            freezes_earned = min(
+                levels_gained, MAX_STREAK_FREEZES - profile.streak_freezes
+            )
+            if freezes_earned > 0:
+                profile.streak_freezes += freezes_earned
+                profile.save(update_fields=['streak_freezes', 'updated_at'])
+
         new_badges = _evaluate_badges(user, profile)
 
     after_xp = profile.total_xp
@@ -191,6 +227,9 @@ def _award(user, source_type, source_id, amount, advance_streak=False, today=Non
         leveled_up=level_for_xp(before_xp) < level_for_xp(after_xp),
         new_badges=new_badges,
         current_streak=profile.current_streak,
+        streak_freezes=profile.streak_freezes,
+        freezes_earned=freezes_earned,
+        freezes_used=freezes_used,
     )
 
 
@@ -223,5 +262,6 @@ def profile_payload(profile):
         'current_streak': profile.current_streak,
         'longest_streak': profile.longest_streak,
         'last_activity_date': profile.last_activity_date,
+        'streak_freezes': profile.streak_freezes,
         **ring,
     }

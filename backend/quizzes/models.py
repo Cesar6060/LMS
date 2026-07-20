@@ -55,12 +55,27 @@ class Choice(models.Model):
 
 
 class QuizAttempt(models.Model):
-    """A student's attempt at a quiz."""
+    """
+    A student's attempt at a quiz.
+
+    Phase 32: attempts can be session-based (Duolingo flow). ``in_progress``
+    rows exist while a session runs and are excluded from every score/attempt
+    consumer; ``completed`` rows are the graded record. Legacy batch submits
+    create rows directly as ``completed``.
+    """
+    STATUS_IN_PROGRESS = 'in_progress'
+    STATUS_COMPLETED = 'completed'
+    STATUS_CHOICES = [
+        (STATUS_IN_PROGRESS, 'In progress'),
+        (STATUS_COMPLETED, 'Completed'),
+    ]
+
     quiz = models.ForeignKey(Quiz, on_delete=models.CASCADE, related_name='attempts')
     student = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='quiz_attempts')
     score = models.DecimalField(max_digits=5, decimal_places=2, help_text="Percentage score")
     passed = models.BooleanField(default=False)
-    completed_at = models.DateTimeField(auto_now_add=True)
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default=STATUS_COMPLETED)
+    completed_at = models.DateTimeField(null=True, blank=True)
 
     class Meta:
         ordering = ['-completed_at']
@@ -75,11 +90,19 @@ class QuizAttempt(models.Model):
 
 
 class AttemptAnswer(models.Model):
-    """A student's answer to a question in an attempt."""
+    """
+    A student's answer to a question in an attempt.
+
+    ``selected_choice``/``is_correct`` always record the FIRST try — they are
+    the score record and are never overwritten by mastery retries.
+    ``mastered_at`` is stamped when the question is eventually answered
+    correctly (first try or a later re-queue pass).
+    """
     attempt = models.ForeignKey(QuizAttempt, on_delete=models.CASCADE, related_name='answers')
     question = models.ForeignKey(Question, on_delete=models.CASCADE)
     selected_choice = models.ForeignKey(Choice, on_delete=models.SET_NULL, null=True, blank=True)
     is_correct = models.BooleanField(default=False)
+    mastered_at = models.DateTimeField(null=True, blank=True)
 
     class Meta:
         unique_together = ['attempt', 'question']

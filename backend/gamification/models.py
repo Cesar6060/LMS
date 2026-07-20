@@ -20,6 +20,9 @@ class GameProfile(models.Model):
     current_streak = models.PositiveIntegerField(default=0)
     longest_streak = models.PositiveIntegerField(default=0)
     last_activity_date = models.DateField(null=True, blank=True)
+    streak_freezes = models.PositiveSmallIntegerField(
+        default=0, help_text='Earned on level-up (max 2), auto-consumed on missed days'
+    )
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
