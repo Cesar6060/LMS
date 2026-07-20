@@ -135,8 +135,9 @@ progress fetching.
       prefs; card's existing primary action unchanged).
 - [x] Course player header (`CoursePlayerPage.tsx`): a "Map" button next to
       the existing back link → `/courses/:code/map`.
-- [x] Continue Learning card stays pointed at `/courses/:code/learn`
-      (unchanged — it's the fast path).
+- [x] Continue Learning card points at `/courses/:code/map` (user directive
+      post-implementation; superseded the original "stays at `/learn`" item —
+      the map is now the student's main entry into a course).
 
 ## Verification
 

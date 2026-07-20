@@ -134,7 +134,7 @@ export function DashboardPage() {
                     : 'Start your first lesson'}
                 </p>
                 <div className="flex items-center gap-4 mb-4">
-                  <Link to={`/courses/${continueLearning.course_code}/learn`}>
+                  <Link to={`/courses/${continueLearning.course_code}/map`}>
                     <Button size="lg" variant="neon">
                       <Play className="h-4 w-4 mr-2" />
                       Continue Learning
