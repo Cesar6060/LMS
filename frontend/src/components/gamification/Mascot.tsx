@@ -1,6 +1,7 @@
 import { useId } from 'react';
 import { cn } from '@/lib/utils';
 import { useAvatarContext } from '@/contexts/AvatarContext';
+import { starPath } from '@/components/gamification/starPath';
 import type { AvatarEquipped } from '@/types';
 
 export type MascotPose = 'idle' | 'cheer' | 'encourage' | 'celebrate';
@@ -17,6 +18,12 @@ interface MascotProps {
    * selection) to preview a different look.
    */
   customization?: Partial<AvatarEquipped> | null;
+  /**
+   * Skip the backdrop panel layer (Phase 34): the dashboard hero renders the
+   * equipped backdrop at container scale, so the SVG's own panel would
+   * double-render the scene.
+   */
+  hideBackdrop?: boolean;
 }
 
 /** Palette swaps per color-scheme key. `classic` stays on the theme var. */
@@ -30,22 +37,6 @@ const COLOR_SCHEMES: Record<string, string> = {
 
 const GOLD = '#facc15';
 
-/** A four-point sparkle star centered on (cx, cy). */
-function starPath(cx: number, cy: number, r: number): string {
-  const inner = r * 0.4;
-  return [
-    `M${cx},${cy - r}`,
-    `L${cx + inner},${cy - inner}`,
-    `L${cx + r},${cy}`,
-    `L${cx + inner},${cy + inner}`,
-    `L${cx},${cy + r}`,
-    `L${cx - inner},${cy + inner}`,
-    `L${cx - r},${cy}`,
-    `L${cx - inner},${cy - inner}`,
-    'Z',
-  ].join(' ');
-}
-
 /**
  * "Circuit" — the STEM Quest robot mascot. Single built-in inline SVG with a
  * few poses, used in the quiz mastery flow's feedback moments and the
@@ -53,7 +44,7 @@ function starPath(cx: number, cy: number, r: number): string {
  * Cosmetic slots (color / headgear / eyes / accessory) render as palette
  * swaps and extra SVG layers; unknown keys fall back to the slot default.
  */
-export function Mascot({ pose = 'idle', size = 96, className, customization }: MascotProps) {
+export function Mascot({ pose = 'idle', size = 96, className, customization, hideBackdrop = false }: MascotProps) {
   const { avatar } = useAvatarContext();
   const equipped = customization ?? avatar?.equipped ?? null;
 
@@ -64,7 +55,7 @@ export function Mascot({ pose = 'idle', size = 96, className, customization }: M
   const headgear = equipped?.headgear ?? 'none';
   const eyes = equipped?.eyes ?? 'none';
   const accessory = equipped?.accessory ?? 'none';
-  const backdrop = equipped?.backdrop ?? 'plain';
+  const backdrop = hideBackdrop ? 'none' : equipped?.backdrop ?? 'plain';
   const name = avatar?.mascot_name ?? 'Circuit';
   // Gradient ids must be unique per mascot instance — the customizer grid
   // renders many at once.
