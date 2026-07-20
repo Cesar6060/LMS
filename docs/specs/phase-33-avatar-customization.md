@@ -140,20 +140,22 @@ seeing none of it.
 - [x] `cd frontend && npx tsc --noEmit` — 0 errors.
 - [x] `npm run lint` — no new errors/warnings vs 22-warning baseline.
 - [x] `/verify-stack` output shown as evidence.
-- [ ] Manual click-through (seeded course, student account):
-  - [ ] Dashboard shows the avatar card with default Circuit + name;
+- [x] Manual click-through (seeded course, student account):
+  - [x] Dashboard shows the avatar card with default Circuit + name;
         Customize opens the modal; slot tabs + live preview work.
-  - [ ] Locked items show "Lv N" and can't be equipped from the UI;
+  - [x] Locked items show "Lv N" and can't be equipped from the UI;
         a forced PATCH for a locked item (devtools/curl) returns 400.
-  - [ ] Equip an unlocked item in each slot → card updates; reload
+  - [x] Equip an unlocked item in each slot → card updates; reload
         persists; quiz feedback banner + completion screen show the
         customized Circuit.
-  - [ ] Rename to "Sparky" → card greeting uses it; empty and 21-char
+  - [x] Rename to "Sparky" → card greeting uses it; empty and 21-char
         names rejected; reset restores "Circuit".
-  - [ ] Cross a level threshold (complete lessons or backdate XP in
+  - [x] Cross a level threshold (complete lessons or backdate XP in
         dbshell) → newly unlocked item becomes equippable without any
         manual claim step.
-  - [ ] Mascot renders correctly in light + dark themes with items
+  - [x] Mascot renders correctly in light + dark themes with items
         equipped, in all four poses (take a quiz, miss one on purpose).
-  - [ ] Instructor account: no avatar card, no customizer, GET profile
+  - [x] Instructor account: no avatar card, no customizer, GET profile
         still `{is_gamified: false}`, PATCH avatar → 403.
+
+*Manual click-through user-confirmed 2026-07-20 (no issues reported).*

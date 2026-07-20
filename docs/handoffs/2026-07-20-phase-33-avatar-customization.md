@@ -51,17 +51,13 @@ Verified: **pytest 341 passed** (326 baseline + 15 new); **tsc 0 errors**;
 eslint-disable for the same react-refresh warning its sibling contexts have).
 
 ## In progress / not done
-- **Manual click-through** — the only unchecked spec section (§Verification):
-  avatar card + customizer, locked-item 400 via curl, persistence, rename,
-  level-threshold unlock, all four poses in quiz flows, instructor inertness.
-- Phase 31/32 manual click-throughs were also still open per their handoffs.
+- Nothing — spec fully checked. Manual click-through user-confirmed
+  2026-07-20 (convention: silence on the manual section means it passed).
 
 ## Next steps
-1. Manual click-through per spec §Verification; check off in
-   `docs/specs/phase-33-avatar-customization.md`.
-2. Review + merge the Phase 33 PR (branch `feat/phase-33-avatar-customization`
-   → `lms/main`).
-3. Local branch cleanup: merged phase branches 29–32 can be deleted.
+1. Review + merge PR #18 (https://github.com/Cesar6060/LMS/pull/18,
+   `feat/phase-33-avatar-customization` → `lms/main`).
+2. After merge, delete the local phase-33 branch.
 
 ## Decisions made
 - **Backdrop slot added mid-phase** (user request): fifth slot rendered as a
