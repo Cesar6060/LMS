@@ -1594,3 +1594,299 @@ class TestLessonCompletionGating:
         )
         assert response.status_code == status.HTTP_200_OK
         assert response.data['completed'] is True
+
+
+# ---------------------------------------------------------------------------
+# Phase 31: Instructor analytics dashboard
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.django_db
+class TestInstructorAnalytics:
+    ENDPOINTS = ['overview', 'quizzes', 'students', 'activity']
+
+    @pytest.fixture
+    def other_instructor(self):
+        return User.objects.create_user(
+            email='other_instructor@test.com',
+            password='testpass123',
+            first_name='Other',
+            last_name='Instructor',
+            is_instructor=True
+        )
+
+    def _url(self, course, endpoint):
+        return f'/api/courses/courses/{course.code}/analytics/{endpoint}/'
+
+    # ---- Permission boundaries (each endpoint) ----
+
+    @pytest.mark.parametrize('endpoint', ENDPOINTS)
+    def test_course_instructor_allowed(self, api_client, instructor, course, endpoint):
+        api_client.force_authenticate(user=instructor)
+        response = api_client.get(self._url(course, endpoint))
+        assert response.status_code == status.HTTP_200_OK
+
+    @pytest.mark.parametrize('endpoint', ENDPOINTS)
+    def test_other_instructor_forbidden(self, api_client, other_instructor, course, endpoint):
+        api_client.force_authenticate(user=other_instructor)
+        response = api_client.get(self._url(course, endpoint))
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+
+    @pytest.mark.parametrize('endpoint', ENDPOINTS)
+    def test_enrolled_student_forbidden(self, api_client, student, course, enrollment, endpoint):
+        api_client.force_authenticate(user=student)
+        response = api_client.get(self._url(course, endpoint))
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+
+    @pytest.mark.parametrize('endpoint', ENDPOINTS)
+    def test_anonymous_unauthorized(self, api_client, course, endpoint):
+        response = api_client.get(self._url(course, endpoint))
+        assert response.status_code == status.HTTP_401_UNAUTHORIZED
+
+    # ---- Overview ----
+
+    def test_overview_metrics(self, api_client, instructor, course, unit, quiz,
+                              lesson, student, second_student, enrollment):
+        """Known averages from seeded data; stale student not counted active."""
+        from datetime import timedelta
+        from django.utils import timezone
+        from quizzes.models import QuizAttempt
+
+        Lesson.objects.create(unit=unit, title='Second Lesson', order=2)
+        stale = Enrollment.objects.create(user=second_student, course=course)
+        Enrollment.objects.filter(id=stale.id).update(
+            last_activity_at=timezone.now() - timedelta(days=10)
+        )
+
+        # student: 1/2 lessons (50%), best quiz 80% -> weighted (50/50) = 65.0
+        # second_student: 0% progress, no quiz -> weighted = 0.0
+        LessonProgress.objects.create(
+            user=student, lesson=lesson, completed=True,
+            completed_at=timezone.now()
+        )
+        QuizAttempt.objects.create(quiz=quiz, student=student, score=60.00, passed=False)
+        QuizAttempt.objects.create(quiz=quiz, student=student, score=80.00, passed=True)
+
+        api_client.force_authenticate(user=instructor)
+        response = api_client.get(self._url(course, 'overview'))
+        assert response.status_code == status.HTTP_200_OK
+        assert response.data['student_count'] == 2
+        assert response.data['avg_progress_percentage'] == 25.0
+        assert response.data['avg_grade_percentage'] == 32.5
+        # student has no last_activity_at -> falls back to enrolled_at (fresh)
+        assert response.data['active_last_7_days'] == 1
+
+    def test_overview_zero_students(self, api_client, instructor, course):
+        """Zero enrollments: zeroed counts, null averages, still 200."""
+        api_client.force_authenticate(user=instructor)
+        response = api_client.get(self._url(course, 'overview'))
+        assert response.status_code == status.HTTP_200_OK
+        assert response.data['student_count'] == 0
+        assert response.data['avg_progress_percentage'] is None
+        assert response.data['avg_grade_percentage'] is None
+        assert response.data['active_last_7_days'] == 0
+
+    # ---- Unit quizzes ----
+
+    def test_unit_quiz_metrics(self, api_client, instructor, course, unit, quiz,
+                               student, second_student, enrollment):
+        """Best-attempt avg, pass/completion denominators, worst-first order."""
+        from quizzes.models import Quiz, QuizAttempt
+
+        Enrollment.objects.create(user=second_student, course=course)
+        # quiz: student best 80 (passed after a 60 fail), second_student 40 fail
+        QuizAttempt.objects.create(quiz=quiz, student=student, score=60.00, passed=False)
+        QuizAttempt.objects.create(quiz=quiz, student=student, score=80.00, passed=True)
+        QuizAttempt.objects.create(quiz=quiz, student=second_student, score=40.00, passed=False)
+        # better_quiz: one 90 -> higher avg, sorts after quiz
+        better_quiz = Quiz.objects.create(unit=unit, title='Better Quiz', points=50, passing_score=70)
+        QuizAttempt.objects.create(quiz=better_quiz, student=student, score=90.00, passed=True)
+        # untouched quiz: no attempts -> null metrics, sorts last
+        untouched = Quiz.objects.create(unit=unit, title='Untouched Quiz', points=10, passing_score=70)
+
+        api_client.force_authenticate(user=instructor)
+        response = api_client.get(self._url(course, 'quizzes'))
+        rows = response.data['unit_quizzes']
+        assert [r['title'] for r in rows] == ['Test Quiz', 'Better Quiz', 'Untouched Quiz']
+
+        worst = rows[0]
+        assert worst['avg_score'] == 60.0          # (80 + 40) / 2
+        assert worst['pass_rate'] == 50.0          # 1 of 2 attempters passed
+        assert worst['completion_rate'] == 100.0   # 2 of 2 enrolled attempted
+        assert worst['passing_score'] == 70
+
+        untouched_row = rows[2]
+        assert untouched_row['avg_score'] is None
+        assert untouched_row['pass_rate'] is None
+        assert untouched_row['completion_rate'] == 0.0
+
+    def test_quizzes_zero_quizzes(self, api_client, instructor, course, student, enrollment):
+        """Course with no quizzes and no lesson checks: empty lists, 200."""
+        api_client.force_authenticate(user=instructor)
+        response = api_client.get(self._url(course, 'quizzes'))
+        assert response.status_code == status.HTTP_200_OK
+        assert response.data['unit_quizzes'] == []
+        assert response.data['lesson_checks'] == []
+
+    # ---- Lesson checks ----
+
+    def test_lesson_check_metrics(self, api_client, instructor, course, unit,
+                                  lesson, student, second_student, enrollment):
+        """Stuck student counted; avg uses first passing attempt; no-question lesson excluded."""
+        from django.utils import timezone
+
+        _add_comprehension_quiz(lesson, count=2)
+        Lesson.objects.create(unit=unit, title='No Questions Lesson', order=2)
+        Enrollment.objects.create(user=second_student, course=course)
+
+        now = timezone.now()
+        # student: fails once, passes on attempt 2 (then retakes -- ignored)
+        LessonQuizAttempt.objects.create(
+            user=student, lesson=lesson, attempt_number=1,
+            score=1, total_questions=2, passed=False, completed_at=now)
+        LessonQuizAttempt.objects.create(
+            user=student, lesson=lesson, attempt_number=2,
+            score=2, total_questions=2, passed=True, completed_at=now)
+        LessonQuizAttempt.objects.create(
+            user=student, lesson=lesson, attempt_number=3,
+            score=2, total_questions=2, passed=True, completed_at=now)
+        # second_student: attempted, never passed -> stuck
+        LessonQuizAttempt.objects.create(
+            user=second_student, lesson=lesson, attempt_number=1,
+            score=0, total_questions=2, passed=False, completed_at=now)
+
+        api_client.force_authenticate(user=instructor)
+        response = api_client.get(self._url(course, 'quizzes'))
+        checks = response.data['lesson_checks']
+        assert len(checks) == 1  # lesson without questions excluded
+        row = checks[0]
+        assert row['title'] == lesson.title
+        assert row['attempted_count'] == 2
+        assert row['passed_count'] == 1
+        assert row['stuck_count'] == 1
+        assert row['avg_attempts_to_pass'] == 2.0
+
+    # ---- Students ----
+
+    def test_students_at_risk_low_progress(self, api_client, instructor, course,
+                                           lesson, student, enrollment):
+        """Progress < 50% flags at-risk even with fresh activity."""
+        enrollment.update_activity()
+        api_client.force_authenticate(user=instructor)
+        response = api_client.get(self._url(course, 'students'))
+        row = response.data['students'][0]
+        assert row['progress_percentage'] == 0
+        assert row['at_risk'] is True
+
+    def test_students_at_risk_inactive(self, api_client, instructor, course,
+                                       lesson, student, enrollment):
+        """100% progress but 8+ days inactive still flags at-risk."""
+        from datetime import timedelta
+        from django.utils import timezone
+
+        LessonProgress.objects.create(
+            user=student, lesson=lesson, completed=True,
+            completed_at=timezone.now()
+        )
+        Enrollment.objects.filter(id=enrollment.id).update(
+            last_activity_at=timezone.now() - timedelta(days=8)
+        )
+        api_client.force_authenticate(user=instructor)
+        response = api_client.get(self._url(course, 'students'))
+        row = response.data['students'][0]
+        assert row['progress_percentage'] == 100.0
+        assert row['at_risk'] is True
+
+    def test_students_not_at_risk(self, api_client, instructor, course,
+                                  lesson, student, enrollment):
+        """High progress + recent activity: not at risk."""
+        from django.utils import timezone
+
+        LessonProgress.objects.create(
+            user=student, lesson=lesson, completed=True,
+            completed_at=timezone.now()
+        )
+        enrollment.update_activity()
+        api_client.force_authenticate(user=instructor)
+        response = api_client.get(self._url(course, 'students'))
+        assert response.data['students'][0]['at_risk'] is False
+
+    def test_students_streak_values(self, api_client, instructor, course,
+                                    student, second_student, enrollment):
+        """Streak read from GameProfile; 0 (not created) when none exists."""
+        from gamification.models import GameProfile
+
+        Enrollment.objects.create(user=second_student, course=course)
+        GameProfile.objects.create(user=student, current_streak=5)
+
+        api_client.force_authenticate(user=instructor)
+        response = api_client.get(self._url(course, 'students'))
+        by_email = {r['student']['email']: r for r in response.data['students']}
+        assert by_email[student.email]['current_streak'] == 5
+        assert by_email[second_student.email]['current_streak'] == 0
+        # reading analytics must not create profiles
+        assert not GameProfile.objects.filter(user=second_student).exists()
+
+    def test_students_zero_students(self, api_client, instructor, course):
+        api_client.force_authenticate(user=instructor)
+        response = api_client.get(self._url(course, 'students'))
+        assert response.status_code == status.HTTP_200_OK
+        assert response.data['students'] == []
+
+    # ---- Activity ----
+
+    def test_activity_series_and_zero_fill(self, api_client, instructor, course,
+                                           unit, quiz, lesson, student, enrollment):
+        """30 zero-filled days; all three series counted on the right day."""
+        from datetime import timedelta
+        from django.utils import timezone
+        from quizzes.models import QuizAttempt
+
+        now = timezone.now()
+        LessonProgress.objects.create(
+            user=student, lesson=lesson, completed=True, completed_at=now)
+        QuizAttempt.objects.create(quiz=quiz, student=student, score=80.00, passed=True)
+        LessonQuizAttempt.objects.create(
+            user=student, lesson=lesson, attempt_number=1,
+            score=1, total_questions=1, passed=True, completed_at=now)
+
+        api_client.force_authenticate(user=instructor)
+        response = api_client.get(self._url(course, 'activity'))
+        days = response.data['days']
+        assert len(days) == 30
+        assert days[-1]['date'] == timezone.localdate().isoformat()
+
+        today_row = days[-1]
+        assert today_row['lessons_completed'] == 1
+        assert today_row['quiz_attempts'] == 1
+        assert today_row['lesson_check_attempts'] == 1
+
+        # a day with no events is present and zeroed
+        empty_row = days[0]
+        assert empty_row['lessons_completed'] == 0
+        assert empty_row['quiz_attempts'] == 0
+        assert empty_row['lesson_check_attempts'] == 0
+
+    def test_activity_excludes_old_and_other_course_events(
+            self, api_client, instructor, course, unit, lesson, student, enrollment,
+            other_instructor):
+        """Events outside the 30-day window or in another course don't count."""
+        from datetime import timedelta
+        from django.utils import timezone
+
+        # outside the window (40 days ago)
+        old = LessonProgress.objects.create(
+            user=student, lesson=lesson, completed=True,
+            completed_at=timezone.now() - timedelta(days=40))
+        # other course event today
+        other_course = Course.objects.create(
+            code='OTHER101', title='Other Course', instructor=other_instructor)
+        other_unit = Unit.objects.create(course=other_course, title='U', order=1)
+        other_lesson = Lesson.objects.create(unit=other_unit, title='L', order=1)
+        LessonProgress.objects.create(
+            user=student, lesson=other_lesson, completed=True,
+            completed_at=timezone.now())
+
+        api_client.force_authenticate(user=instructor)
+        response = api_client.get(self._url(course, 'activity'))
+        assert all(d['lessons_completed'] == 0 for d in response.data['days'])

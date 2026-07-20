@@ -1181,6 +1181,321 @@ def student_roster(request, course_code):
     return Response(serializer.data)
 
 
+# ==================== Instructor Analytics (Phase 31) ====================
+
+def _analytics_student_rows(course):
+    """
+    Bulk-computed per-student metrics shared by the analytics overview and
+    students endpoints: progress % (roster calc), quiz average and weighted
+    grade (gradebook best-attempt calc). One query per data source.
+    Returns (rows, enrollments) with rows keyed to the same order.
+    """
+    from quizzes.models import QuizAttempt
+    from .models import CourseGradingConfig
+
+    try:
+        grading_config = course.grading_config
+    except CourseGradingConfig.DoesNotExist:
+        grading_config = None
+
+    enrollments = list(Enrollment.objects.filter(
+        course=course,
+        is_active=True
+    ).select_related('user').order_by('user__last_name', 'user__first_name'))
+
+    total_lessons = Lesson.objects.filter(unit__course=course).count()
+    completed_lessons_by_student = dict(
+        LessonProgress.objects.filter(
+            lesson__unit__course=course,
+            completed=True
+        ).values('user_id').annotate(count=Count('id')).values_list('user_id', 'count')
+    )
+
+    # Best attempt per (student, quiz), grouped by student
+    best_by_student = {}
+    for attempt in QuizAttempt.objects.filter(
+        quiz__unit__course=course
+    ).select_related('quiz'):
+        per_quiz = best_by_student.setdefault(attempt.student_id, {})
+        best = per_quiz.get(attempt.quiz_id)
+        if best is None or attempt.score > best.score:
+            per_quiz[attempt.quiz_id] = attempt
+
+    rows = []
+    for enrollment in enrollments:
+        student = enrollment.user
+
+        if total_lessons > 0:
+            completed = completed_lessons_by_student.get(student.id, 0)
+            progress_pct = round((completed / total_lessons) * 100, 1)
+            participation_pct = progress_pct
+        else:
+            progress_pct = 0
+            participation_pct = None
+
+        quiz_earned = 0.0
+        quiz_possible = 0
+        for attempt in best_by_student.get(student.id, {}).values():
+            quiz_earned += attempt.points_earned
+            quiz_possible += attempt.quiz.points
+        quiz_pct = round((quiz_earned / quiz_possible * 100), 1) if quiz_possible > 0 else None
+
+        rows.append({
+            'student': {
+                'id': student.id,
+                'name': f"{student.first_name} {student.last_name}",
+                'email': student.email,
+            },
+            'progress_percentage': progress_pct,
+            'quiz_average': quiz_pct,
+            'weighted_grade': calculate_weighted_grade(quiz_pct, participation_pct, grading_config),
+        })
+
+    return rows, enrollments
+
+
+@api_view(['GET'])
+@perm_classes([IsAuthenticated])
+def analytics_overview(request, course_code):
+    """
+    Class-level key metrics for the analytics dashboard (instructor only).
+    Averages are null when there is nothing to average.
+    """
+    course = get_object_or_404(Course, code=course_code)
+    require_course_instructor(
+        request.user, course,
+        "Only the course instructor can view course analytics."
+    )
+
+    rows, enrollments = _analytics_student_rows(course)
+
+    cutoff = timezone.now() - timedelta(days=7)
+    active_last_7_days = sum(
+        1 for e in enrollments
+        if (e.last_activity_at or e.enrolled_at) >= cutoff
+    )
+
+    avg_progress = (
+        round(sum(r['progress_percentage'] for r in rows) / len(rows), 1)
+        if rows else None
+    )
+    grades = [r['weighted_grade'] for r in rows if r['weighted_grade'] is not None]
+    avg_grade = round(sum(grades) / len(grades), 1) if grades else None
+
+    return Response({
+        'course': {
+            'code': course.code,
+            'title': course.title,
+        },
+        'student_count': len(rows),
+        'avg_progress_percentage': avg_progress,
+        'avg_grade_percentage': avg_grade,
+        'active_last_7_days': active_last_7_days,
+    })
+
+
+@api_view(['GET'])
+@perm_classes([IsAuthenticated])
+def analytics_quizzes(request, course_code):
+    """
+    Per-assessment struggle metrics (instructor only): graded unit quizzes
+    (worst average first) and lesson comprehension checks (most stuck
+    students first). Kept as two sections — score semantics differ.
+    """
+    from quizzes.models import Quiz, QuizAttempt
+
+    course = get_object_or_404(Course, code=course_code)
+    require_course_instructor(
+        request.user, course,
+        "Only the course instructor can view course analytics."
+    )
+
+    enrolled_ids = set(Enrollment.objects.filter(
+        course=course, is_active=True
+    ).values_list('user_id', flat=True))
+    active_count = len(enrolled_ids)
+
+    # ---- Unit quizzes (graded, best attempt per student) ----
+    quiz_stats = {}  # quiz_id -> {student_id: {'best': float, 'passed': bool}}
+    for attempt in QuizAttempt.objects.filter(
+        quiz__unit__course=course, student_id__in=enrolled_ids
+    ):
+        per_student = quiz_stats.setdefault(attempt.quiz_id, {})
+        entry = per_student.setdefault(attempt.student_id, {'best': None, 'passed': False})
+        score = float(attempt.score)
+        if entry['best'] is None or score > entry['best']:
+            entry['best'] = score
+        entry['passed'] = entry['passed'] or attempt.passed
+
+    unit_quizzes = []
+    for quiz in Quiz.objects.filter(
+        unit__course=course
+    ).select_related('unit').order_by('unit__order', 'order'):
+        per_student = quiz_stats.get(quiz.id, {})
+        attempted = len(per_student)
+        if attempted > 0:
+            avg_score = round(sum(e['best'] for e in per_student.values()) / attempted, 1)
+            passed = sum(1 for e in per_student.values() if e['passed'])
+            pass_rate = round(passed / attempted * 100, 1)
+        else:
+            avg_score = None
+            pass_rate = None
+        completion_rate = round(attempted / active_count * 100, 1) if active_count > 0 else None
+        unit_quizzes.append({
+            'id': quiz.id,
+            'title': quiz.title,
+            'unit_title': quiz.unit.title,
+            'passing_score': quiz.passing_score,
+            'avg_score': avg_score,
+            'pass_rate': pass_rate,
+            'completion_rate': completion_rate,
+        })
+    unit_quizzes.sort(
+        key=lambda q: q['avg_score'] if q['avg_score'] is not None else float('inf')
+    )
+
+    # ---- Lesson checks (perfect-score-to-pass, not graded) ----
+    check_stats = {}  # lesson_id -> {user_id: {'passed': bool, 'first_pass': int|None}}
+    for attempt in LessonQuizAttempt.objects.filter(
+        lesson__unit__course=course, user_id__in=enrolled_ids
+    ).order_by('attempt_number'):
+        per_student = check_stats.setdefault(attempt.lesson_id, {})
+        entry = per_student.setdefault(attempt.user_id, {'passed': False, 'first_pass': None})
+        if attempt.passed and entry['first_pass'] is None:
+            entry['passed'] = True
+            entry['first_pass'] = attempt.attempt_number
+
+    lesson_checks = []
+    for lesson in Lesson.objects.filter(
+        unit__course=course
+    ).annotate(num_questions=Count('questions')).filter(
+        num_questions__gt=0
+    ).select_related('unit').order_by('unit__order', 'order'):
+        per_student = check_stats.get(lesson.id, {})
+        attempted = len(per_student)
+        first_passes = [e['first_pass'] for e in per_student.values() if e['passed']]
+        lesson_checks.append({
+            'id': lesson.id,
+            'title': lesson.title,
+            'unit_title': lesson.unit.title,
+            'attempted_count': attempted,
+            'passed_count': len(first_passes),
+            'stuck_count': attempted - len(first_passes),
+            'avg_attempts_to_pass': (
+                round(sum(first_passes) / len(first_passes), 1) if first_passes else None
+            ),
+        })
+    lesson_checks.sort(key=lambda l: -l['stuck_count'])
+
+    return Response({
+        'unit_quizzes': unit_quizzes,
+        'lesson_checks': lesson_checks,
+    })
+
+
+@api_view(['GET'])
+@perm_classes([IsAuthenticated])
+def analytics_students(request, course_code):
+    """
+    Per-student analytics rows (instructor only): progress, grades, streak
+    and an at-risk flag (progress < 50% OR inactive 7+ days, same rule as
+    the roster's is_inactive).
+    """
+    from gamification.models import GameProfile
+
+    course = get_object_or_404(Course, code=course_code)
+    require_course_instructor(
+        request.user, course,
+        "Only the course instructor can view course analytics."
+    )
+
+    rows, enrollments = _analytics_student_rows(course)
+
+    streaks = dict(GameProfile.objects.filter(
+        user_id__in=[e.user_id for e in enrollments]
+    ).values_list('user_id', 'current_streak'))
+
+    now = timezone.now()
+    for row, enrollment in zip(rows, enrollments):
+        is_inactive = (now - (enrollment.last_activity_at or enrollment.enrolled_at)) > timedelta(days=7)
+        row['last_activity_at'] = enrollment.last_activity_at
+        row['current_streak'] = streaks.get(enrollment.user_id, 0)
+        row['at_risk'] = row['progress_percentage'] < 50 or is_inactive
+
+    return Response({'students': rows})
+
+
+@api_view(['GET'])
+@perm_classes([IsAuthenticated])
+def analytics_activity(request, course_code):
+    """
+    Daily activity counts for the last 30 days (instructor only), zero-filled
+    so the frontend never has to: lessons completed, unit-quiz attempts and
+    lesson-check attempts by enrolled students.
+    """
+    from django.db.models.functions import TruncDate
+    from quizzes.models import QuizAttempt
+
+    course = get_object_or_404(Course, code=course_code)
+    require_course_instructor(
+        request.user, course,
+        "Only the course instructor can view course analytics."
+    )
+
+    today = timezone.localdate()
+    start = today - timedelta(days=29)
+
+    enrolled_ids = set(Enrollment.objects.filter(
+        course=course, is_active=True
+    ).values_list('user_id', flat=True))
+
+    def counts_by_day(queryset, datetime_field):
+        # order_by() clears model default ordering so it can't leak into GROUP BY
+        return dict(
+            queryset.annotate(day=TruncDate(datetime_field))
+            .filter(day__gte=start, day__lte=today)
+            .values('day').annotate(count=Count('id'))
+            .order_by().values_list('day', 'count')
+        )
+
+    lessons_completed = counts_by_day(
+        LessonProgress.objects.filter(
+            lesson__unit__course=course,
+            user_id__in=enrolled_ids,
+            completed=True,
+            completed_at__isnull=False,
+        ),
+        'completed_at',
+    )
+    quiz_attempts = counts_by_day(
+        QuizAttempt.objects.filter(
+            quiz__unit__course=course,
+            student_id__in=enrolled_ids,
+        ),
+        'completed_at',
+    )
+    lesson_check_attempts = counts_by_day(
+        LessonQuizAttempt.objects.filter(
+            lesson__unit__course=course,
+            user_id__in=enrolled_ids,
+            completed_at__isnull=False,
+        ),
+        'completed_at',
+    )
+
+    days = []
+    for offset in range(30):
+        day = start + timedelta(days=offset)
+        days.append({
+            'date': day.isoformat(),
+            'lessons_completed': lessons_completed.get(day, 0),
+            'quiz_attempts': quiz_attempts.get(day, 0),
+            'lesson_check_attempts': lesson_check_attempts.get(day, 0),
+        })
+
+    return Response({'days': days})
+
+
 @api_view(['DELETE'])
 @perm_classes([IsAuthenticated])
 def remove_student(request, course_code, enrollment_id):

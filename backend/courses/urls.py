@@ -37,6 +37,12 @@ urlpatterns = [
     path('courses/<str:course_code>/students/invite/', views.send_course_invite, name='send-invite'),
     path('courses/<str:course_code>/students/<int:enrollment_id>/', views.remove_student, name='remove-student'),
 
+    # Instructor Analytics (Phase 31)
+    path('courses/<str:course_code>/analytics/overview/', views.analytics_overview, name='analytics-overview'),
+    path('courses/<str:course_code>/analytics/quizzes/', views.analytics_quizzes, name='analytics-quizzes'),
+    path('courses/<str:course_code>/analytics/students/', views.analytics_students, name='analytics-students'),
+    path('courses/<str:course_code>/analytics/activity/', views.analytics_activity, name='analytics-activity'),
+
     # Activity tracking
     path('courses/<str:course_code>/activity/', views.update_course_activity, name='update-activity'),
 

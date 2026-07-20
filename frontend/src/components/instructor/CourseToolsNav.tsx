@@ -19,6 +19,7 @@ export function CourseToolsNav({ courseCode, className }: CourseToolsNavProps) {
     { label: 'Gradebook', to: `/instructor/courses/${courseCode}/gradebook` },
     { label: 'Roster', to: `/instructor/courses/${courseCode}/students` },
     { label: 'Quizzes', to: `/instructor/courses/${courseCode}/quizzes` },
+    { label: 'Analytics', to: `/instructor/courses/${courseCode}/analytics` },
     { label: 'Student View', to: `/courses/${courseCode}/learn` },
   ];
 
