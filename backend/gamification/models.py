@@ -23,6 +23,16 @@ class GameProfile(models.Model):
     streak_freezes = models.PositiveSmallIntegerField(
         default=0, help_text='Earned on level-up (max 2), auto-consumed on missed days'
     )
+    # Phase 33: Circuit avatar. Equipped keys reference the code catalog
+    # (gamification.avatar_catalog); unlock state is derived from level, so
+    # there are no per-user unlock rows. A stale key (item later removed from
+    # the catalog) renders as the slot default.
+    mascot_name = models.CharField(max_length=20, default='Circuit')
+    avatar_color = models.CharField(max_length=30, default='classic')
+    avatar_headgear = models.CharField(max_length=30, default='none')
+    avatar_eyes = models.CharField(max_length=30, default='none')
+    avatar_accessory = models.CharField(max_length=30, default='none')
+    avatar_backdrop = models.CharField(max_length=30, default='plain')
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 

@@ -11,6 +11,7 @@ from courses.models import (
 from quizzes.models import Quiz, QuizAttempt
 from notifications.models import Notification
 
+from gamification.avatar_catalog import CATALOG as AVATAR_CATALOG
 from gamification.leveling import xp_for_level, level_for_xp, level_progress
 from gamification.models import GameProfile, XPEvent, Badge, UserBadge
 from gamification.services import (
@@ -537,3 +538,125 @@ class TestStreakFreezes:
         payload = result.as_dict()
         for key in ('streak_freezes', 'freezes_earned', 'freezes_used'):
             assert key in payload
+
+
+# --------------------------------------------------------------------------
+# Avatar customization (Phase 33)
+# --------------------------------------------------------------------------
+
+@pytest.mark.django_db
+class TestAvatar:
+    AVATAR_URL = '/api/gamification/avatar/'
+    PROFILE_URL = '/api/gamification/profile/'
+
+    def _set_xp(self, student, xp):
+        profile, _ = GameProfile.objects.get_or_create(user=student)
+        profile.total_xp = xp
+        profile.save()
+        return profile
+
+    def test_fresh_profile_has_defaults(self, api_client, student):
+        api_client.force_authenticate(user=student)
+        avatar = api_client.get(self.PROFILE_URL).data['avatar']
+        assert avatar['mascot_name'] == 'Circuit'
+        assert avatar['equipped'] == {
+            'color': 'classic', 'headgear': 'none',
+            'eyes': 'none', 'accessory': 'none', 'backdrop': 'plain',
+        }
+        assert len(avatar['catalog']) == len(AVATAR_CATALOG)
+
+    def test_unlocked_flags_at_level_boundary(self, api_client, student):
+        api_client.force_authenticate(user=student)
+
+        self._set_xp(student, 99)  # still level 1
+        catalog = api_client.get(self.PROFILE_URL).data['avatar']['catalog']
+        ember = next(i for i in catalog if i['slot'] == 'color' and i['key'] == 'ember')
+        assert ember['required_level'] == 2
+        assert ember['unlocked'] is False
+
+        self._set_xp(student, 100)  # level 2
+        catalog = api_client.get(self.PROFILE_URL).data['avatar']['catalog']
+        ember = next(i for i in catalog if i['slot'] == 'color' and i['key'] == 'ember')
+        assert ember['unlocked'] is True
+        # Level-1 defaults are always unlocked
+        assert all(
+            i['unlocked'] for i in catalog if i['required_level'] == 1
+        )
+
+    def test_equip_unlocked_item_persists(self, api_client, student):
+        self._set_xp(student, 100)  # level 2
+        api_client.force_authenticate(user=student)
+        response = api_client.patch(
+            self.AVATAR_URL, {'color': 'ember', 'headgear': 'cap', 'backdrop': 'grid'}
+        )
+        assert response.status_code == status.HTTP_200_OK
+        assert response.data['equipped']['color'] == 'ember'
+        assert response.data['equipped']['headgear'] == 'cap'
+        assert response.data['equipped']['backdrop'] == 'grid'
+        profile = GameProfile.objects.get(user=student)
+        assert profile.avatar_color == 'ember'
+        assert profile.avatar_headgear == 'cap'
+        assert profile.avatar_backdrop == 'grid'
+
+    def test_equip_locked_item_400_nothing_persists(self, api_client, student):
+        self._set_xp(student, 0)  # level 1
+        api_client.force_authenticate(user=student)
+        response = api_client.patch(
+            self.AVATAR_URL, {'mascot_name': 'Sparky', 'color': 'ember'}
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert 'detail' in response.data
+        profile = GameProfile.objects.get(user=student)
+        assert profile.avatar_color == 'classic'
+        assert profile.mascot_name == 'Circuit'  # all-or-nothing
+
+    def test_unknown_key_400(self, api_client, student):
+        api_client.force_authenticate(user=student)
+        response = api_client.patch(self.AVATAR_URL, {'headgear': 'propeller'})
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+
+    def test_slot_mismatch_key_400(self, api_client, student):
+        self._set_xp(student, 1000)  # high level: cap is unlocked, just wrong slot
+        api_client.force_authenticate(user=student)
+        response = api_client.patch(self.AVATAR_URL, {'eyes': 'cap'})
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert GameProfile.objects.get(user=student).avatar_eyes == 'none'
+
+    def test_rename_happy_path_trims(self, api_client, student):
+        api_client.force_authenticate(user=student)
+        response = api_client.patch(self.AVATAR_URL, {'mascot_name': '  Sparky  '})
+        assert response.status_code == status.HTTP_200_OK
+        assert response.data['mascot_name'] == 'Sparky'
+        assert GameProfile.objects.get(user=student).mascot_name == 'Sparky'
+
+    @pytest.mark.parametrize('bad_name', ['', '   ', 'x' * 21, None])
+    def test_rename_invalid_400(self, api_client, student, bad_name):
+        api_client.force_authenticate(user=student)
+        response = api_client.patch(
+            self.AVATAR_URL, {'mascot_name': bad_name}, format='json'
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert GameProfile.objects.get(user=student).mascot_name == 'Circuit'
+
+    def test_stale_equipped_key_falls_back_to_default(self, api_client, student):
+        profile = self._set_xp(student, 100)
+        profile.avatar_headgear = 'retired_item'  # simulate a removed catalog key
+        profile.save()
+        api_client.force_authenticate(user=student)
+        avatar = api_client.get(self.PROFILE_URL).data['avatar']
+        assert avatar['equipped']['headgear'] == 'none'
+
+    def test_unauthenticated_401(self, api_client):
+        response = api_client.patch(self.AVATAR_URL, {'mascot_name': 'Sparky'})
+        assert response.status_code == status.HTTP_401_UNAUTHORIZED
+
+    def test_instructor_patch_403(self, api_client, instructor):
+        api_client.force_authenticate(user=instructor)
+        response = api_client.patch(self.AVATAR_URL, {'mascot_name': 'Sparky'})
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+        assert 'detail' in response.data
+
+    def test_instructor_profile_stays_inert(self, api_client, instructor):
+        api_client.force_authenticate(user=instructor)
+        response = api_client.get(self.PROFILE_URL)
+        assert response.data == {'is_gamified': False}

@@ -9,7 +9,8 @@ import { Plus, Play, BookOpen, Users, CheckCircle2, Megaphone, Trophy, Target, F
 import { LevelRing } from '@/components/gamification/LevelRing';
 import { StreakFlame } from '@/components/gamification/StreakFlame';
 import { StreakFreezeChip } from '@/components/gamification/StreakFreezeChip';
-import { Mascot } from '@/components/gamification/Mascot';
+import { AvatarCard } from '@/components/gamification/AvatarCard';
+import { AvatarCustomizerModal } from '@/components/gamification/AvatarCustomizerModal';
 import { EnrollmentModal } from '@/components/course/EnrollmentModal';
 import { Skeleton } from '@/components/ui/Skeleton';
 import { WeekCalendar } from '@/components/dashboard/WeekCalendar';
@@ -31,6 +32,7 @@ export function DashboardPage() {
   const [calendarKey, setCalendarKey] = useState(0);
   const [showAnnouncementModal, setShowAnnouncementModal] = useState(false);
   const [gameProfile, setGameProfile] = useState<GamificationProfile | null>(null);
+  const [showCustomizer, setShowCustomizer] = useState(false);
 
   useEffect(() => {
     loadData();
@@ -113,15 +115,16 @@ export function DashboardPage() {
 
   return (
     <PageContainer maxWidth="max-w-6xl">
-      {/* Mascot greeting - Students */}
+      {/* Circuit avatar card - Students (Phase 33) */}
       {!isInstructor && gameProfile?.is_gamified && (
-        <div className="flex items-center gap-3 mb-5">
-          <Mascot pose="idle" size={52} className="flex-shrink-0" />
-          <p className="text-base text-muted-foreground">
-            <span className="font-semibold text-foreground">Circuit</span>
-            {' '}says: Welcome back{user?.first_name ? `, ${user.first_name}` : ''}! Ready for today's quest?
-          </p>
-        </div>
+        <>
+          <AvatarCard
+            level={gameProfile.level ?? 1}
+            firstName={user?.first_name}
+            onCustomize={() => setShowCustomizer(true)}
+          />
+          <AvatarCustomizerModal open={showCustomizer} onOpenChange={setShowCustomizer} />
+        </>
       )}
 
       {/* Hero: Continue Learning - Students */}

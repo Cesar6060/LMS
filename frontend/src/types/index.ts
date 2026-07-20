@@ -457,6 +457,37 @@ export interface NewBadge {
   icon: string;
 }
 
+// ============================================================
+// Phase 33: Circuit avatar customization
+// ============================================================
+
+export type AvatarSlot = 'color' | 'headgear' | 'eyes' | 'accessory' | 'backdrop';
+
+/** A cosmetic item in the code catalog, annotated with unlock state. */
+export interface AvatarItem {
+  key: string;
+  slot: AvatarSlot;
+  name: string;
+  description: string;
+  required_level: number;
+  unlocked: boolean;
+}
+
+/** The equipped item key per slot. */
+export type AvatarEquipped = Record<AvatarSlot, string>;
+
+/** The avatar block on the gamification profile. */
+export interface AvatarState {
+  mascot_name: string;
+  equipped: AvatarEquipped;
+  catalog: AvatarItem[];
+}
+
+/** Partial body for PATCH /gamification/avatar/. */
+export type AvatarUpdatePatch = Partial<AvatarEquipped> & {
+  mascot_name?: string;
+};
+
 /** The full read-endpoint payload. Fields beyond `is_gamified` are
  *  present only for students. */
 export interface GamificationProfile {
@@ -474,6 +505,7 @@ export interface GamificationProfile {
   streak_freezes?: number;
   badges?: BadgeInfo[];
   all_badges?: BadgeInfo[];
+  avatar?: AvatarState;
 }
 
 /** The delta returned by completion / quiz-pass endpoints. */
