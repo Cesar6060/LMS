@@ -91,14 +91,25 @@ service's first boot lands on a schema that already exists.
 
 ### A. Neon
 
-- [ ] Check the region of project `ep-falling-frog-avzgk4ed` (db `neondb`).
-      If it is not us-west-2 / Oregon-adjacent, decide before proceeding:
-      either change `region:` in `render.yaml`, or recreate the Neon project
-      near Oregon. Record the decision in the handoff either way.
-- [ ] Rotate the Neon password (carried over from Phase 37, still open). Note
-      the new connection string **privately** — never in the repo, never in chat.
-- [ ] Confirm the connection string ends in `?sslmode=require`.
-      `settings.py:114` hardcodes `ssl_require=True`, so a non-SSL URL fails.
+- [x] Check the region of project `ep-falling-frog-avzgk4ed` (db `neondb`).
+      **Actual: `aws-us-east-1`** — a mismatch with `render.yaml`'s `oregon`.
+      **Decision: moved Render to `virginia`** (one-line YAML change) rather
+      than recreating Neon. Note the spec's `ep-falling-frog-avzgk4ed` is the
+      *compute endpoint*, not the project; the project is `shy-cloud-68280619`
+      ("LMS"), branch `br-falling-art-avcu47in`, db `neondb`, role
+      `neondb_owner`.
+- [ ] ~~Rotate the Neon password~~ — **deliberately deferred to the end of the
+      phase** (user's call, 2026-07-20). Rotating after Render exists costs an
+      extra `DATABASE_URL` update + redeploy + deep-health re-check; accepted.
+      Still open — carry into the handoff. `neonctl` has no `reset-password`
+      subcommand; use the Neon console (Branches → production → Roles) or the
+      REST `reset_password` endpoint.
+- [x] Confirm the connection string ends in `?sslmode=require`.
+      **Deviation:** Neon now returns
+      `...?sslmode=require&channel_binding=require`. SSL is still required, so
+      `settings.py:114`'s `ssl_require=True` is satisfied, and psycopg2 in the
+      container accepts `channel_binding` — the `migrate` run below proves it.
+      No DSN editing needed.
 
 ### B. Bootstrap the database from this laptop
 
@@ -106,9 +117,13 @@ Run against Neon by overriding `DATABASE_URL` on the existing dev container.
 `DEBUG=True` is passed only to skip the Phase 37 `SECRET_KEY`/`ALLOWED_HOSTS`
 guard for these CLI calls; it does not touch the deployed service.
 
-- [ ] `docker compose exec -T -e DATABASE_URL="<neon>" -e DEBUG=True backend python manage.py migrate`
+- [x] `docker compose exec -T -e DATABASE_URL="<neon>" -e DEBUG=True backend python manage.py migrate`
       — expect all **31** migrations across 6 apps to apply, including the
       `gamification.0002_seed_badges` data migration.
+      **Confirmed:** 31 across 6 apps (accounts 3, courses 15, quizzes 3,
+      discussions 1, gamification 4, notifications 5); 70 total incl.
+      Django/allauth/socialaccount. `Badge.objects.count()` → **7**.
+      Users 0, Courses 0.
 - [ ] `docker compose exec -it -e DATABASE_URL="<neon>" -e DEBUG=True backend python manage.py createsuperuser`
       — a **real** email and a strong password. Not `@demo.com`.
 - [ ] Fix up the superuser so it is a usable instructor **and** matches what
@@ -186,7 +201,8 @@ The phase is done when all of the following are demonstrated with pasted output.
 - [x] `makemigrations --check` → "No changes detected".
 - [x] `render.yaml` still parses as YAML after the three edits (js-yaml via the
       frontend container; `SECRET_KEY` reads back as `{"generateValue":true}`).
-- [ ] CI green on the PR and on the resulting `main` push.
+- [x] CI green on the PR (#24, run `29791833554`: backend **pass** 2m41s,
+      frontend **pass** 40s). `main`-push run still pending merge.
 
 **API over HTTPS:**
 - [ ] `curl -si https://<host>.onrender.com/api/health/` → **200**,
