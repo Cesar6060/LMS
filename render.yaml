@@ -19,7 +19,9 @@ services:
     name: stemquest-api
     env: python
     plan: free
-    region: oregon
+    # Must stay co-located with the Neon project (aws-us-east-1). Pairing this
+    # with a west-coast region adds ~70 ms to every query.
+    region: virginia
     rootDir: backend
     branch: main
 
