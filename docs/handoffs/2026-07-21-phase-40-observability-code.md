@@ -24,14 +24,15 @@ not by accident. What that leaves:
   `SentryRoutes`, 5xx-only axios capture, gated source-map plugin) is
   merged and no-ops cleanly without the env vars.
 - **UptimeRobot: descoped** ("probably not going to implement").
-  Consequences accepted: no down alerts, deep DB check unwatched, and
-  **cold starts return** — first request after 15+ idle minutes waits
-  for Render spin-up. Cheap alternative if wanted later: a GitHub
-  Actions cron curling `/api/health/` every 10 min (no new account).
-- **Cold-start figure**: measurement in flight at session end — an
-  agent task waits 25 min after the merge, then times a cold and warm
-  request. Figures land in runbook step 0 on this PR. (Attempt 1 read
-  0.17s and was discarded — the step-3 redeploy had kept the API warm.)
+  Consequences accepted: no down alerts, deep DB check unwatched.
+- **Cold-start question: RESOLVED, surprisingly.** Three measurement
+  attempts (idle windows of 18, ~20, and 45 minutes with zero traffic
+  from us) all answered in ~0.15s — **the service is not spinning
+  down at all**, so there is no cold start to measure and no
+  keep-warm need. Probable causes: Render probing render.yaml's
+  `healthCheckPath`, and/or ambient bot traffic to the public
+  onrender.com hostname. Details in runbook step 0. The three-phase
+  "record the cold-start figure" chore dies here, answered.
 
 ## Verification evidence (2026-07-21)
 

@@ -27,7 +27,10 @@ figure gets recorded once, before keep-warm makes it unmeasurable.
 
 ## Sequencing constraint (do first)
 
-- [ ] **Record the cold-start figure BEFORE any UptimeRobot monitor exists.**
+- [x] **Record the cold-start figure BEFORE any UptimeRobot monitor exists.**
+      RESOLVED 2026-07-21: no cold start exists — three idle windows (18,
+      ~20, 45 min, zero traffic) all answered in ~0.15s; the service is
+      not spinning down (see runbook step 0). Nothing to measure.
       After ≥15 min of API idle: `time curl -s https://stemquest-api.onrender.com/api/health/`
       Run twice (cold, then warm) and record both numbers in the runbook
       and handoff. Once 5-minute pings start, cold starts stop happening
@@ -128,7 +131,7 @@ figure gets recorded once, before keep-warm makes it unmeasurable.
       (baseline)
 - [x] Local prod-mode build succeeds **without** `SENTRY_AUTH_TOKEN`
       (plugin correctly skipped): `VITE_API_URL=https://stemquest-api.onrender.com/api npm run build`
-- [ ] Cold-start figures recorded (see sequencing constraint) in
+- [x] Cold-start figures recorded (see sequencing constraint) in
       runbook + handoff
 - [ ] **Backend Sentry smoke test**: set `SENTRY_DEBUG_ENDPOINT=true`
       on Render → `curl /api/sentry-debug/` returns 500 → event

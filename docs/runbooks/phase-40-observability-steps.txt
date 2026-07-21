@@ -35,12 +35,22 @@ attempt 1 was polluted by the step-3 redeploy). Until the figure is
 recorded here, nothing may touch the Render API: no step 6, no
 browsing the live app (it calls the API). Steps 4-5 are Cloudflare-
 only and safe to do during the wait.
-[ ] After >=15 min of API idle:
+[x] After >=15 min of API idle:
       cold: time curl -s https://stemquest-api.onrender.com/api/health/
       warm: run it again immediately
-    RESULTS (fill in):
-      cold: ______ s
-      warm: ______ s
+    RESULTS (2026-07-21): NO COLD START EXISTS TO MEASURE.
+      attempt 1 (18 min idle):  0.170s   (assumed polluted, discarded)
+      attempt 2 (~20 min idle): 0.157s   (assumed polluted, discarded)
+      attempt 3 (45 min idle):  0.151s / warm 0.121s
+    Three windows up to 45 minutes with zero traffic from us, and the
+    service answered in ~0.15s every time — it is NOT spinning down.
+    Likely causes: Render probing the healthCheckPath from render.yaml,
+    and/or ambient internet-scanner traffic to the public
+    *.onrender.com hostname. Either way, the long-feared free-tier
+    cold start is empirically not occurring for this service, which
+    also removes the keep-warm rationale for UptimeRobot (step 8 was
+    descoped anyway). If Render's behavior ever changes, symptoms
+    would be a ~30-60s first response after idle.
 
 
 STEP 1 — MERGE (Cesar)
