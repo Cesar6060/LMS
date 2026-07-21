@@ -6,8 +6,9 @@ IsAuthenticated default (see REST_FRAMEWORK in settings.py) would otherwise
 make this 403 for the very monitors that need it.
 """
 
+from decouple import config
 from django.db import connection
-from django.http import JsonResponse
+from django.http import Http404, JsonResponse
 from django.views.decorators.cache import never_cache
 
 
@@ -30,3 +31,16 @@ def health(request):
             {'status': 'error', 'database': str(exc)}, status=503)
 
     return JsonResponse({'status': 'ok', 'database': 'ok'})
+
+
+@never_cache
+def sentry_debug(request):
+    """Deliberately crash so a production Sentry event can be forced on demand.
+
+    Render's free tier has no shell, so this is the only way to smoke-test the
+    Sentry pipeline in prod. Inert (404) unless SENTRY_DEBUG_ENDPOINT is set;
+    the flag is read per-request so it can be flipped without a redeploy wait.
+    """
+    if not config('SENTRY_DEBUG_ENDPOINT', default=False, cast=bool):
+        raise Http404
+    1 / 0  # noqa: B018 - the ZeroDivisionError IS the smoke test

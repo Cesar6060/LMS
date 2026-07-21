@@ -268,7 +268,11 @@ if SENTRY_DSN:
         dsn=SENTRY_DSN,
         traces_sample_rate=0.1,
         profiles_sample_rate=0.1,
-        send_default_pii=True,
+        # Real students use this platform — never send usernames/emails/IPs.
+        send_default_pii=False,
+        environment=config('SENTRY_ENVIRONMENT', default='production'),
+        # Render injects RENDER_GIT_COMMIT; local runs get no release tag.
+        release=config('RENDER_GIT_COMMIT', default='') or None,
     )
 
 # Logging

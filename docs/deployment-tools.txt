@@ -1,0 +1,271 @@
+STEM QUEST DEPLOYMENT TOOLS — WHAT EACH ONE IS, WHAT IT DOES, WHY WE USE IT
+===========================================================================
+Written 2026-07-21 (through Phase 40). Reference doc, not a runbook — for
+step-by-step instructions see docs/runbooks/. The running theme of the
+whole stack: every service is on a free tier, and each tool was picked to
+cover one job well while costing nothing until real students show up.
+
+THE BIG PICTURE
+---------------
+A student's browser loads the React app from Cloudflare Workers. That app
+calls the Django API on Render. Django talks to a Postgres database on
+Neon and stores uploaded files (avatars, attachments) in Cloudflare R2.
+GitHub is the source of truth: pushing to main triggers both a Render
+deploy (backend) and a Cloudflare build (frontend), with GitHub Actions
+running tests as the gate before anything merges. Sentry catches errors
+from both halves in production; UptimeRobot watches that everything is up
+(and keeps Render awake as a side effect).
+
+    Browser
+      |  loads JS/CSS from        Cloudflare Workers (frontend host)
+      |  images/files from        Cloudflare R2      (media storage)
+      |  API calls to             Render             (Django backend)
+      |                             |
+      |                             +-- Neon         (Postgres database)
+      |
+      +-- errors reported to      Sentry   (both frontend and backend)
+          uptime watched by       UptimeRobot
+
+
+1. GITHUB + GITHUB ACTIONS (source control and CI)
+--------------------------------------------------
+What it is: GitHub hosts the repo (Cesar6060/LMS). GitHub Actions is its
+built-in CI system — it runs a workflow (.github/workflows/ci.yml) on
+every pull request.
+
+What it does here: on each PR it runs the backend test suite (pytest),
+the TypeScript compiler check, ESLint, and a production Vite build with a
+dummy VITE_API_URL. A red run blocks the merge.
+
+Why we use it: both Render and Cloudflare deploy whatever lands on main,
+automatically. CI is the only thing standing between a broken commit and
+a broken live site — it makes "merged" mean "tested". Free for public
+repos, and it was already where the code lived.
+
+
+2. RENDER (backend hosting)
+---------------------------
+What it is: a platform-as-a-service — you point it at a repo, it builds
+and runs your server code on its machines. Our Django API lives at
+https://stemquest-api.onrender.com.
+
+What it does here: on every push to main it runs the build command
+(pip install + collectstatic), then starts the app with gunicorn. Config
+lives in render.yaml (a "blueprint"), so hosting settings are versioned
+in the repo instead of living only in a dashboard. It injects env vars
+(secrets like DATABASE_URL and SENTRY_DSN are set in the dashboard, not
+committed) and gates each deploy on /api/health/ answering 200.
+
+Why we use it: free tier that runs a real always-on-ish Python process
+with almost zero ops work — no servers to patch, TLS and deploys
+included. The trade-offs we accepted and worked around:
+  - Free instances SPIN DOWN after ~15 min without traffic; the next
+    request waits for a cold start. Phase 40's UptimeRobot ping every
+    5 min exists precisely to prevent this.
+  - No shell/SSH on the free tier. That's why migrations run from a dev
+    machine pointed at Neon, and why the /api/sentry-debug/ endpoint
+    exists (no other way to force a prod error on demand).
+  - Region is "virginia" on purpose — co-located with Neon so queries
+    don't cross the country.
+
+Two helpers that only matter because of Render:
+  - gunicorn: the production web server that actually runs Django.
+    Django's built-in runserver is a development toy — single-threaded,
+    not hardened. gunicorn runs 2 worker processes and is what Render's
+    start command launches.
+  - WhiteNoise: Django middleware that lets the Django process itself
+    serve static files (the admin site's CSS/JS) efficiently, with
+    compression and far-future caching. Normally a CDN or nginx does
+    this; WhiteNoise means we don't need one just for the admin.
+
+
+3. NEON (Postgres database)
+---------------------------
+What it is: serverless managed Postgres. The database lives outside
+Render entirely; Django reaches it over SSL via the DATABASE_URL secret.
+
+What it does here: stores everything relational — users, courses,
+lessons, enrollments, quiz attempts, grades.
+
+Why we use it: Render's own free Postgres expires after 90 days; Neon's
+free tier doesn't. Neon separates storage from compute and puts compute
+to sleep when idle, which costs nothing while students are away and
+wakes in about a second. That behavior shaped two of our own designs:
+  - /api/health/ is shallow by default (never touches the DB) so
+    Render's deploy gate and the 5-min keep-warm ping don't keep Neon's
+    compute awake — the two sleep/wake systems stay independent.
+  - The hourly ?deep=1 monitor accepts ~24 brief Neon wakes per day as
+    the price of actually alerting on database problems.
+
+Glue libraries:
+  - dj-database-url: parses the single DATABASE_URL string into
+    Django's DATABASES setting, adding SSL, connection pooling
+    (conn_max_age) and health checks. One env var instead of five.
+  - psycopg 3: the actual Postgres driver Django uses to speak to Neon.
+
+
+4. CLOUDFLARE WORKERS (frontend hosting)
+----------------------------------------
+What it is: Cloudflare's edge platform. We use its "static assets" mode:
+no server code, just files served from Cloudflare's global CDN. Live at
+https://stemquest.cesarvillarreal11.workers.dev.
+
+What it does here: git-connected to the repo — on every push to main it
+runs `npm run build` (Vite) and deploys frontend/dist with
+`npx wrangler deploy`. Config is frontend/wrangler.jsonc; its
+`not_found_handling: "single-page-application"` setting makes unmatched
+URLs serve index.html, which is what lets a hard refresh on
+/courses/JAVA101/map work in a client-side-routed app.
+
+Why we use it: static files on a global CDN, free, fast everywhere, with
+git-connected auto-deploys. Historical note: the spec said Cloudflare
+PAGES, but Cloudflare retired the Pages git-connect flow for new
+projects mid-Phase 39, so the frontend became an assets-only Worker —
+same files, same CDN, newer product.
+
+The trap worth remembering: Workers has TWO separate variable stores.
+"Build" variables feed the Vite build (VITE_API_URL, VITE_SENTRY_DSN,
+SENTRY_AUTH_TOKEN...); "runtime" Worker variables do nothing for us
+because nothing runs at runtime. Wrong store = silently missing config.
+
+  - wrangler: Cloudflare's CLI. We never run it by hand — the dashboard
+    build invokes `npx wrangler deploy`, which reads wrangler.jsonc and
+    uploads dist/.
+
+
+5. VITE (frontend build tool)
+-----------------------------
+What it is: the bundler/dev server for the React app. Not a hosting
+service — it's the tool that turns src/ TypeScript into the small set of
+hashed JS/CSS files that actually get deployed.
+
+What it does here: `npm run build` type-checks nothing (tsc does that
+separately) but compiles, bundles, minifies, and stamps env values into
+the code. Anything prefixed VITE_ (VITE_API_URL, VITE_SENTRY_DSN) is
+baked into the bundle AT BUILD TIME — the deployed site has the API URL
+written into its JS, which is why those must be Cloudflare BUILD vars.
+
+Why it matters for deployment specifically:
+  - vite.config.ts refuses to do a production build without
+    VITE_API_URL (fail-fast guard) — a missing var would otherwise ship
+    a site silently pointed at localhost.
+  - Phase 40 added `build.sourcemap: "hidden"`: source maps are
+    generated for Sentry but the served JS carries no reference to
+    them, so students can't casually browse our source.
+
+
+6. CLOUDFLARE R2 (media/file storage)
+-------------------------------------
+What it is: Cloudflare's S3-compatible object storage. Bucket
+stemquest-media, publicly served from pub-<hash>.r2.dev.
+
+What it does here: every user upload (avatars, assignment attachments)
+is written to R2 by Django and served straight from the r2.dev host —
+uploads never live on Render's disk.
+
+Why we use it: Render's free-tier filesystem is EPHEMERAL — every deploy
+or restart wipes it. Before R2 (Phase 38), an uploaded avatar 404'd
+after the next deploy. R2 gives durable storage with zero egress fees,
+and because it speaks the S3 protocol, Django needed no custom code:
+  - django-storages[s3]: the library that swaps Django's default
+    file-storage backend for an S3-protocol one. Gated behind
+    USE_R2=true so local dev keeps writing to plain ./media on disk.
+
+
+7. SENTRY (error tracking) — Phase 40
+-------------------------------------
+What it is: a hosted error-tracking service. When the app throws in
+production, Sentry records the full stack trace, the URL/route, browser
+or server context, and groups duplicates into one issue with a count.
+
+What it does here — two projects, one per half of the stack:
+  - stemquest-django (sentry-sdk[django]): captures unhandled backend
+    exceptions and 500s, tagged with environment=production and the git
+    SHA Render injects (RENDER_GIT_COMMIT), so every error says exactly
+    which deploy produced it. send_default_pii=False strips student
+    emails/usernames/IPs from every event.
+  - stemquest-react (@sentry/react): captures frontend crashes (via the
+    ErrorBoundary and global handlers), API failures (the axios
+    interceptor reports 5xx/network errors only — 401/403/404 are
+    normal traffic, not incidents), performance traces with real route
+    names (/courses/:code) via the React Router integration, and
+    Session Replay with all text masked.
+  - @sentry/vite-plugin: build-time piece. Uploads the hidden source
+    maps to Sentry so a minified one-line stack trace becomes readable
+    file/line references, then deletes the maps from dist/ so they
+    never reach the public site. Only activates when SENTRY_AUTH_TOKEN
+    is present (i.e. only on Cloudflare builds).
+
+Why we use it: without error tracking, a student hitting a bug is
+invisible unless they email us. Both SDKs were wired in earlier phases
+but dormant; Phase 40 turned them on. Everything is env-gated — no DSN
+set means Sentry is completely inert, so dev and CI never send events.
+
+
+8. UPTIMEROBOT (uptime monitoring) — Phase 40
+---------------------------------------------
+What it is: a free service that requests a URL on a schedule and emails
+when it stops answering.
+
+What it does here — three monitors:
+  - API /api/health/ every 5 min. Doubles as the KEEP-WARM ping: the
+    traffic prevents Render's 15-min idle spin-down, so students never
+    eat a cold start. Shallow on purpose (no DB touch) so it doesn't
+    keep Neon awake too.
+  - API /api/health/?deep=1 hourly, keyword-matching "database": "ok" —
+    the only monitor that proves Django can actually reach Neon.
+  - The frontend URL every 5 min.
+
+Why we use it: it answers "is the site down?" (Sentry only answers "is
+the site throwing errors?" — a dead server throws nothing), and the
+5-minute ping is the cheapest possible fix for the free-tier cold-start
+problem: it converts "first student each morning waits ~30-60 s" into
+"nobody waits".
+
+
+9. DOCKER COMPOSE (local development — the contrast case)
+---------------------------------------------------------
+What it is: runs the whole stack (Django, Postgres, Redis, Vite dev
+server) in containers on the dev machine with one command.
+
+What it does here: local development ONLY. Production deliberately does
+not use Docker — Render runs native Python, Cloudflare serves static
+files, Neon is managed Postgres.
+
+Why the split: locally, containers give a reproducible environment (no
+"works on my machine"). In production, each managed service is simpler
+and cheaper than running containers ourselves. The cost of the split is
+that local and prod differ (local Postgres 16 vs Neon, runserver vs
+gunicorn, ./media vs R2) — which is why every production behavior is
+env-gated and inert in dev, and why the phase runbooks verify against
+the real deployed stack instead of trusting local results.
+
+
+SUPPORTING CAST (small but load-bearing)
+----------------------------------------
+- python-decouple: reads config from env vars with defaults
+  (config('SENTRY_DSN', default='')). The reason the whole "inert
+  unless its env var is set" pattern is one-liners.
+- pillow: image processing for avatar uploads (validation/resizing).
+- pytest + pytest-django: the backend test suite (376 tests) that CI
+  and /verify-stack run; the merge gate that keeps main deployable.
+- ESLint + TypeScript (tsc): the frontend's equivalent gates.
+
+
+ONE-LINE SUMMARY TABLE
+----------------------
+GitHub / Actions   source of truth; tests gate every merge
+Render             runs Django; auto-deploys main; free tier sleeps
+gunicorn           production process that serves Django on Render
+WhiteNoise         Django serves its own static files (admin CSS/JS)
+Neon               Postgres; sleeps when idle; outlives Render's 90-day DB
+dj-database-url    one DATABASE_URL string -> full Django DB config
+Cloudflare Workers serves the built React app from a global CDN
+wrangler           CLI that uploads dist/ to Cloudflare
+Vite               builds the frontend; bakes VITE_* vars in at build time
+Cloudflare R2      durable S3-compatible storage for user uploads
+django-storages    points Django's file storage at R2 (USE_R2 gate)
+Sentry             records production errors, both halves, env-gated
+@sentry/vite-plugin uploads source maps so stack traces are readable
+UptimeRobot        down alerts + 5-min ping that kills cold starts
+Docker Compose     local dev stack; production runs no containers

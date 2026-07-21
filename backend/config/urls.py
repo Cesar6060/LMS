@@ -7,7 +7,7 @@ from django.urls import path, include
 from django.conf import settings
 from django.conf.urls.static import static
 
-from config.health import health
+from config.health import health, sentry_debug
 
 urlpatterns = [
     path('admin/', admin.site.urls),
@@ -30,6 +30,9 @@ urlpatterns = [
 
     # Health check
     path('api/health/', health, name='health'),
+
+    # Sentry smoke test — 404 unless SENTRY_DEBUG_ENDPOINT is set (health.py)
+    path('api/sentry-debug/', sentry_debug, name='sentry-debug'),
 ]
 
 # Serve media files in development

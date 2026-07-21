@@ -1,4 +1,5 @@
 import { Routes, Route, Navigate, useLocation, useParams, useSearchParams } from 'react-router';
+import * as Sentry from '@sentry/react';
 import { useAuth } from '@/contexts/AuthContext';
 import { AvatarProvider } from '@/contexts/AvatarContext';
 import { AccessDenied } from '@/components/AccessDenied';
@@ -29,6 +30,11 @@ import { MyGradesPage } from '@/pages/student/MyGradesPage';
 import { SettingsPage } from '@/pages/SettingsPage';
 import { NotFoundPage } from '@/pages/NotFoundPage';
 import { Loader2 } from 'lucide-react';
+
+// Route-aware Sentry instrumentation: transactions get parameterized route
+// names (/courses/:code) instead of raw URLs. No-op when Sentry is not
+// initialized, so dev behaves exactly like plain <Routes>.
+const SentryRoutes = Sentry.withSentryReactRouterV7Routing(Routes);
 
 // Protected route wrapper
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
@@ -126,7 +132,7 @@ function App() {
   return (
     <AvatarProvider>
     <Layout>
-        <Routes>
+        <SentryRoutes>
           {/* Public routes */}
           <Route
             path="/login"
@@ -344,7 +350,7 @@ function App() {
 
           {/* 404 */}
           <Route path="*" element={<NotFoundPage />} />
-        </Routes>
+        </SentryRoutes>
     </Layout>
     </AvatarProvider>
   );
