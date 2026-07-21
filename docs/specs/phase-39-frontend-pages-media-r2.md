@@ -156,7 +156,9 @@ is untouched.
 - [x] Guard proof, locally: `npm run build` with `VITE_API_URL` unset
       **fails** with the clear error; with it set, succeeds.
       *2026-07-20: both proven; `dist/_redirects` confirmed in output.*
-- [ ] CI green on the PR (confirms the ci.yml env addition works).
+- [x] CI green on the PR (confirms the ci.yml env addition works).
+      *2026-07-20: PR #26 head `33dd781` — Backend (pytest) 2m47s,
+      Frontend (tsc, lint, build) 38s, both pass.*
 - [ ] `curl -I https://<project>.pages.dev/` → 200; a deep link like
       `/courses` fetched directly → 200 serving `index.html`
       (`_redirects` working).
