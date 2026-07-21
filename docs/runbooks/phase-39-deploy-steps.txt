@@ -24,7 +24,7 @@ CODE (done, on branch feat/phase-39-frontend-pages-media-r2)
 
 STEP 1 — MERGE (Cesar)
 ----------------------
-[ ] Open PR from feat/phase-39-frontend-pages-media-r2 into main,
+[x] Open PR from feat/phase-39-frontend-pages-media-r2 into main,
     confirm CI is green, merge.
     Note: merging redeploys the Render API with USE_R2="true" from
     render.yaml. Render will prompt for the five R2_* values; until they
@@ -34,15 +34,15 @@ STEP 1 — MERGE (Cesar)
 
 STEP 2 — CLOUDFLARE R2 (Cesar, Cloudflare dashboard)
 ----------------------------------------------------
-[ ] R2 > Create bucket. Suggested name: stemquest-media
-[ ] Bucket > Settings > Public access > enable "r2.dev subdomain".
+[x] R2 > Create bucket. Suggested name: stemquest-media
+[x] Bucket > Settings > Public access > enable "r2.dev subdomain".
     WRITE DOWN the host it gives you, looks like: pub-<hash>.r2.dev
     (host only, no https:// prefix)
-[ ] R2 > Manage R2 API Tokens > Create API token:
+[x] R2 > Manage R2 API Tokens > Create API token:
       - Permission: Object Read & Write
       - Scope: ONLY the stemquest-media bucket
     WRITE DOWN: Access Key ID and Secret Access Key (secret shows once)
-[ ] Also note your Cloudflare Account ID (right sidebar of the R2 page
+[x] Also note your Cloudflare Account ID (right sidebar of the R2 page
     or dashboard home).
     No bucket CORS config needed — media is loaded via <img>/<a> tags,
     not fetch/XHR.
@@ -51,11 +51,11 @@ STEP 2 — CLOUDFLARE R2 (Cesar, Cloudflare dashboard)
 STEP 3 — RENDER ENV VARS (Cesar, Render dashboard > stemquest-api >
 ------------------------------------------------------------------
 Environment)
-[ ] R2_ACCESS_KEY_ID      = <from step 2>
-[ ] R2_SECRET_ACCESS_KEY  = <from step 2>
-[ ] R2_ACCOUNT_ID         = <Cloudflare account id>
-[ ] R2_BUCKET_NAME        = stemquest-media
-[ ] R2_PUBLIC_HOST        = pub-<hash>.r2.dev        (no scheme!)
+[x] R2_ACCESS_KEY_ID      = <from step 2>
+[x] R2_SECRET_ACCESS_KEY  = <from step 2>
+[x] R2_ACCOUNT_ID         = <Cloudflare account id>
+[x] R2_BUCKET_NAME        = stemquest-media
+[x] R2_PUBLIC_HOST        = pub-<hash>.r2.dev        (no scheme!)
     (USE_R2 itself comes from render.yaml after the merge; if the
     dashboard does not show it yet, add USE_R2=true manually.)
     Saving env vars auto-redeploys (~2 min stale window).
@@ -74,7 +74,7 @@ deep-link fallback (not_found_handling) — _redirects was removed.
 MERGE PR #26 FIRST — the dashboard builds from main, and main needs
 wrangler.jsonc + the Vite guard before the first build can succeed.
 
-[ ] Workers & Pages > Create > connect Cesar6060/LMS, then:
+[x] Workers & Pages > Create > connect Cesar6060/LMS, then:
       Project name:    stemquest   (must match "name" in wrangler.jsonc)
       Path:            frontend
       Build command:   npm run build
@@ -82,13 +82,13 @@ wrangler.jsonc + the Vite guard before the first build can succeed.
       "Builds for non-production branches": UNCHECK (previews would
       fail CORS anyway — accepted scope cut in the spec)
       API token: "Create new token" (auto) is fine
-[ ] Build variables:
+[x] Build variables:
       VITE_API_URL = https://stemquest-api.onrender.com/api
       NODE_VERSION = 22
     THE /api SUFFIX IS REQUIRED — the frontend appends nothing.
     (If you forget VITE_API_URL entirely the build fails on purpose
     with a clear error — that is the new guard working.)
-[ ] Deploy. WRITE DOWN the URL: https://stemquest.<subdomain>.workers.dev
+[x] Deploy. WRITE DOWN the URL: https://stemquest.<subdomain>.workers.dev
 
 
 STEP 5 — POINT THE API AT THE NEW FRONTEND (Cesar, Render dashboard)
@@ -97,21 +97,21 @@ Update these three existing env vars from http://localhost:5173 to the
 workers.dev URL from step 4. Formatting traps from Phase 38 apply: exact
 scheme (https://), NO trailing slash, comma-separated with no spaces if
 multiple values.
-[ ] CORS_ALLOWED_ORIGINS = https://<worker>.workers.dev
-[ ] CSRF_TRUSTED_ORIGINS = https://<worker>.workers.dev
-[ ] FRONTEND_URL         = https://<worker>.workers.dev
+[x] CORS_ALLOWED_ORIGINS = https://<worker>.workers.dev
+[x] CSRF_TRUSTED_ORIGINS = https://<worker>.workers.dev
+[x] FRONTEND_URL         = https://<worker>.workers.dev
     (Again: save triggers a ~2 min redeploy.)
 
 
 STEP 6 — VERIFY (either of us; curl commands can be run by Claude)
 ------------------------------------------------------------------
-[ ] curl -I https://<worker>.workers.dev/            -> 200
-[ ] curl -I https://<worker>.workers.dev/courses     -> 200 serving
+[x] curl -I https://<worker>.workers.dev/            -> 200
+[x] curl -I https://<worker>.workers.dev/courses     -> 200 serving
     index.html (proves the SPA fallback / deep-link refresh)
-[ ] curl -H "Origin: https://<worker>.workers.dev" -I \
+[x] curl -H "Origin: https://<worker>.workers.dev" -I \
       https://stemquest-api.onrender.com/api/health/
     -> response includes access-control-allow-origin
-[ ] Upload an avatar in the app, then confirm:
+[x] Upload an avatar in the app, then confirm:
       - object appears in the stemquest-media bucket
       - avatar URL is https://pub-<hash>.r2.dev/avatars/... and serves
         200 with an image content-type
@@ -123,6 +123,33 @@ STEP 6 — VERIFY (either of us; curl commands can be run by Claude)
       Zero CORS / mixed-content errors in the browser console.
 [ ] Opportunistic: note one Render cold-start timing figure
     (first request after ~15 min idle).
+
+
+AS-RUN NOTES (2026-07-21, deploy night)
+---------------------------------------
+- Live URL: https://stemquest.cesarvillarreal11.workers.dev
+- Pages git-connect flow no longer exists -> Workers Builds pivot
+  (PR #27). First two Cloudflare builds failed usefully:
+  1) VITE_API_URL missing -> the vite guard error, verbatim. Fix: the
+     variable must be a BUILD variable (Settings > Build), not a
+     runtime Worker variable.
+  2) _redirects rejected by Workers assets as an infinite-loop rule
+     (error 100324) -> removed in PR #27; wrangler.jsonc
+     not_found_handling replaces it.
+- CORS trap hit again as predicted: first paste of the workers.dev
+  origin did not match (no a-c-a-o header on ANY origin). Final value
+  holds both prod + localhost, comma-separated no spaces.
+- R2_ACCOUNT_ID trap: the API token ID hash was pasted instead of the
+  account ID -> boto SSLV3_ALERT_HANDSHAKE_FAILURE on
+  <wrong-id>.r2.cloudflarestorage.com. The account id is the hash in
+  dashboard URLs (c47a5512...), not the token id.
+- Avatar upload verified end-to-end via a throwaway API account
+  (r2-check@example.com, no privileges; delete in /admin/ if desired):
+  200 -> https://pub-28b0ff93....r2.dev/avatars/tiny.png -> served
+  200 image/png -> delete -> object 404. Content-Type note: the served
+  type mirrors what the uploading client sends (browsers send
+  image/png; bare curl -F sends octet-stream).
+- Deep health green through all of it: {"status":"ok","database":"ok"}
 
 
 ROLLBACK
