@@ -98,12 +98,13 @@ service's first boot lands on a schema that already exists.
       *compute endpoint*, not the project; the project is `shy-cloud-68280619`
       ("LMS"), branch `br-falling-art-avcu47in`, db `neondb`, role
       `neondb_owner`.
-- [ ] ~~Rotate the Neon password~~ — **deliberately deferred to the end of the
-      phase** (user's call, 2026-07-20). Rotating after Render exists costs an
-      extra `DATABASE_URL` update + redeploy + deep-health re-check; accepted.
-      Still open — carry into the handoff. `neonctl` has no `reset-password`
-      subcommand; use the Neon console (Branches → production → Roles) or the
-      REST `reset_password` endpoint.
+- [x] Rotate the Neon password — **done at end of phase** (deferred mid-phase
+      by user's call, then made mandatory when the connection string was
+      printed into the chat transcript). Rotated via Neon console; old
+      credential verified rejected, new one verified working; deep health 200
+      through Render. One incident: the first string pasted into Render was
+      malformed → site-wide 503 until re-pasted (see handoff). `neonctl` has
+      no `reset-password` subcommand; console or REST API only.
 - [x] Confirm the connection string ends in `?sslmode=require`.
       **Deviation:** Neon now returns
       `...?sslmode=require&channel_binding=require`. SSL is still required, so

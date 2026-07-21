@@ -52,6 +52,17 @@ Database state (Neon):
   21460 bytes.
 - `/admin/` login over HTTPS: **user-verified** (proves `CSRF_TRUSTED_ORIGINS`
   + secure cookies).
+- **Neon password ROTATED** (end of session, user in both dashboards). The
+  rotation became required rather than hygiene mid-session: the old connection
+  string (password included) was printed into the chat transcript at the
+  user's request. Verified after: old credential **rejected**
+  (`OperationalError`), new credential connects (2 users visible), deep health
+  200 through Render. **Incident during rotation:** the string first pasted
+  into Render was malformed (likely Neon's `psql '...'` wrapper or a partial
+  copy) — deep health 503 "Network is unreachable" on an IPv6 address for
+  every request until `DATABASE_URL` was re-pasted with the exact bare URL
+  from `neonctl connection-string`. That command is the reliable source; the
+  dashboard widget's formats are a trap.
 - Click-through from local Vite → prod API: **user-verified** — instructor
   login, JAVA101 Learning Mode pagination, new student registration +
   enrollment + lesson + quiz with XP/course-map updates, zero CORS errors.
@@ -77,12 +88,6 @@ Database state (Neon):
   merged `render.yaml` (region change) haven't happened yet. Note: the live
   service was created from the branch's blueprint at apply time; merging is
   what makes `main` and the dashboard agree.
-- **Neon password rotation — now REQUIRED, not hygiene.** Deferred twice, and
-  during this session the connection string (password included) was printed
-  into the chat transcript at the user's request. Rotate before Phase 39 ships:
-  (1) Neon console → Roles → `neondb_owner` → reset; (2) update `DATABASE_URL`
-  in Render env (site is down between these two steps); (3) re-check
-  `/api/health/?deep=1`.
 - **Neon MCP server added but unauthenticated** — registered in project config
   (`claude mcp add`), appears after a Claude Code restart; `/mcp` → neon →
   authenticate. Buys direct SQL + password reset (which `neonctl` lacks —
@@ -123,14 +128,12 @@ Database state (Neon):
 
 1. Review + merge **PR #24**; confirm the `main`-push CI run is green and
    Render's auto-deploy stays healthy.
-2. **Rotate the Neon password** (see above — transcript exposure makes this
-   required, and rotation order matters: Neon first, Render immediately after).
-3. Write the Phase 39 spec: Cloudflare Pages (frontend) + R2 (media),
+2. Write the Phase 39 spec: Cloudflare Pages (frontend) + R2 (media),
    `_redirects`, `VITE_API_URL` prod guard, django-storages, and the
    `CORS_ALLOWED_ORIGINS`/`FRONTEND_URL` swing from `localhost:5173` to the
    Pages URL. Keys needed: R2 access key ID + secret, account ID,
    `pub-<hash>.r2.dev` host.
-4. Custom domain: explicitly deferred (roadmap decision) — revisit when the
+3. Custom domain: explicitly deferred (roadmap decision) — revisit when the
    platform goes in front of students; pairs with picking a real email
    provider (Render free tier blocks outbound SMTP).
 
