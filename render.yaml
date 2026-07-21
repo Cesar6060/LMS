@@ -1,15 +1,18 @@
 # Render blueprint for the STEM Quest Django API.
 #
-# NOT LIVE YET. This file is written in Phase 37 and consumed in Phase 38,
-# which is the phase that actually points Render at it and runs the first
-# deploy. Nothing here has been applied to a Render account.
+# This blueprint governs the live service at https://stemquest-api.onrender.com
+# (free instance type, native Python runtime, auto-deploy from `main` on
+# Cesar6060/LMS). Applied to Render in Phase 38 via New → Blueprint, which is
+# what makes `generateValue` below take effect.
 #
 # No `databases:` key on purpose — Postgres lives on Neon, outside Render, and
 # is wired in through the DATABASE_URL secret below.
 #
-# Migrations are NOT run here. Per the Phase 37 scoping decision they are run
-# by hand in the Render shell during Phase 38, alongside createsuperuser and
-# populate_java_course.
+# Migrations are NOT run here, and they are NOT run in a Render shell either:
+# the free instance type has no Shell tab, no SSH, and no preDeployCommand.
+# `migrate`, `createsuperuser` and `populate_java_course` are run from a
+# developer machine with DATABASE_URL pointed at Neon (which is publicly
+# reachable over SSL). See docs/specs/phase-38-api-live-render-neon.md.
 
 services:
   - type: web
@@ -39,10 +42,13 @@ services:
       - key: ACCOUNT_EMAIL_VERIFICATION
         value: optional
 
+      # Minted by Render in its own vault on first apply — the key is never
+      # pasted into a dashboard, a clipboard, or this repo.
+      - key: SECRET_KEY
+        generateValue: true
+
       # Secrets and environment-specific values: prompted in the Render
       # dashboard on first deploy, never committed.
-      - key: SECRET_KEY
-        sync: false
       - key: DATABASE_URL
         sync: false
       - key: ALLOWED_HOSTS
