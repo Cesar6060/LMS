@@ -1,4 +1,4 @@
-PHASE 39 DEPLOY RUNBOOK — Frontend on Cloudflare Pages + media on R2
+PHASE 39 DEPLOY RUNBOOK — Frontend on Cloudflare Workers + media on R2
 =====================================================================
 Written 2026-07-20. Code side is done and verified locally (pytest 372,
 tsc clean, lint at baseline, build guard proven). Everything below the
@@ -15,7 +15,8 @@ CODE (done, on branch feat/phase-39-frontend-pages-media-r2)
     (inert unless USE_R2=true; missing R2_* var fails the boot on purpose)
 [x] render.yaml: USE_R2="true" + five R2_* vars marked sync:false
 [x] .env.example documents USE_R2 + R2_* (commented out, off by default)
-[x] frontend/public/_redirects: "/*  /index.html  200" (SPA deep links)
+[x] SPA deep-link fallback: frontend/wrangler.jsonc not_found_handling
+    (was _redirects; replaced 2026-07-21 when Pages pivoted to Workers)
 [x] vite.config.ts: production build FAILS if VITE_API_URL is unset
 [x] CI "Production build" step now passes a dummy VITE_API_URL
 [x] Tests: 8 storage-settings + 5 avatar + 5 attachment = 372 total green
@@ -62,48 +63,59 @@ Environment)
 DO NOT paste any of these values into chat or commit them anywhere.
 
 
-STEP 4 — CLOUDFLARE PAGES (Cesar, Cloudflare dashboard)
--------------------------------------------------------
-[ ] Workers & Pages > Create > Pages > Connect to Git > Cesar6060/LMS
-[ ] Settings:
-      Production branch:  main
-      Root directory:     frontend
-      Build command:      npm run build
-      Build output dir:   dist
-[ ] Environment variables (Production):
-      NODE_VERSION = 22
+STEP 4 — CLOUDFLARE WORKERS BUILDS (Cesar, Cloudflare dashboard)
+----------------------------------------------------------------
+PIVOT (2026-07-21): the classic Pages git-connect flow is retired for
+new projects — the dashboard only offers "Create a Worker". The
+frontend now deploys as an assets-only Worker instead. The repo carries
+frontend/wrangler.jsonc (added to PR #26) which handles the SPA
+deep-link fallback (not_found_handling) — _redirects was removed.
+
+MERGE PR #26 FIRST — the dashboard builds from main, and main needs
+wrangler.jsonc + the Vite guard before the first build can succeed.
+
+[ ] Workers & Pages > Create > connect Cesar6060/LMS, then:
+      Project name:    stemquest   (must match "name" in wrangler.jsonc)
+      Path:            frontend
+      Build command:   npm run build
+      Deploy command:  npx wrangler deploy
+      "Builds for non-production branches": UNCHECK (previews would
+      fail CORS anyway — accepted scope cut in the spec)
+      API token: "Create new token" (auto) is fine
+[ ] Build variables:
       VITE_API_URL = https://stemquest-api.onrender.com/api
+      NODE_VERSION = 22
     THE /api SUFFIX IS REQUIRED — the frontend appends nothing.
     (If you forget VITE_API_URL entirely the build fails on purpose
     with a clear error — that is the new guard working.)
-[ ] Deploy. WRITE DOWN the URL: https://<project>.pages.dev
+[ ] Deploy. WRITE DOWN the URL: https://stemquest.<subdomain>.workers.dev
 
 
 STEP 5 — POINT THE API AT THE NEW FRONTEND (Cesar, Render dashboard)
 --------------------------------------------------------------------
 Update these three existing env vars from http://localhost:5173 to the
-Pages URL from step 4. Formatting traps from Phase 38 apply: exact
+workers.dev URL from step 4. Formatting traps from Phase 38 apply: exact
 scheme (https://), NO trailing slash, comma-separated with no spaces if
 multiple values.
-[ ] CORS_ALLOWED_ORIGINS = https://<project>.pages.dev
-[ ] CSRF_TRUSTED_ORIGINS = https://<project>.pages.dev
-[ ] FRONTEND_URL         = https://<project>.pages.dev
+[ ] CORS_ALLOWED_ORIGINS = https://<worker>.workers.dev
+[ ] CSRF_TRUSTED_ORIGINS = https://<worker>.workers.dev
+[ ] FRONTEND_URL         = https://<worker>.workers.dev
     (Again: save triggers a ~2 min redeploy.)
 
 
 STEP 6 — VERIFY (either of us; curl commands can be run by Claude)
 ------------------------------------------------------------------
-[ ] curl -I https://<project>.pages.dev/            -> 200
-[ ] curl -I https://<project>.pages.dev/courses     -> 200 serving
-    index.html (proves _redirects / deep-link refresh)
-[ ] curl -H "Origin: https://<project>.pages.dev" -I \
+[ ] curl -I https://<worker>.workers.dev/            -> 200
+[ ] curl -I https://<worker>.workers.dev/courses     -> 200 serving
+    index.html (proves the SPA fallback / deep-link refresh)
+[ ] curl -H "Origin: https://<worker>.workers.dev" -I \
       https://stemquest-api.onrender.com/api/health/
     -> response includes access-control-allow-origin
 [ ] Upload an avatar in the app, then confirm:
       - object appears in the stemquest-media bucket
       - avatar URL is https://pub-<hash>.r2.dev/avatars/... and serves
         200 with an image content-type
-[ ] Full prod click-through at the Pages URL:
+[ ] Full prod click-through at the workers.dev URL:
       register new student -> enroll in JAVA101 -> open course map ->
       HARD-REFRESH a deep link -> upload avatar (renders in header +
       settings) -> instructor uploads lesson attachment -> student
@@ -116,6 +128,6 @@ STEP 6 — VERIFY (either of us; curl commands can be run by Claude)
 ROLLBACK
 --------
 Media: set USE_R2=false in Render env -> back to (ephemeral) disk.
-Frontend: Pages keeps every deployment; roll back in the dashboard.
-CORS: re-add http://localhost:5173 alongside the Pages URL if you need
+Frontend: Workers keeps prior versions; roll back in the dashboard.
+CORS: re-add http://localhost:5173 alongside the workers.dev URL if you need
 the local-Vite-against-prod-API workflow again (comma-separated).
