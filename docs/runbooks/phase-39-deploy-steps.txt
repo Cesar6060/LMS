@@ -115,7 +115,7 @@ STEP 6 — VERIFY (either of us; curl commands can be run by Claude)
       - object appears in the stemquest-media bucket
       - avatar URL is https://pub-<hash>.r2.dev/avatars/... and serves
         200 with an image content-type
-[ ] Full prod click-through at the workers.dev URL:
+[x] Full prod click-through at the workers.dev URL: (user-verified 2026-07-21)
       register new student -> enroll in JAVA101 -> open course map ->
       HARD-REFRESH a deep link -> upload avatar (renders in header +
       settings) -> instructor uploads lesson attachment -> student

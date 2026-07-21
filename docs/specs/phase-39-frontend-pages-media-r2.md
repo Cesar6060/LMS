@@ -183,12 +183,13 @@ is untouched.
       not pages.dev, per the Workers pivot); avatar upload → 200 →
       `pub-28b0ff93….r2.dev/avatars/…` served 200 `image/png` →
       delete → 404. See runbook AS-RUN NOTES.*
-- [ ] **Full prod click-through** (per deployment overview "done when"):
+- [x] **Full prod click-through** (per deployment overview "done when"):
       register a new student, enroll in JAVA101, open the course map,
       **hard-refresh a deep link**, upload an avatar (renders from
       `r2.dev` in header + settings), instructor uploads a lesson
       attachment, student downloads it, gradebook CSV export link works —
       **zero CORS or mixed-content errors in the console** throughout.
+      *2026-07-21: user-verified on the live workers.dev site.*
 - [ ] Opportunistic (deferred from Phase 38): record one cold-start
       timing figure for the Render free tier.
 
