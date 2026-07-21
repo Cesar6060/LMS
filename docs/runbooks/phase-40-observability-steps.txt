@@ -45,8 +45,8 @@ only and safe to do during the wait.
 
 STEP 1 — MERGE (Cesar)
 ----------------------
-[ ] Open PR from feat/phase-40-observability into main, confirm CI is
-    green, merge.
+[x] Open PR from feat/phase-40-observability into main, confirm CI is
+    green, merge.  (PR #29, merged 2026-07-21, CI green)
     Note: merging redeploys both the Render API and the Cloudflare
     Worker. Neither has Sentry env vars yet, so both keep running with
     Sentry inert — that is fine; the env vars come next.
@@ -127,8 +127,13 @@ STEP 7 — FRONTEND SENTRY SMOKE TEST (Cesar, browser + sentry.io)
       - the route name from router instrumentation.
 
 
-STEP 8 — UPTIMEROBOT (Cesar, uptimerobot.com)
+STEP 8 — UPTIMEROBOT (Cesar, uptimerobot.com)  ** DESCOPED 2026-07-21 **
 ---------------------------------------------
+Cesar decided not to implement UptimeRobot. Consequences accepted:
+no down alerts, deep DB check unwatched, and Render cold starts
+return for the first request after 15+ idle minutes. If keep-warm is
+ever wanted without an UptimeRobot account: a GitHub Actions cron
+curling /api/health/ every 10 min does the same job for free.
 [ ] Create free account, confirm alert email address works.
 [ ] Monitor 1 (keep-warm + uptime): HTTP(s),
       https://stemquest-api.onrender.com/api/health/
@@ -174,3 +179,12 @@ AS-RUN NOTES
                 attempt 1 measured a warm service (0.17s — discarded).
             Step 0 re-armed: agent watches for the merge, waits ~25 min
             (deploy + 15 min idle), then measures.
+
+2026-07-21  PR #29 merged (CI green). Phase closed early by choice:
+            steps 4-7 deferred (frontend Sentry stays dormant — its
+            env vars were never added to the Cloudflare build), step 8
+            UptimeRobot DESCOPED, step 9 moot. Backend Sentry is LIVE
+            but step 6's smoke test was not run — recommended before
+            trusting the pipeline. Next session pivots to portfolio
+            polish (README + jdoe@demo.com demo account); see the
+            2026-07-21 phase-40 handoff.
