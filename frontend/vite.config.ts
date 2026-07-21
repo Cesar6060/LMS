@@ -1,5 +1,6 @@
 import { defineConfig, loadEnv } from 'vite'
 import react from '@vitejs/plugin-react'
+import { sentryVitePlugin } from '@sentry/vite-plugin'
 import path from 'path'
 
 // https://vite.dev/config/
@@ -19,7 +20,30 @@ export default defineConfig(({ mode }) => {
   }
 
   return {
-    plugins: [react()],
+    plugins: [
+      react(),
+      // Source-map upload to Sentry. Soft-gated (unlike the VITE_API_URL
+      // guard above): local and CI builds without the token must keep
+      // building cleanly — only the Cloudflare build has SENTRY_AUTH_TOKEN.
+      ...(env.SENTRY_AUTH_TOKEN
+        ? [
+            sentryVitePlugin({
+              org: env.SENTRY_ORG,
+              project: env.SENTRY_PROJECT,
+              authToken: env.SENTRY_AUTH_TOKEN,
+              sourcemaps: {
+                // Maps exist only for the upload — never deploy them.
+                filesToDeleteAfterUpload: ['./dist/**/*.map'],
+              },
+            }),
+          ]
+        : []),
+    ],
+    build: {
+      // Generate maps for Sentry without a sourceMappingURL comment in the
+      // served JS; without the plugin they stay local and harmless.
+      sourcemap: 'hidden',
+    },
     resolve: {
       alias: {
         '@': path.resolve(__dirname, './src'),

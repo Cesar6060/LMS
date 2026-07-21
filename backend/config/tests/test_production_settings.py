@@ -60,6 +60,34 @@ def test_health_url_name_resolves():
     assert reverse('health') == '/api/health/'
 
 
+def test_sentry_debug_404_when_flag_unset(client):
+    # Inert unless its env var is set: without SENTRY_DEBUG_ENDPOINT the
+    # endpoint must be indistinguishable from a missing route.
+    response = client.get('/api/sentry-debug/')
+
+    assert response.status_code == 404
+
+
+def test_sentry_debug_raises_when_flag_set(client, monkeypatch):
+    monkeypatch.setenv('SENTRY_DEBUG_ENDPOINT', 'true')
+
+    with pytest.raises(ZeroDivisionError):
+        client.get('/api/sentry-debug/')
+
+
+def test_sentry_debug_requires_no_auth(monkeypatch):
+    # Plain Django view like health: an anonymous curl must reach the crash
+    # (not a DRF 401/403), since the prod smoke test is an unauthenticated curl.
+    monkeypatch.setenv('SENTRY_DEBUG_ENDPOINT', 'true')
+
+    with pytest.raises(ZeroDivisionError):
+        APIClient().get('/api/sentry-debug/')
+
+
+def test_sentry_debug_url_name_resolves():
+    assert reverse('sentry-debug') == '/api/sentry-debug/'
+
+
 def test_database_url_overrides_db_settings():
     parsed = dj_database_url.parse(
         'postgres://neon_user:secret@ep-example.aws.neon.tech/neondb',

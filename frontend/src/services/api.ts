@@ -1,4 +1,5 @@
 import axios from 'axios';
+import * as Sentry from '@sentry/react';
 
 // Exported for the few callers that build raw URLs outside the axios client
 // (e.g. the gradebook CSV export link). vite.config.ts guarantees the env var
@@ -30,6 +31,25 @@ api.interceptors.request.use(
 api.interceptors.response.use(
   (response) => response,
   (error) => {
+    // Report only real incidents: 5xx and network failures. 401/403/404 are
+    // normal traffic (auth redirects, permission checks, missing objects) and
+    // must never reach Sentry. captureException is a no-op when Sentry is not
+    // initialized (dev without VITE_SENTRY_DSN).
+    if (axios.isAxiosError(error) && error.code !== 'ERR_CANCELED') {
+      const status = error.response?.status;
+      if (status === undefined || status >= 500) {
+        Sentry.captureException(error, {
+          contexts: {
+            api: {
+              method: error.config?.method?.toUpperCase(),
+              url: error.config?.url,
+              status: status ?? 'network error',
+            },
+          },
+        });
+      }
+    }
+
     if (error.response?.status === 401) {
       // Clear token and redirect to login. This is a full-page redirect, so
       // router state is lost — pass the current location as ?next= instead
