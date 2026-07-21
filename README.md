@@ -1,5 +1,7 @@
 # STEM Quest
 
+[![CI](https://github.com/Cesar6060/LMS/actions/workflows/ci.yml/badge.svg)](https://github.com/Cesar6060/LMS/actions/workflows/ci.yml)
+
 A full-stack Learning Management System (LMS) built for Computer Science education, featuring real-time notifications, immersive learning mode, and comprehensive course management.
 
 ![Dashboard Preview](docs/screenshots/Dashboard.png)
