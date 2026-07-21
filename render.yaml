@@ -1,0 +1,57 @@
+# Render blueprint for the STEM Quest Django API.
+#
+# NOT LIVE YET. This file is written in Phase 37 and consumed in Phase 38,
+# which is the phase that actually points Render at it and runs the first
+# deploy. Nothing here has been applied to a Render account.
+#
+# No `databases:` key on purpose — Postgres lives on Neon, outside Render, and
+# is wired in through the DATABASE_URL secret below.
+#
+# Migrations are NOT run here. Per the Phase 37 scoping decision they are run
+# by hand in the Render shell during Phase 38, alongside createsuperuser and
+# populate_java_course.
+
+services:
+  - type: web
+    name: stemquest-api
+    env: python
+    plan: free
+    region: oregon
+    rootDir: backend
+    branch: main
+
+    buildCommand: pip install -r requirements.txt && python manage.py collectstatic --noinput
+    startCommand: gunicorn config.wsgi:application --bind 0.0.0.0:$PORT --workers 2 --timeout 120
+
+    # Shallow path — no query string, so the deploy gate never depends on a
+    # cold Neon branch waking up. Use /api/health/?deep=1 for real DB checks.
+    healthCheckPath: /api/health/
+
+    envVars:
+      - key: PYTHON_VERSION
+        value: "3.12"          # matches .github/workflows/ci.yml
+      - key: DEBUG
+        value: "false"
+      - key: USE_HTTPS
+        value: "true"
+      - key: EMAIL_BACKEND
+        value: django.core.mail.backends.console.EmailBackend
+      - key: ACCOUNT_EMAIL_VERIFICATION
+        value: optional
+
+      # Secrets and environment-specific values: prompted in the Render
+      # dashboard on first deploy, never committed.
+      - key: SECRET_KEY
+        sync: false
+      - key: DATABASE_URL
+        sync: false
+      - key: ALLOWED_HOSTS
+        sync: false
+      - key: CORS_ALLOWED_ORIGINS
+        sync: false
+      - key: CSRF_TRUSTED_ORIGINS
+        sync: false
+      - key: FRONTEND_URL
+        sync: false
+      - key: SENTRY_DSN
+        sync: false
