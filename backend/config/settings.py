@@ -158,6 +158,29 @@ STORAGES = {
 MEDIA_URL = 'media/'
 MEDIA_ROOT = BASE_DIR / 'media'
 
+# Cloudflare R2 media storage — opt-in via USE_R2, mirroring the USE_HTTPS
+# idiom below: inert in dev/CI, and a missing R2_* var under USE_R2=true fails
+# fast at boot (decouple raises UndefinedValueError — no defaults on purpose).
+USE_R2 = config('USE_R2', default=False, cast=bool)
+if USE_R2:
+    STORAGES['default'] = {
+        'BACKEND': 'storages.backends.s3.S3Storage',
+        'OPTIONS': {
+            'access_key': config('R2_ACCESS_KEY_ID'),
+            'secret_key': config('R2_SECRET_ACCESS_KEY'),
+            'bucket_name': config('R2_BUCKET_NAME'),
+            'endpoint_url': f"https://{config('R2_ACCOUNT_ID')}.r2.cloudflarestorage.com",
+            # Public r2.dev host: makes .url return an absolute public URL
+            # instead of a path under MEDIA_URL.
+            'custom_domain': config('R2_PUBLIC_HOST'),
+            'querystring_auth': False,
+            'default_acl': None,
+            'file_overwrite': False,
+            'region_name': 'auto',
+            'signature_version': 's3v4',
+        },
+    }
+
 # Default primary key field type
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 

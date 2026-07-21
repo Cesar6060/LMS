@@ -18,6 +18,7 @@ requests>=2.31.0
 
 # Files & Images
 pillow==11.1.0
+django-storages[s3]==1.14.6
 
 # Environment variables
 python-decouple==3.8

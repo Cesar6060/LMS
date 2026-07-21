@@ -1,4 +1,7 @@
+from pathlib import Path
+
 import pytest
+from django.core.files.uploadedfile import SimpleUploadedFile
 from django.urls import reverse
 from rest_framework import status
 from rest_framework.test import APIClient
@@ -6,6 +9,7 @@ from accounts.models import User
 from .models import (
     Course, Unit, Lesson, Enrollment, LessonProgress, Announcement,
     LessonSection, LessonQuestion, LessonQuestionChoice, LessonQuizAttempt,
+    LessonAttachment,
 )
 from notifications.models import Notification
 
@@ -2226,3 +2230,99 @@ class TestCourseMap:
         api_client.force_authenticate(user=instructor)
         response = api_client.get(self.URL)
         assert response.status_code == status.HTTP_200_OK
+
+
+def make_attachment_file(name='notes.txt', content=b'hello world'):
+    return SimpleUploadedFile(name, content, content_type='text/plain')
+
+
+@pytest.mark.django_db
+class TestLessonAttachments:
+    """Upload/delete coverage added in Phase 39, when media moved to R2 and
+    these endpoints became load-bearing. Tests run against FileSystemStorage
+    in a temp MEDIA_ROOT — the R2 swap itself is covered by the settings
+    tests in config/tests/test_storage_settings.py."""
+
+    @pytest.fixture(autouse=True)
+    def media_tmp(self, settings, tmp_path):
+        settings.MEDIA_ROOT = tmp_path
+
+    def url(self, lesson):
+        return f'/api/courses/lessons/{lesson.id}/attachments/'
+
+    def test_instructor_upload_201_with_absolute_url(
+            self, api_client, instructor, lesson):
+        api_client.force_authenticate(user=instructor)
+
+        response = api_client.post(
+            self.url(lesson),
+            {'files': [make_attachment_file()]},
+            format='multipart',
+        )
+
+        assert response.status_code == status.HTTP_201_CREATED
+        assert len(response.data) == 1
+        assert response.data[0]['filename'] == 'notes.txt'
+        # Serializer must return an absolute URL (prod: the r2.dev host).
+        assert response.data[0]['url'].startswith('http://testserver/')
+        assert 'lesson_attachments/' in response.data[0]['url']
+
+    def test_enrolled_student_upload_403(
+            self, api_client, student, lesson, enrollment):
+        api_client.force_authenticate(user=student)
+
+        response = api_client.post(
+            self.url(lesson),
+            {'files': [make_attachment_file()]},
+            format='multipart',
+        )
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+
+    def test_anonymous_upload_401(self, api_client, lesson):
+        response = api_client.post(
+            self.url(lesson),
+            {'files': [make_attachment_file()]},
+            format='multipart',
+        )
+
+        assert response.status_code == status.HTTP_401_UNAUTHORIZED
+
+    def test_delete_removes_stored_file(self, api_client, instructor, lesson):
+        api_client.force_authenticate(user=instructor)
+        created = api_client.post(
+            self.url(lesson),
+            {'files': [make_attachment_file()]},
+            format='multipart',
+        ).data
+        attachment = LessonAttachment.objects.get(pk=created[0]['id'])
+        stored = Path(attachment.file.path)
+        assert stored.exists()
+
+        response = api_client.delete(
+            f"{self.url(lesson)}{attachment.id}/")
+
+        assert response.status_code == status.HTTP_204_NO_CONTENT
+        assert not stored.exists()
+        assert lesson.attachments.count() == 0
+
+    def test_limit_of_10_per_lesson(self, api_client, instructor, lesson):
+        api_client.force_authenticate(user=instructor)
+        for i in range(10):
+            LessonAttachment.objects.create(
+                lesson=lesson,
+                file=make_attachment_file(f'file{i}.txt'),
+                filename=f'file{i}.txt',
+                file_type='txt',
+                file_size=11,
+            )
+
+        response = api_client.post(
+            self.url(lesson),
+            {'files': [make_attachment_file('one-too-many.txt')]},
+            format='multipart',
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert 'Maximum 10 attachments' in response.data['error']
+        assert lesson.attachments.count() == 10

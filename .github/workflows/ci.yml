@@ -96,6 +96,9 @@ jobs:
         working-directory: frontend
         # Deliberately overlaps the type check (build runs `tsc -b`): this
         # proves the exact Vite production bundle Cloudflare Pages will run
-        # compiles. VITE_API_URL is intentionally unset — the localhost
-        # fallback keeps the build working without secrets.
+        # compiles. Since Phase 39, vite.config.ts fails production builds
+        # that lack VITE_API_URL (so Pages can't ship a site pointed at
+        # localhost) — CI satisfies the guard with a dummy value.
+        env:
+          VITE_API_URL: "http://localhost:8000/api"
         run: npm run build
