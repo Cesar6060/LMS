@@ -337,8 +337,10 @@ throw at **runtime**, not build time, or CI's `npm run build` step breaks.
       `/api/health/` ok. The instructor login → course → Learning Mode
       click-through is still the user's manual step.
 - [x] `git status` shows **no migration files** — this phase touches no models.
-- [ ] Push the branch, open a PR against `lms/main`, both CI jobs green.
+- [x] Push the branch, open a PR against `lms/main`, both CI jobs green.
       (Merging is the user's call, as in prior phases.)
+      PR #22, run `29789922495`: Backend (pytest) **pass** 2m53s, Frontend
+      (tsc, lint, build) **pass** 39s. Merge still pending the user.
 - [x] Neon password rotated and the new connection string noted privately —
       confirm in the handoff **without quoting it**.
 
