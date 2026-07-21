@@ -43,6 +43,8 @@ services:
         value: django.core.mail.backends.console.EmailBackend
       - key: ACCOUNT_EMAIL_VERIFICATION
         value: optional
+      - key: USE_R2
+        value: "true"
 
       # Minted by Render in its own vault on first apply — the key is never
       # pasted into a dashboard, a clipboard, or this repo.
@@ -62,4 +64,18 @@ services:
       - key: FRONTEND_URL
         sync: false
       - key: SENTRY_DSN
+        sync: false
+
+      # Cloudflare R2 media storage (Phase 39). Bucket-scoped token; values
+      # entered in the dashboard only. R2_PUBLIC_HOST is the pub-<hash>.r2.dev
+      # dev subdomain host, no scheme.
+      - key: R2_ACCESS_KEY_ID
+        sync: false
+      - key: R2_SECRET_ACCESS_KEY
+        sync: false
+      - key: R2_ACCOUNT_ID
+        sync: false
+      - key: R2_BUCKET_NAME
+        sync: false
+      - key: R2_PUBLIC_HOST
         sync: false

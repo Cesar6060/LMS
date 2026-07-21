@@ -1,6 +1,9 @@
 import axios from 'axios';
 
-const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000/api';
+// Exported for the few callers that build raw URLs outside the axios client
+// (e.g. the gradebook CSV export link). vite.config.ts guarantees the env var
+// is set in production builds, so the localhost fallback is dev/test-only.
+export const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000/api';
 
 const api = axios.create({
   baseURL: API_URL,

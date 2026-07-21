@@ -1,0 +1,121 @@
+PHASE 39 DEPLOY RUNBOOK — Frontend on Cloudflare Pages + media on R2
+=====================================================================
+Written 2026-07-20. Code side is done and verified locally (pytest 372,
+tsc clean, lint at baseline, build guard proven). Everything below the
+"CODE" section happens in dashboards and is done by Cesar.
+
+Statuses: [x] done  [ ] not yet run. Update this file as steps complete,
+in the order they were actually run.
+
+
+CODE (done, on branch feat/phase-39-frontend-pages-media-r2)
+------------------------------------------------------------
+[x] django-storages[s3]==1.14.6 added to backend/requirements.txt
+[x] USE_R2-gated STORAGES block in backend/config/settings.py
+    (inert unless USE_R2=true; missing R2_* var fails the boot on purpose)
+[x] render.yaml: USE_R2="true" + five R2_* vars marked sync:false
+[x] .env.example documents USE_R2 + R2_* (commented out, off by default)
+[x] frontend/public/_redirects: "/*  /index.html  200" (SPA deep links)
+[x] vite.config.ts: production build FAILS if VITE_API_URL is unset
+[x] CI "Production build" step now passes a dummy VITE_API_URL
+[x] Tests: 8 storage-settings + 5 avatar + 5 attachment = 372 total green
+
+
+STEP 1 — MERGE (Cesar)
+----------------------
+[ ] Open PR from feat/phase-39-frontend-pages-media-r2 into main,
+    confirm CI is green, merge.
+    Note: merging redeploys the Render API with USE_R2="true" from
+    render.yaml. Render will prompt for the five R2_* values; until they
+    are saved the deploy will fail at boot BY DESIGN (fail-fast guard).
+    Do step 2 first, or accept one red deploy in between.
+
+
+STEP 2 — CLOUDFLARE R2 (Cesar, Cloudflare dashboard)
+----------------------------------------------------
+[ ] R2 > Create bucket. Suggested name: stemquest-media
+[ ] Bucket > Settings > Public access > enable "r2.dev subdomain".
+    WRITE DOWN the host it gives you, looks like: pub-<hash>.r2.dev
+    (host only, no https:// prefix)
+[ ] R2 > Manage R2 API Tokens > Create API token:
+      - Permission: Object Read & Write
+      - Scope: ONLY the stemquest-media bucket
+    WRITE DOWN: Access Key ID and Secret Access Key (secret shows once)
+[ ] Also note your Cloudflare Account ID (right sidebar of the R2 page
+    or dashboard home).
+    No bucket CORS config needed — media is loaded via <img>/<a> tags,
+    not fetch/XHR.
+
+
+STEP 3 — RENDER ENV VARS (Cesar, Render dashboard > stemquest-api >
+------------------------------------------------------------------
+Environment)
+[ ] R2_ACCESS_KEY_ID      = <from step 2>
+[ ] R2_SECRET_ACCESS_KEY  = <from step 2>
+[ ] R2_ACCOUNT_ID         = <Cloudflare account id>
+[ ] R2_BUCKET_NAME        = stemquest-media
+[ ] R2_PUBLIC_HOST        = pub-<hash>.r2.dev        (no scheme!)
+    (USE_R2 itself comes from render.yaml after the merge; if the
+    dashboard does not show it yet, add USE_R2=true manually.)
+    Saving env vars auto-redeploys (~2 min stale window).
+
+DO NOT paste any of these values into chat or commit them anywhere.
+
+
+STEP 4 — CLOUDFLARE PAGES (Cesar, Cloudflare dashboard)
+-------------------------------------------------------
+[ ] Workers & Pages > Create > Pages > Connect to Git > Cesar6060/LMS
+[ ] Settings:
+      Production branch:  main
+      Root directory:     frontend
+      Build command:      npm run build
+      Build output dir:   dist
+[ ] Environment variables (Production):
+      NODE_VERSION = 22
+      VITE_API_URL = https://stemquest-api.onrender.com/api
+    THE /api SUFFIX IS REQUIRED — the frontend appends nothing.
+    (If you forget VITE_API_URL entirely the build fails on purpose
+    with a clear error — that is the new guard working.)
+[ ] Deploy. WRITE DOWN the URL: https://<project>.pages.dev
+
+
+STEP 5 — POINT THE API AT THE NEW FRONTEND (Cesar, Render dashboard)
+--------------------------------------------------------------------
+Update these three existing env vars from http://localhost:5173 to the
+Pages URL from step 4. Formatting traps from Phase 38 apply: exact
+scheme (https://), NO trailing slash, comma-separated with no spaces if
+multiple values.
+[ ] CORS_ALLOWED_ORIGINS = https://<project>.pages.dev
+[ ] CSRF_TRUSTED_ORIGINS = https://<project>.pages.dev
+[ ] FRONTEND_URL         = https://<project>.pages.dev
+    (Again: save triggers a ~2 min redeploy.)
+
+
+STEP 6 — VERIFY (either of us; curl commands can be run by Claude)
+------------------------------------------------------------------
+[ ] curl -I https://<project>.pages.dev/            -> 200
+[ ] curl -I https://<project>.pages.dev/courses     -> 200 serving
+    index.html (proves _redirects / deep-link refresh)
+[ ] curl -H "Origin: https://<project>.pages.dev" -I \
+      https://stemquest-api.onrender.com/api/health/
+    -> response includes access-control-allow-origin
+[ ] Upload an avatar in the app, then confirm:
+      - object appears in the stemquest-media bucket
+      - avatar URL is https://pub-<hash>.r2.dev/avatars/... and serves
+        200 with an image content-type
+[ ] Full prod click-through at the Pages URL:
+      register new student -> enroll in JAVA101 -> open course map ->
+      HARD-REFRESH a deep link -> upload avatar (renders in header +
+      settings) -> instructor uploads lesson attachment -> student
+      downloads it -> gradebook CSV export works.
+      Zero CORS / mixed-content errors in the browser console.
+[ ] Opportunistic: note one Render cold-start timing figure
+    (first request after ~15 min idle).
+
+
+ROLLBACK
+--------
+Media: set USE_R2=false in Render env -> back to (ephemeral) disk.
+Frontend: Pages keeps every deployment; roll back in the dashboard.
+CORS: re-add http://localhost:5173 alongside the Pages URL if you need
+the local-Vite-against-prod-API workflow again (comma-separated).

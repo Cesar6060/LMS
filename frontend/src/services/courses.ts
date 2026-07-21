@@ -1,4 +1,4 @@
-import api from './api';
+import api, { API_URL } from './api';
 import type { Course, Unit, Lesson, Enrollment, LessonProgress, GradingConfig, GradeSummary, EnhancedDashboard, LessonQuestion, LessonQuestionsStatus, AnswerQuestionResult, QuizSubmissionResult, LessonAttachment, LessonSection, InstructorReminder, CalendarResponse, QuizSessionState, LessonSessionAnswerResult, CourseMap } from '../types';
 
 // Re-export types for convenience
@@ -362,8 +362,7 @@ export const courseService = {
   },
 
   getGradebookExportUrl(courseCode: string): string {
-    const baseUrl = import.meta.env.VITE_API_URL || 'http://localhost:8000/api';
-    return `${baseUrl}/courses/courses/${courseCode}/gradebook/export/`;
+    return `${API_URL}/courses/courses/${courseCode}/gradebook/export/`;
   },
 
   // Student Roster

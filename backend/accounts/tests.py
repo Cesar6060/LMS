@@ -1,8 +1,13 @@
+from io import BytesIO
+from pathlib import Path
+
 import pytest
+from django.core.files.uploadedfile import SimpleUploadedFile
 from django.urls import reverse
+from PIL import Image
 from rest_framework import status
 from rest_framework.test import APIClient
-from .models import User
+from .models import User, UserPreferences
 
 
 @pytest.fixture
@@ -129,4 +134,94 @@ class TestAuthEndpoints:
 
     def test_unauthenticated_profile_access(self, api_client):
         response = api_client.get('/api/auth/profile/')
+        assert response.status_code == status.HTTP_401_UNAUTHORIZED
+
+
+def make_png(name='avatar.png'):
+    # ImageField runs Pillow verification, so the payload must be a real PNG.
+    buf = BytesIO()
+    Image.new('RGB', (1, 1), 'red').save(buf, format='PNG')
+    return SimpleUploadedFile(name, buf.getvalue(), content_type='image/png')
+
+
+@pytest.mark.django_db
+class TestAvatarEndpoints:
+    """Upload/delete coverage added in Phase 39, when media moved to R2 and
+    these endpoints became load-bearing. Tests run against FileSystemStorage
+    in a temp MEDIA_ROOT — the R2 swap itself is covered by the settings
+    tests in config/tests/test_storage_settings.py."""
+
+    @pytest.fixture(autouse=True)
+    def media_tmp(self, settings, tmp_path):
+        settings.MEDIA_ROOT = tmp_path
+
+    def test_upload_avatar(self, api_client, user):
+        api_client.force_authenticate(user=user)
+
+        response = api_client.post(
+            '/api/auth/settings/avatar/',
+            {'avatar': make_png()},
+            format='multipart',
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        # Serializer must return an absolute URL (prod: the r2.dev host).
+        assert response.data['avatar_url'].startswith('http://testserver/')
+        assert '/avatars/' in response.data['avatar_url']
+
+    def test_replace_avatar_deletes_old_file(self, api_client, user):
+        api_client.force_authenticate(user=user)
+
+        api_client.post(
+            '/api/auth/settings/avatar/',
+            {'avatar': make_png('first.png')},
+            format='multipart',
+        )
+        old_path = Path(
+            UserPreferences.objects.get(user=user).avatar.path)
+        assert old_path.exists()
+
+        response = api_client.post(
+            '/api/auth/settings/avatar/',
+            {'avatar': make_png('second.png')},
+            format='multipart',
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        assert not old_path.exists()
+        new_path = Path(
+            UserPreferences.objects.get(user=user).avatar.path)
+        assert new_path.exists()
+
+    def test_upload_without_file_400(self, api_client, user):
+        api_client.force_authenticate(user=user)
+
+        response = api_client.post(
+            '/api/auth/settings/avatar/', {}, format='multipart')
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+
+    def test_delete_avatar(self, api_client, user):
+        api_client.force_authenticate(user=user)
+        api_client.post(
+            '/api/auth/settings/avatar/',
+            {'avatar': make_png()},
+            format='multipart',
+        )
+        stored = Path(
+            UserPreferences.objects.get(user=user).avatar.path)
+
+        response = api_client.delete('/api/auth/settings/avatar/delete/')
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.data['avatar_url'] is None
+        assert not stored.exists()
+
+    def test_upload_unauthenticated_401(self, api_client):
+        response = api_client.post(
+            '/api/auth/settings/avatar/',
+            {'avatar': make_png()},
+            format='multipart',
+        )
+
         assert response.status_code == status.HTTP_401_UNAUTHORIZED
