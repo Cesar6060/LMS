@@ -169,15 +169,20 @@ is untouched.
 - [x] CI green on the PR (confirms the ci.yml env addition works).
       *2026-07-20: PR #26 head `33dd781` — Backend (pytest) 2m47s,
       Frontend (tsc, lint, build) 38s, both pass.*
-- [ ] `curl -I https://<project>.pages.dev/` → 200; a deep link like
+- [x] `curl -I https://<project>.pages.dev/` → 200; a deep link like
       `/courses` fetched directly → 200 serving `index.html`
       (`_redirects` working).
-- [ ] `curl -H "Origin: https://<project>.pages.dev" -I
+- [x] `curl -H "Origin: https://<project>.pages.dev" -I
       https://stemquest-api.onrender.com/api/health/` →
       `access-control-allow-origin` header present.
-- [ ] After an avatar upload: the object is visible in the R2 bucket, and
+- [x] After an avatar upload: the object is visible in the R2 bucket, and
       its URL is `https://pub-<hash>.r2.dev/avatars/...` serving 200 with
       an image content-type.
+      *2026-07-21: all verified against the live stack — site is
+      `https://stemquest.cesarvillarreal11.workers.dev` (workers.dev,
+      not pages.dev, per the Workers pivot); avatar upload → 200 →
+      `pub-28b0ff93….r2.dev/avatars/…` served 200 `image/png` →
+      delete → 404. See runbook AS-RUN NOTES.*
 - [ ] **Full prod click-through** (per deployment overview "done when"):
       register a new student, enroll in JAVA101, open the course map,
       **hard-refresh a deep link**, upload an avatar (renders from
