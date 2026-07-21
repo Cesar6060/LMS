@@ -85,5 +85,6 @@ phase — code and workflow files only.
       deliberately failing assert in `backend/courses/tests.py` → backend job
       goes red on the PR; revert the commit → green again. (Two throwaway
       commits on the PR branch; revert before merge.)
-- [ ] Merge the PR: the `push`-to-`main` run also passes and the README
-      badge shows passing.
+- [x] Merge the PR: the `push`-to-`main` run also passes and the README
+      badge shows passing. (PR #21 merged 2026-07-21; `push`-to-`main` run
+      `29789086310` completed **success** in 2m34s.)

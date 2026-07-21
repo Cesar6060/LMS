@@ -43,13 +43,28 @@ jobs:
         working-directory: backend
         run: pip install -r requirements.txt
 
+      # WhiteNoise's manifest static storage (active whenever DEBUG is false)
+      # refuses to serve without a staticfiles.json, so build it before the
+      # suite runs. Doubles as a check that render.yaml's build command works.
+      - name: Collect static files
+        working-directory: backend
+        env:
+          DB_HOST: localhost
+          SECRET_KEY: ci-test-secret-key-not-for-production
+        run: python manage.py collectstatic --noinput
+
       - name: Run tests
         working-directory: backend
         # DB name/user/password/port fall through to the settings defaults,
         # which match the postgres service env above. pytest-django creates
         # and destroys its own test_gamedev_db.
+        #
+        # DEBUG is deliberately left unset so the suite runs under the
+        # production default (False); SECRET_KEY satisfies the settings guard
+        # that pairs with it. USE_HTTPS stays unset, so no SSL redirects.
         env:
           DB_HOST: localhost
+          SECRET_KEY: ci-test-secret-key-not-for-production
         run: pytest
 
   frontend:

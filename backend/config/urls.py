@@ -7,6 +7,8 @@ from django.urls import path, include
 from django.conf import settings
 from django.conf.urls.static import static
 
+from config.health import health
+
 urlpatterns = [
     path('admin/', admin.site.urls),
 
@@ -27,7 +29,7 @@ urlpatterns = [
     path('api/', include('discussions.urls')),
 
     # Health check
-    path('api/health/', lambda request: __import__('django.http', fromlist=['JsonResponse']).JsonResponse({'status': 'ok'})),
+    path('api/health/', health, name='health'),
 ]
 
 # Serve media files in development

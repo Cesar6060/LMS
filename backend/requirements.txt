@@ -5,6 +5,11 @@ django-cors-headers==4.7.0
 
 # Database
 psycopg[binary,pool]==3.2.4
+dj-database-url==2.3.0
+
+# Production serving
+gunicorn==23.0.0
+whitenoise[brotli]==6.8.2
 
 # Authentication
 django-allauth==65.3.0
