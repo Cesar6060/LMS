@@ -124,8 +124,10 @@ guard for these CLI calls; it does not touch the deployed service.
       discussions 1, gamification 4, notifications 5); 70 total incl.
       Django/allauth/socialaccount. `Badge.objects.count()` → **7**.
       Users 0, Courses 0.
-- [ ] `docker compose exec -it -e DATABASE_URL="<neon>" -e DEBUG=True backend python manage.py createsuperuser`
+- [x] `docker compose exec -it -e DATABASE_URL="<neon>" -e DEBUG=True backend python manage.py createsuperuser`
       — a **real** email and a strong password. Not `@demo.com`.
+      Created as `cesarvillarreal11@gmail.com` (allauth normalized the
+      address to lowercase on save).
 - [ ] Fix up the superuser so it is a usable instructor **and** matches what
       `populate_java_course` searches for:
       ```
@@ -140,8 +142,14 @@ guard for these CLI calls; it does not touch the deployed service.
       ```
       Without this, the next step prints `Instructor "Cesar Villarreal" not
       found!` and **silently no-ops**.
-- [ ] `docker compose exec -e DATABASE_URL="<neon>" -e DEBUG=True backend python manage.py populate_java_course`
-      — expect "JAVA101 population complete". **Run this exactly once.** Despite
+      **Done** — verified `Cesar Villarreal`, `is_instructor=True`,
+      `is_staff=True`, `is_superuser=True`, `is_active=True`.
+- [x] `docker compose exec -e DATABASE_URL="<neon>" -e DEBUG=True backend python manage.py populate_java_course`
+      — expect "JAVA101 population complete". **Run this exactly once.**
+      **Run once, 2026-07-20.** Output: `Found instructor:
+      cesarvillarreal11@gmail.com` / `Course: JAVA101 ... (created)` /
+      `Cleared existing content: (0, {})` / `Created 5 units`. The `(0, {})`
+      confirms nothing pre-existing was destroyed. **Do not run again.** Despite
       its "NON-DESTRUCTIVE" docstring it does
       `course.units.all().delete()` and rebuilds, which cascades away every
       `LessonProgress` / `LessonQuizAttempt` / `QuizAttempt` on JAVA101.
@@ -150,14 +158,20 @@ guard for these CLI calls; it does not touch the deployed service.
 - [ ] **Never run `seed_data` against Neon.** It hardcodes `Admin123!` on six
       pre-verified `@demo.com` accounts, and `--clear` deletes every course
       globally, JAVA101 included.
-- [ ] Verify the bootstrap: exactly one user, no `@demo.com` addresses, JAVA101
+- [x] Verify the bootstrap: exactly one user, no `@demo.com` addresses, JAVA101
       present with its units, and the badge catalog seeded.
+      **Verified:** 1 user / 0 demo / JAVA101 5 units 20 lessons / 7 badges.
+      (After the click-through's student registration the user count is 2 —
+      expected.)
 
 ### C. Render service
 
-- [ ] Create the service via **New → Blueprint** (not "New Web Service") so
+- [x] Create the service via **New → Blueprint** (not "New Web Service") so
       `render.yaml` governs it and `generateValue` actually applies.
-- [ ] Fill the 6 `sync: false` secrets at blueprint-apply time:
+      **Done by user 2026-07-20; live at `stemquest-api.onrender.com`.**
+- [x] Fill the 6 `sync: false` secrets at blueprint-apply time
+      *(done; `CORS_ALLOWED_ORIGINS` was initially mis-entered and fixed
+      post-deploy — see Click-through)*:
       | Key | Value |
       |---|---|
       | `DATABASE_URL` | the rotated Neon string, `?sslmode=require` |
@@ -166,22 +180,23 @@ guard for these CLI calls; it does not touch the deployed service.
       | `CORS_ALLOWED_ORIGINS` | `http://localhost:5173` — scheme + port, **no trailing slash** |
       | `FRONTEND_URL` | `http://localhost:5173` |
       | `SENTRY_DSN` | leave empty (gated on non-empty; Phase 40) |
-- [ ] After the first deploy, check the **actual** hostname Render assigned. If
-      `stemquest-api` was taken it will carry a suffix, in which case correct
-      `ALLOWED_HOSTS` and `CSRF_TRUSTED_ORIGINS` and let it redeploy. A wrong
-      `ALLOWED_HOSTS` does not crash the boot — it 400s every request, which is
-      the failure mode to watch for.
-- [ ] Confirm auto-deploy from `main` on `Cesar6060/LMS` is on.
-- [ ] Watch the build log: `pip install` then `collectstatic` (expect ~767
-      post-processed files). If `collectstatic` is skipped, the first `/admin/`
-      hit raises `ValueError: Missing staticfiles manifest entry` —
-      `DEBUG=false` selects WhiteNoise's manifest storage.
+- [x] After the first deploy, check the **actual** hostname Render assigned.
+      **No suffix — `stemquest-api.onrender.com` as specced**, so
+      `ALLOWED_HOSTS`/`CSRF_TRUSTED_ORIGINS` were correct as entered.
+      (`CORS_ALLOWED_ORIGINS` was the one that was mis-entered — see
+      Click-through below.)
+- [x] Confirm auto-deploy from `main` on `Cesar6060/LMS` is on. *(User set up
+      via Blueprint; env-var saves observed to trigger redeploys.)*
+- [x] Watch the build log: `pip install` then `collectstatic`. **Verified by
+      outcome** rather than log-watching: hashed `base.523eb49842a7.css`
+      serves 200 as `text/css` (21460 bytes), which only works if
+      `collectstatic` ran and the WhiteNoise manifest exists.
 
 ## Frontend tasks
 
 No committed frontend changes. One throwaway local run, pointed at prod.
 
-- [ ] Start a second Vite dev server against the live API without editing
+- [x] Start a second Vite dev server against the live API without editing
       `docker-compose.yml` (which hardcodes `VITE_API_URL`):
       ```
       docker compose run --rm -e VITE_API_URL="https://<host>.onrender.com/api" \
@@ -190,6 +205,12 @@ No committed frontend changes. One throwaway local run, pointed at prod.
       Note the `/api` suffix — `frontend/src/services/api.ts:3` expects the base
       URL to already include it. Whatever port you land on must match
       `CORS_ALLOWED_ORIGINS` exactly.
+      **Two gotchas hit:** (1) the dev `frontend` container must be stopped
+      first — it holds 5173; (2) `docker compose run` creates a *fresh
+      anonymous volume* for `/app/node_modules` seeded from the stale image, so
+      newer deps (`recharts`, `@dnd-kit/*`) were missing — fixed by prefixing
+      the command with `npm install &&`. Vite 6.4.1 ready on 5173, 0 unresolved
+      imports.
 
 ## Verification
 
@@ -205,45 +226,70 @@ The phase is done when all of the following are demonstrated with pasted output.
       frontend **pass** 40s). `main`-push run still pending merge.
 
 **API over HTTPS:**
-- [ ] `curl -si https://<host>.onrender.com/api/health/` → **200**,
-      `{"status": "ok"}`.
-- [ ] `curl -si 'https://<host>.onrender.com/api/health/?deep=1'` → **200**,
-      `{"status": "ok", "database": "ok"}` — this is the proof Neon is wired up.
-- [ ] `curl -si http://<host>.onrender.com/api/health/` → **301** to `https://`
-      (proves `USE_HTTPS` + `SECURE_PROXY_SSL_HEADER` are working behind
-      Render's proxy, and that `SECURE_SSL_REDIRECT` didn't cause a loop).
-- [ ] Response carries `Strict-Transport-Security: max-age=3600; includeSubDomains`.
+Host assigned with **no suffix**: `stemquest-api.onrender.com`, so the spec's
+`ALLOWED_HOSTS` / `CSRF_TRUSTED_ORIGINS` values were correct as written.
+
+- [x] `curl -si https://stemquest-api.onrender.com/api/health/` → **200**,
+      `{"status": "ok"}` (0.32s, warm).
+- [x] `curl -si '.../api/health/?deep=1'` → **200**,
+      `{"status": "ok", "database": "ok"}` (0.71s) — Neon wired up over SSL.
+- [x] `curl -si http://.../api/health/` → **301** →
+      `https://stemquest-api.onrender.com/api/health/`. No redirect loop.
+- [x] `Strict-Transport-Security: max-age=3600; includeSubDomains` present.
+      Also `x-content-type-options: nosniff`, `referrer-policy: same-origin`.
 - [ ] A JWT login for the superuser returns 200 with tokens; an authenticated
-      `GET /api/courses/` lists JAVA101.
-- [ ] `curl -si -H 'Host: evil.example.com' https://<host>.onrender.com/api/health/`
-      → **400** (`ALLOWED_HOSTS` is actually enforcing).
+      `GET /api/courses/` lists JAVA101. **Not run — requires the superuser
+      password, which is deliberately not shared with the assistant.** Covered
+      transitively by the browser click-through.
+- [~] `curl -si -H 'Host: evil.example.com' .../api/health/` → expected **400**,
+      **got 403 from Cloudflare** (`Server: cloudflare`, HTML error body).
+      Render fronts services with Cloudflare, which rejects an unknown `Host`
+      at the edge — the request never reaches Django, so **this test cannot
+      verify `ALLOWED_HOSTS` from outside**. Positive evidence instead: a wrong
+      `ALLOWED_HOSTS` would 400 *every* request, and all requests to the real
+      host return 200. Rewrite this check in a future phase or drop it.
 
 **Admin + static:**
-- [ ] `https://<host>.onrender.com/admin/` renders **with CSS** in a browser —
-      the WhiteNoise manifest check. Confirm a hashed filename
-      (`base.<hash>.css`) is served 200 as `text/css`, not a 404 or a 500.
-- [ ] Superuser login through `/admin/` succeeds — proves `CSRF_TRUSTED_ORIGINS`
+- [x] Hashed filename check: `/admin/login/` references
+      `/static/admin/css/base.523eb49842a7.css`, which serves **200**,
+      `text/css; charset="utf-8"`, **21460 bytes**. WhiteNoise manifest storage
+      is working; `collectstatic` ran. (`/admin/login/` itself → 200.)
+- [x] Superuser login through `/admin/` succeeds — proves `CSRF_TRUSTED_ORIGINS`
       and the secure-cookie settings work together over HTTPS.
+      *(User-verified 2026-07-20.)*
 
 **Data hygiene:**
-- [ ] `User.objects.count()` is **1** and no address ends in `@demo.com`.
-- [ ] JAVA101 exists with 5 units and ~19 lessons; `Badge.objects.count()`
-      matches the catalog.
+- [x] `User.objects.count()` → **1** (`cesarvillarreal11@gmail.com`);
+      `@demo.com` addresses → **0**.
+- [x] JAVA101 exists: **5 units**, **20 lessons** (spec said ~19),
+      instructor `cesarvillarreal11@gmail.com`, `Course.objects.count()` → 1.
+      `Badge.objects.count()` → **7**.
 
 **Click-through (local frontend → prod API):**
-- [ ] Log in as the instructor at `http://localhost:5173`; the dashboard loads.
-- [ ] Open JAVA101 → a unit → a lesson in Learning Mode; sections paginate.
-- [ ] Register a brand-new student account, enroll in JAVA101, complete one
+
+> First attempt was blocked outright: the deployed `CORS_ALLOWED_ORIGINS` on
+> Render emitted **no** `access-control-allow-origin` header (misformatted
+> value — blank, trailing slash, or `https://`). Diagnosed by curling local vs
+> prod with an `Origin:` header; local (same code) emitted the header, prod
+> didn't. Fixed in Render's env editor; after redeploy the header is present.
+> Exactly the Phase 39 CORS de-risk this section existed to buy.
+
+- [x] Log in as the instructor at `http://localhost:5173`; the dashboard loads.
+      *(User-verified 2026-07-20.)*
+- [x] Open JAVA101 → a unit → a lesson in Learning Mode; sections paginate.
+      *(User-verified.)*
+- [x] Register a brand-new student account, enroll in JAVA101, complete one
       lesson, take one quiz — XP awards and the course map updates.
-- [ ] Browser console shows **zero** CORS errors and zero mixed-content
-      warnings.
-- [ ] Confirm avatar/attachment URLs 404 as expected, and log it as *known,
-      Phase 39* rather than a regression.
+      *(User-verified — note the Neon DB now has 2 users, not 1.)*
+- [x] Browser console shows **zero** CORS errors and zero mixed-content
+      warnings. *(User-verified after the CORS fix above.)*
+- [x] Confirm avatar/attachment URLs 404 as expected — known, Phase 39.
 
 **Free-tier behaviour:**
-- [ ] Leave the service idle >15 min, then time the first request. Record the
-      cold-start figure in the handoff — it is the input to any later decision
-      about paying for Starter.
+- [ ] ~~Leave the service idle >15 min, then time the first request.~~
+      **Skipped — user's call, 2026-07-20.** No cold-start figure recorded;
+      expect ~1 min per Render's docs. Measure opportunistically in Phase 39
+      (the first request after any idle gap is the same experiment for free).
 
 ## Known landmines (carry into the handoff)
 
