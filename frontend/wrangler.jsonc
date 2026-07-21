@@ -1,0 +1,20 @@
+// Cloudflare Workers static-assets config (Phase 39).
+//
+// The classic Pages git-connect flow is retired for new projects, so the
+// frontend deploys as an assets-only Worker instead: no `main` script, just
+// the Vite build output. `not_found_handling` replaces the Pages `_redirects`
+// SPA fallback — unmatched navigation requests serve index.html so
+// BrowserRouter deep-link refreshes work.
+//
+// Deployed by Workers Builds (dashboard, git-connected): build command
+// `npm run build`, deploy command `npx wrangler deploy`, path `frontend`.
+// VITE_API_URL comes from a dashboard build variable; production builds fail
+// without it (vite.config.ts guard).
+{
+  "name": "stemquest",
+  "compatibility_date": "2026-07-01",
+  "assets": {
+    "directory": "./dist",
+    "not_found_handling": "single-page-application"
+  }
+}

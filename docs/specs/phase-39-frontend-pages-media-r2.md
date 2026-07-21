@@ -110,6 +110,11 @@ is untouched.
 - [x] `frontend/public/_redirects` (new file):
       `/*    /index.html   200` — SPA fallback for BrowserRouter
       deep-link refreshes (`src/main.tsx:35`).
+      *2026-07-21 pivot: Cloudflare retired the Pages git-connect flow
+      for new projects, so the frontend deploys as a Workers
+      static-assets site instead. `_redirects` removed; replaced by
+      `frontend/wrangler.jsonc` with
+      `assets.not_found_handling = "single-page-application"`.*
 - [x] `frontend/vite.config.ts`: production guard —
       `defineConfig(({ mode }) => ...)` with
       `loadEnv(mode, process.cwd(), '')`; throw a clear error when
@@ -145,6 +150,11 @@ is untouched.
       `VITE_API_URL=https://stemquest-api.onrender.com/api`
       (**must include the `/api` suffix** — the axios client appends
       nothing).
+      *2026-07-21 pivot: Pages git-connect retired → Workers Builds
+      instead. Project name `stemquest`, path `frontend`, build
+      `npm run build`, deploy `npx wrangler deploy`, same two env vars
+      as build variables; site URL becomes
+      `https://stemquest.<subdomain>.workers.dev`. See runbook step 4.*
 - [x] Write the deploy runbook as **plain text** (user preference):
       `docs/runbooks/phase-39-deploy-steps.txt`, in as-actually-run order.
 
