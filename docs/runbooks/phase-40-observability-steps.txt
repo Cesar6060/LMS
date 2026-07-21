@@ -35,18 +35,28 @@ attempt 1 was polluted by the step-3 redeploy). Until the figure is
 recorded here, nothing may touch the Render API: no step 6, no
 browsing the live app (it calls the API). Steps 4-5 are Cloudflare-
 only and safe to do during the wait.
-[ ] After >=15 min of API idle:
+[x] After >=15 min of API idle:
       cold: time curl -s https://stemquest-api.onrender.com/api/health/
       warm: run it again immediately
-    RESULTS (fill in):
-      cold: ______ s
-      warm: ______ s
+    RESULTS (2026-07-21): NO COLD START EXISTS TO MEASURE.
+      attempt 1 (18 min idle):  0.170s   (assumed polluted, discarded)
+      attempt 2 (~20 min idle): 0.157s   (assumed polluted, discarded)
+      attempt 3 (45 min idle):  0.151s / warm 0.121s
+    Three windows up to 45 minutes with zero traffic from us, and the
+    service answered in ~0.15s every time — it is NOT spinning down.
+    Likely causes: Render probing the healthCheckPath from render.yaml,
+    and/or ambient internet-scanner traffic to the public
+    *.onrender.com hostname. Either way, the long-feared free-tier
+    cold start is empirically not occurring for this service, which
+    also removes the keep-warm rationale for UptimeRobot (step 8 was
+    descoped anyway). If Render's behavior ever changes, symptoms
+    would be a ~30-60s first response after idle.
 
 
 STEP 1 — MERGE (Cesar)
 ----------------------
-[ ] Open PR from feat/phase-40-observability into main, confirm CI is
-    green, merge.
+[x] Open PR from feat/phase-40-observability into main, confirm CI is
+    green, merge.  (PR #29, merged 2026-07-21, CI green)
     Note: merging redeploys both the Render API and the Cloudflare
     Worker. Neither has Sentry env vars yet, so both keep running with
     Sentry inert — that is fine; the env vars come next.
@@ -127,8 +137,13 @@ STEP 7 — FRONTEND SENTRY SMOKE TEST (Cesar, browser + sentry.io)
       - the route name from router instrumentation.
 
 
-STEP 8 — UPTIMEROBOT (Cesar, uptimerobot.com)
+STEP 8 — UPTIMEROBOT (Cesar, uptimerobot.com)  ** DESCOPED 2026-07-21 **
 ---------------------------------------------
+Cesar decided not to implement UptimeRobot. Consequences accepted:
+no down alerts, deep DB check unwatched, and Render cold starts
+return for the first request after 15+ idle minutes. If keep-warm is
+ever wanted without an UptimeRobot account: a GitHub Actions cron
+curling /api/health/ every 10 min does the same job for free.
 [ ] Create free account, confirm alert email address works.
 [ ] Monitor 1 (keep-warm + uptime): HTTP(s),
       https://stemquest-api.onrender.com/api/health/
@@ -174,3 +189,12 @@ AS-RUN NOTES
                 attempt 1 measured a warm service (0.17s — discarded).
             Step 0 re-armed: agent watches for the merge, waits ~25 min
             (deploy + 15 min idle), then measures.
+
+2026-07-21  PR #29 merged (CI green). Phase closed early by choice:
+            steps 4-7 deferred (frontend Sentry stays dormant — its
+            env vars were never added to the Cloudflare build), step 8
+            UptimeRobot DESCOPED, step 9 moot. Backend Sentry is LIVE
+            but step 6's smoke test was not run — recommended before
+            trusting the pipeline. Next session pivots to portfolio
+            polish (README + jdoe@demo.com demo account); see the
+            2026-07-21 phase-40 handoff.

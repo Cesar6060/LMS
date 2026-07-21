@@ -1,86 +1,92 @@
-# Handoff: Phase 40 code complete — Sentry wired, ops steps pending
+# Handoff: Phase 40 — Sentry live on backend, phase closed early by choice
 
 ## Current state
 
-All Phase 40 **code** is done on `feat/phase-40-observability`
-(commit `9bb1718`), verified green. The observability stack is now
-fully wired but **inert until Cesar does the dashboard work** — Sentry
-projects, env vars, and UptimeRobot monitors, all scripted step-by-step
-in `docs/runbooks/phase-40-observability-steps.txt`.
+PR **#29** (all Phase 40 code) is **merged to main** with green CI, and
+both hosts have redeployed from it. Cesar decided to stop the
+observability phase partway through the ops checklist — deliberately,
+not by accident. What that leaves:
 
-- **Backend** (`config/settings.py:264-277`): Sentry init now sends
-  `send_default_pii=False` (students' emails/IPs stay out of events),
-  tags `environment` (from `SENTRY_ENVIRONMENT`, default `production`)
-  and `release` (from Render-injected `RENDER_GIT_COMMIT`; `None`
-  locally). Still inert unless `SENTRY_DSN` is set.
-- **Smoke-test endpoint**: `GET /api/sentry-debug/` raises
-  `ZeroDivisionError` only when `SENTRY_DEBUG_ENDPOINT=true` (read
-  per-request, so flipping the Render env var is enough); otherwise
-  404. Plain Django view in `config/health.py`, no auth — it exists
-  because Render free tier has no shell, so this is the only way to
-  force a prod 500. Four guard tests in
-  `config/tests/test_production_settings.py`.
-- **Frontend tracing**: `main.tsx` uses
-  `reactRouterV7BrowserTracingIntegration` (hooks from `react-router`,
-  `useEffect` from React); `App.tsx` renders through
-  `SentryRoutes = Sentry.withSentryReactRouterV7Routing(Routes)` so
-  transactions get parameterized route names.
-- **API-error capture** (`src/services/api.ts`): the response
-  interceptor now `Sentry.captureException`s **5xx and network errors
-  only** — 401/403/404 and canceled requests never reach Sentry.
-  Method/URL/status attached as context; errors still re-thrown.
-- **Source maps**: `@sentry/vite-plugin` (devDependency) runs **only
-  when `SENTRY_AUTH_TOKEN` is present** (soft gate — local/CI builds
-  stay tokenless and clean); `build.sourcemap: 'hidden'` so served JS
-  carries no `sourceMappingURL`; uploaded maps are deleted from
-  `dist/` before deploy.
-- Session Replay masking left at v8 defaults (verified no overrides).
+- **Backend Sentry: LIVE (but never smoke-tested).** `SENTRY_DSN` is
+  set on Render and the merged code sends `send_default_pii=False`
+  (student emails/IPs scrubbed), `environment=production`, and the
+  deploy SHA as `release`. NOTE: prod briefly ran the *old*
+  `send_default_pii=True` init between Cesar setting the DSN and the
+  merge — closed now.
+- **Smoke-test endpoint deployed**: `GET /api/sentry-debug/` 404s
+  unless `SENTRY_DEBUG_ENDPOINT=true` is set on Render; then it raises
+  `ZeroDivisionError`. Runbook step 6 (the 5-minute verification that
+  events actually reach Sentry) has NOT been run — strongly
+  recommended before trusting the pipeline.
+- **Frontend Sentry: dormant.** Cesar stopped before step 4, so
+  `VITE_SENTRY_DSN` / `SENTRY_AUTH_TOKEN` were never added to the
+  Cloudflare build. All the frontend code (router-v7 tracing,
+  `SentryRoutes`, 5xx-only axios capture, gated source-map plugin) is
+  merged and no-ops cleanly without the env vars.
+- **UptimeRobot: descoped** ("probably not going to implement").
+  Consequences accepted: no down alerts, deep DB check unwatched.
+- **Cold-start question: RESOLVED, surprisingly.** Three measurement
+  attempts (idle windows of 18, ~20, and 45 minutes with zero traffic
+  from us) all answered in ~0.15s — **the service is not spinning
+  down at all**, so there is no cold start to measure and no
+  keep-warm need. Probable causes: Render probing render.yaml's
+  `healthCheckPath`, and/or ambient bot traffic to the public
+  onrender.com hostname. Details in runbook step 0. The three-phase
+  "record the cold-start figure" chore dies here, answered.
 
 ## Verification evidence (2026-07-21)
 
-- `/verify-stack` PASS: pytest **376** (372 + 4 sentry-debug),
-  tsc 0 errors, lint 0 errors / 22 warnings (baseline).
-- Tokenless prod build proven:
-  `VITE_API_URL=… npm run build` succeeds with no Sentry env vars;
-  `dist/assets/*.js.map` generated; `grep -c sourceMappingURL` on the
-  bundle → 0.
-- **Cold-start figure (finally recorded, before any keep-warm monitor
-  exists)**: COLD_PLACEHOLDER — see runbook step 0.
+- `/verify-stack` PASS pre-merge: pytest **376** (372 + 4 sentry-debug
+  guard tests), tsc 0 errors, lint 0 errors / 22 warnings (baseline).
+- CI green on PR #29 (both jobs), merged same day.
+- Tokenless prod build proven: map generated, `grep -c
+  sourceMappingURL` on the bundle → 0.
 
-## Gotchas (re)discovered
+## NEXT SESSION: portfolio polish (Cesar's stated priorities)
 
-- The rollup darwin-arm64 gotcha struck again: any `npm install` on
-  the host regenerates `node_modules` and drops the mac binary —
-  `npm install --no-save @rollup/rollup-darwin-arm64` fixes the build.
-- `frontend/tsconfig.tsbuildinfo` shows as modified but hasn't been
-  committed since Phase 14 — left out of the commit on purpose.
+1. **Update the README** — present the project for portfolio viewers
+   (what it is, the live URL, the stack, screenshots).
+2. **Demo account for visitors**: `jdoe@demo.com` / `Admin123!` so
+   curious people can log in and click around without registering.
+   Design decisions to make when building it:
+   - Make it a **plain student or instructor account, NEVER a
+     superuser** — the credentials will be public in the README.
+   - Enroll it in JAVA101 with some progress/grades so the app looks
+     alive, not empty.
+   - Consider that anything this account writes (discussion posts,
+     avatar) is world-editable; a periodic reset (management command
+     or cron) may be worth it eventually.
 
-## Not done (all user dashboard actions, runbook steps 1–9)
+## Also still open (older backlog, in impact order)
 
-1. Merge the PR from `feat/phase-40-observability`.
-2. Sentry account/org + `stemquest-django` / `stemquest-react`
-   projects; collect DSNs, org slug, auth token.
-3. Render: `SENTRY_DSN` env var; later `SENTRY_DEBUG_ENDPOINT=true`
-   briefly for the smoke test, then remove.
-4. Cloudflare Workers **build** variables (same trap as Phase 39 —
-   NOT runtime vars): `VITE_SENTRY_DSN`, `SENTRY_AUTH_TOKEN`,
-   `SENTRY_ORG`, `SENTRY_PROJECT`.
-5. UptimeRobot: 3 monitors (shallow health @5min = keep-warm, deep
-   keyword @60min, frontend @5min) + alert-email proof.
-6. Both Sentry smoke tests + PII check, source-map 404 check,
-   keep-warm confirmation, final click-through.
-7. Optional: delete `r2-check@example.com` in `/admin/`.
+1. **Email doesn't send in prod** — `EMAIL_BACKEND` defaults to the
+   console backend, so password-reset/verification emails go to
+   Render logs, not inboxes. Biggest functional gap before real
+   students. Paired with the custom-domain item.
+2. **DB backups** — Neon free tier keeps only a short restore window;
+   an occasional `pg_dump` is cheap insurance once real grades exist.
+3. Runbook steps 4–7 if frontend Sentry is ever wanted (15 min).
+4. Delete `r2-check@example.com` via `/admin/` (Phase 39 leftover).
+5. Bundle code-splitting (1.29 MB warning) — deferred again.
+6. Local dev: stale pre-recharts `node_modules` volume (Phase 38).
 
-## Backlog (unchanged)
+## Gotchas from this session
 
-- Bundle code-splitting (1.29 MB warning) — deferred again.
-- Custom domain + real email provider — still paired, still deferred.
-- Local dev frontend container still has the stale pre-recharts
-  `node_modules` volume (Phase 38 leftover).
+- The rollup darwin-arm64 gotcha struck again: any host `npm install`
+  drops the mac binary — fix is
+  `npm install --no-save @rollup/rollup-darwin-arm64`.
+- Runbook steps got executed out of order (dashboard steps 2–3 before
+  the PR existed); harmless but it polluted cold-start attempt 1 and
+  briefly ran PII-unsafe Sentry init in prod. Sequencing notes are in
+  the runbook AS-RUN section.
+- `frontend/tsconfig.tsbuildinfo` churns but hasn't been committed
+  since Phase 14 — leave it out of commits.
 
 ## Files to read first
 
-- `docs/runbooks/phase-40-observability-steps.txt` — every remaining
-  step, in order
-- `docs/specs/phase-40-observability.md` — checklist; code items
-  ticked, ops items open
+- `docs/runbooks/phase-40-observability-steps.txt` — what ran, what
+  didn't, AS-RUN notes (including the descope)
+- `docs/specs/phase-40-observability.md` — checklist: code all ticked,
+  ops items open/descoped
+- `docs/deployment-tools.txt` — NEW: plain-language reference for
+  every tool in the deployment (useful source for the README rewrite)
