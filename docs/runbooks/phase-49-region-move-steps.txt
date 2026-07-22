@@ -1,0 +1,139 @@
+PHASE 49 RUNBOOK — MOVE THE API TO VIRGINIA
+============================================
+Written 2026-07-22 (planning session). Spec + rationale:
+docs/specs/phase-49-region-move-virginia.md
+
+The old Oregon service keeps serving traffic until step C. Nothing in
+steps A-B touches it, so there is no user-visible risk until the flip.
+
+Names used below:
+  OLD = stemquest-api (srv-d9fdm3jh523c73f0rlkg), Oregon,
+        https://stemquest-api.onrender.com
+  NEW = the Virginia service you create in step B. Render will assign a
+        suffixed URL like https://stemquest-api-XXXX.onrender.com —
+        write it down when it appears; it is "<NEW-URL>" everywhere below.
+
+
+A. PREPARE (no changes made)
+----------------------------
+[ ] A1. Gather the secret VALUES you will re-type into the new service.
+        Names come from the inventory at the bottom of render.yaml:
+        - DATABASE_URL ............ Neon console -> connection string
+                                    (same string the OLD service uses)
+        - EMAIL_HOST_USER ......... cesarvillarreal11@gmail.com
+        - EMAIL_HOST_PASSWORD ..... the "STEM Quest Render" Gmail app
+                                    password. If you did not save it,
+                                    mint a NEW app password (Google
+                                    Account -> Security -> App passwords)
+                                    — do NOT touch the old service's copy.
+        - DEFAULT_FROM_EMAIL ...... cesarvillarreal11@gmail.com
+        - DEMO_ACCOUNT_PASSWORD ... your saved value (or plan to rotate:
+                                    new secret + re-run seed_demo_account
+                                    AFTER cutover)
+        - ADMIN_URL ............... same value as the old service
+                                    (must end with '/')
+        - R2_ACCESS_KEY_ID / R2_SECRET_ACCESS_KEY / R2_ACCOUNT_ID /
+          R2_BUCKET_NAME .......... Cloudflare R2 -> your saved token
+        - SENTRY_DSN .............. only if it is set on OLD
+        - ALLOWED_HOSTS / CORS_ALLOWED_ORIGINS / CSRF_TRUSTED_ORIGINS /
+          FRONTEND_URL ............ copy the OLD values now (open the OLD
+                                    service's Environment tab and copy
+                                    each non-secret value somewhere
+                                    local); ALLOWED_HOSTS changes in B4.
+[ ] A2. Do a quick sanity check that the live site works today (login,
+        one course page) so any breakage later is attributable.
+
+
+B. BUILD + VERIFY THE NEW SERVICE (old still serving)
+-----------------------------------------------------
+[ ] B1. Render dashboard -> New -> Web Service (NOT Blueprint — the
+        Blueprint path is retired, see phase 48).
+        Connect repo Cesar6060/LMS, branch main.
+[ ] B2. Settings on the create form:
+        - Name: stemquest-api-va (Render adds a URL suffix regardless)
+        - Region: Virginia (US East)
+        - Instance type: Starter  (free tier blocks SMTP — phase 47)
+        - Root directory: backend
+        - Build command:
+          pip install -r requirements.txt && python manage.py collectstatic --noinput
+        - Start command:
+          gunicorn config.wsgi:application --bind 0.0.0.0:$PORT --workers 2 --timeout 120
+        - Health check path: /api/health/
+        - Auto-deploy: ON
+[ ] B3. Environment tab: enter EVERY var from the render.yaml inventory.
+        Literals (same values as OLD):
+          PYTHON_VERSION=3.12   DEBUG=false   USE_HTTPS=true
+          EMAIL_BACKEND=django.core.mail.backends.smtp.EmailBackend
+          EMAIL_HOST=smtp.gmail.com  EMAIL_PORT=587  EMAIL_USE_TLS=True
+          ACCOUNT_EMAIL_VERIFICATION=optional
+          ALLOW_REGISTRATION=false
+          THROTTLE_ANON=30/min  THROTTLE_DEMO_LOGIN=10/min
+          THROTTLE_PASSWORD_RESET=5/hour
+          USE_R2=true  R2_SIGNED_URL_TTL=3600
+        Secrets: paste the values from A1.
+        SECRET_KEY: use Render's "Generate" button — never reuse or
+        paste one. (Consequence: at cutover everyone is logged out and
+        old reset links die. Expected, fine.)
+        ALLOWED_HOSTS: leave a placeholder for now (the new host is not
+        known yet) — fixed in B4.
+[ ] B4. Create the service. As soon as Render shows the assigned URL,
+        WRITE IT DOWN, then set ALLOWED_HOSTS to that hostname (no
+        https://, e.g. stemquest-api-xxxx.onrender.com) and let it
+        redeploy. The first deploy may fail its health check with a 400
+        (DisallowedHost) if it raced you — just Manual Deploy after
+        ALLOWED_HOSTS is right.
+[ ] B5. Verify the NEW service directly (nothing user-facing yet):
+        - curl <NEW-URL>/api/health/           -> 200
+        - curl "<NEW-URL>/api/health/?deep=1"  -> 200, db ok
+        - Latency win: time 5x shallow and 5x deep — deep should now be
+          within ~20 ms of shallow (was +70-130 ms from Oregon).
+        - <NEW-URL>/<ADMIN_URL> renders with CSS; log in.
+        - curl -X POST <NEW-URL>/api/auth/demo-login/ -> 200 with tokens.
+        - Password reset round trip: POST your real email to
+          <NEW-URL>/api/auth/password/reset/ -> branded email arrives
+          (link points at the frontend — that part is FRONTEND_URL and
+          does not depend on the API host). Mind the 5/hour throttle.
+        - In admin, open a course with media — R2 presigned URLs load.
+[ ] B6. Optional but nice: 30-burst the demo-login endpoint on <NEW-URL>
+        -> expect exactly 20x200 then 10x429 (10/min x 2 workers).
+
+
+C. CUTOVER (the only user-visible step)
+---------------------------------------
+[ ] C1. Repo PR (agent work): add <NEW-URL> origin to connect-src in
+        frontend/public/_headers KEEPING the old origin too (rollback
+        stays a pure config flip); update README.md API link; touch up
+        the vite.config.ts example string. /verify-stack + CI, merge.
+[ ] C2. Cloudflare dashboard -> the stemquest frontend project -> build
+        env vars: set VITE_API_URL=<NEW-URL>/api   (the /api suffix is
+        required). Trigger a frontend redeploy. (The redeploy also ships
+        the C1 CSP change.)
+[ ] C3. Click through the live site with devtools console open: demo
+        login, dashboard, course roadmap, an image/attachment, logout.
+        Zero CSP or CORS errors. (Everyone's old sessions are invalid —
+        expected; just log in fresh.)
+[ ] C4. UptimeRobot: edit monitor 803564203 (shallow) URL to
+        <NEW-URL>/api/health/ and monitor 803564235 (deep keyword) to
+        <NEW-URL>/api/health/?deep=1 — keyword config unchanged. Both UP.
+
+
+D. DECOMMISSION (after C is verified)
+-------------------------------------
+[ ] D1. Suspend the OLD service (Settings -> Suspend). Do NOT delete yet
+        — resume = instant rollback.
+[ ] D2. Rollback window: ~3 days with UptimeRobot green and no user
+        reports.
+[ ] D3. Delete the OLD service (stops the second $7/mo Starter charge).
+        Check the Render billing page shows one Starter instance.
+[ ] D4. Cleanup PR (agent work): drop the OLD origin from _headers CSP;
+        update render.yaml's documented region (oregon -> virginia),
+        service id, and drift comment; check off the phase 49 spec.
+
+
+ROLLBACK (any time before D3)
+-----------------------------
+1. Cloudflare: VITE_API_URL back to https://stemquest-api.onrender.com/api,
+   redeploy frontend (old origin is still in the CSP — C1 kept it).
+2. If suspended, resume the OLD service.
+3. Repoint the two UptimeRobot monitors back.
+Nothing else changed on the old service; it resumes exactly as it was.

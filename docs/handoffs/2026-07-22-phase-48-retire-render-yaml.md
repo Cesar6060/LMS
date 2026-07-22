@@ -37,15 +37,24 @@ Verified: pytest 425 passed (in docker), tsc 0 errors, lint 0 errors /
 ## Next steps
 
 1. Merge PR #42, confirm /api/health/ returns 200, check the final spec box.
-2. PHASE 49 CANDIDATE — region move Oregon → Virginia. Service runs in
-   Oregon; Neon is aws-us-east-1. Measured: shallow /api/health/
-   ~130–250 ms vs deep ?deep=1 ~250–370 ms → ~70–130 ms per DB round trip,
-   × queries per request. User asked "would the app be faster in east?" —
-   yes, materially, for every DB-bound request. Render can't migrate
-   regions in place: requires recreating the service (re-enter all
-   dashboard env vars/secrets, URL should be reclaimable if the old
-   service is renamed/deleted first, but plan carefully; frontend points
-   at https://stemquest-api.onrender.com). Decision not yet made.
+2. PHASE 49 — region move Oregon → Virginia is now FULLY PLANNED (same
+   session, user-requested): spec at
+   docs/specs/phase-49-region-move-virginia.md, operator runbook at
+   docs/runbooks/phase-49-region-move-steps.txt (both on PR #42).
+   Execution starts at runbook step A (gather secrets) whenever the user
+   is ready — steps A-B are zero-risk (old service keeps serving).
+   Planning facts pinned this session:
+   - New Render services get a random-suffixed URL (observed on another
+     service in this workspace), so the clean stemquest-api.onrender.com
+     is NOT reclaimable — the plan treats the URL change as given.
+   - Complete API-URL consumer list is in the spec; the non-obvious one
+     is frontend/public/_headers CSP connect-src (frontend cannot call
+     the new API until its origin is added — sequenced as cutover C1,
+     keeping the old origin for pure-config rollback).
+   - Fresh SECRET_KEY on the new service (old is vault-locked) → SIMPLE_JWT
+     sessions and in-flight reset links die at cutover. Accepted.
+   - UptimeRobot monitors to repoint: 803564203 (shallow), 803564235
+     (deep keyword).
 
 ## Decisions made
 
