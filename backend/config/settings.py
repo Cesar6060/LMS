@@ -253,7 +253,11 @@ DEMO_ACCOUNT_EMAIL = config('DEMO_ACCOUNT_EMAIL', default='jdoe@demo.com')
 
 # Django admin mount path. Production can move it off the default to shrink the
 # brute-force surface. No leading slash; must end with '/' (it's a url prefix).
-ADMIN_URL = config('ADMIN_URL', default='admin/')
+# Guard against an empty env value (which would mount admin at '/') and a
+# missing trailing slash.
+ADMIN_URL = (config('ADMIN_URL', default='admin/').strip().lstrip('/') or 'admin/')
+if not ADMIN_URL.endswith('/'):
+    ADMIN_URL += '/'
 
 # Largest avatar image a user may upload (enforced in accounts.views.upload_avatar).
 # Django's DATA_UPLOAD_MAX_MEMORY_SIZE deliberately excludes file fields, so the
