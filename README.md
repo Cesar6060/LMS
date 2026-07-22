@@ -2,45 +2,52 @@
 
 [![CI](https://github.com/Cesar6060/LMS/actions/workflows/ci.yml/badge.svg)](https://github.com/Cesar6060/LMS/actions/workflows/ci.yml)
 
-A full-stack Learning Management System (LMS) built for Computer Science education, featuring real-time notifications, immersive learning mode, and comprehensive course management.
+A full-stack Learning Management System for Computer Science education, deployed and running in production. Students work through paginated lessons in an immersive learning mode, pass mastery-style comprehension quizzes, and earn XP and badges; instructors build courses, grade, and track their roster.
+
+**Live app:** <https://stemquest.cesarvillarreal11.workers.dev>
+**API:** <https://stemquest-api.onrender.com>
+
+### Try it
+
+Log in with the public demo account:
+
+| | |
+|---|---|
+| **Email** | `jdoe@demo.com` |
+| **Password** | `Admin123!` |
+
+The demo account is a student enrolled in **JAVA101 (Introduction to Java)** with Unit 1 completed and Unit 2 in progress — poke around freely; it resets to that baseline periodically. The first request may take up to a minute if the free-tier backend happens to be cold.
 
 ![Dashboard Preview](docs/screenshots/Dashboard.png)
-
-![Student Courses](docs/screenshots/Student_Courses.png)
-
-![Learning Mode](docs/screenshots/Student_Learning_Mode.png)
 
 ## Features
 
 ### For Students
-- **Immersive Learning Mode** - Distraction-free course player with video lessons, markdown content, and progress tracking
-- **Real-time Notifications** - Instant updates for grades, announcements, and deadlines via WebSockets
-- **Quiz System** - Auto-graded multiple choice quizzes with attempt tracking
-- **Assignment Submissions** - File uploads with late submission policies
-- **Progress Tracking** - Resume videos exactly where you left off
+- **Immersive Learning Mode** — distraction-free course player with paginated sections, embedded video, and markdown content
+- **Mastery Quizzes** — comprehension checks that re-queue missed questions until every one is answered correctly, plus auto-graded unit quizzes with attempt limits
+- **Gamification** — XP, levels, streaks, badges, and a customizable mascot
+- **Progress Tracking** — pick up exactly where you left off, down to the section and video position
+- **Discussions** — course-level threads and replies
 
 ### For Instructors
-- **Course Builder** - Create courses with units, lessons, and embedded videos
-- **Gradebook** - Matrix view with inline grading and CSV export
-- **Student Roster** - Track activity, send invitations, manage enrollments
-- **Announcements** - Pin important updates, optional email notifications
-- **Quiz Builder** - Create questions with configurable attempts and passing scores
-
-## Tech Stack
-
-| Layer | Technology |
-|-------|------------|
-| **Frontend** | React 18, TypeScript, Vite, Tailwind CSS, Framer Motion |
-| **Backend** | Django 4.2 LTS, Django REST Framework, Django Channels |
-| **Database** | PostgreSQL 16 |
-| **Real-time** | Redis, WebSockets |
-| **Auth** | JWT tokens, django-allauth, dj-rest-auth |
-| **DevOps** | Docker, Docker Compose |
+- **Course Builder** — courses → units → lessons → sections, with embedded videos and file attachments
+- **Gradebook** — matrix view with inline grading and CSV export
+- **Student Roster** — activity tracking, invitations, enrollment management
+- **Announcements** — pinned updates with optional email notifications
+- **Quiz Builder** — configurable attempts, passing scores, and per-lesson comprehension checks
 
 ## Screenshots
 
+### Student Experience
+
+![Student Courses](docs/screenshots/Student_Courses.png)
+*Course catalog and enrollment*
+
+![Learning Mode](docs/screenshots/Student_Learning_Mode.png)
+*Immersive learning mode with paginated lesson content*
+
 <details>
-<summary>Click to expand screenshots</summary>
+<summary>Instructor views (demo account is student-only — expand to see the other half)</summary>
 
 ### Course Management
 ![Course Management](docs/screenshots/Course-Manage.png)
@@ -52,7 +59,7 @@ A full-stack Learning Management System (LMS) built for Computer Science educati
 
 ### Grading Interface
 ![Grading](docs/screenshots/Grading.png)
-*Assignment grading with feedback and late penalty support*
+*Grading with feedback support*
 
 ### Student Roster
 ![Roster](docs/screenshots/Roster.png)
@@ -60,31 +67,48 @@ A full-stack Learning Management System (LMS) built for Computer Science educati
 
 </details>
 
-## Architecture
+## Production Architecture
+
+Every service runs on a free tier, each picked to do one job well:
 
 ```
-┌─────────────────────────────────────────────────────────────┐
-│                        Frontend                              │
-│  React 18 + TypeScript + Tailwind + Framer Motion           │
-└─────────────────────────┬───────────────────────────────────┘
-                          │ REST API + WebSocket
-┌─────────────────────────┴───────────────────────────────────┐
-│                        Backend                               │
-│  Django REST Framework + Django Channels                     │
-├──────────────────┬──────────────────┬───────────────────────┤
-│   PostgreSQL     │      Redis       │    File Storage       │
-│   (Data Store)   │   (WebSocket)    │   (Media/Uploads)     │
-└──────────────────┴──────────────────┴───────────────────────┘
+    Browser
+      |  loads JS/CSS from        Cloudflare Workers (frontend, global CDN)
+      |  images/files from        Cloudflare R2      (media storage)
+      |  API calls to             Render             (Django + gunicorn)
+      |                             |
+      |                             +-- Neon          (serverless Postgres)
+      |
+      +-- errors reported to      Sentry       (frontend + backend projects)
+          uptime watched by       UptimeRobot  (incl. keep-warm ping)
 ```
 
-### Key Design Decisions
+- **Cloudflare Workers** serves the built React app as static assets from a global CDN, auto-deploying on every push to `main`.
+- **Render** runs the Django API with gunicorn; WhiteNoise serves the admin's static files so no separate CDN is needed. Deploys are gated on a health check.
+- **Neon** hosts Postgres with compute that sleeps when idle — the shallow `/api/health/` endpoint deliberately skips the DB so the keep-warm ping doesn't hold it awake, while an hourly deep check (`?deep=1`) proves Django can actually reach it.
+- **Cloudflare R2** stores user uploads (avatars, attachments) via `django-storages`, because Render's free-tier filesystem is wiped on every deploy.
+- **Sentry** tracks errors in two projects (`stemquest-django`, `stemquest-react`) with release tagging, readable stack traces via hidden source maps, and PII scrubbed.
+- **UptimeRobot** answers "is the site down?" with three monitors; its 5-minute ping doubles as the keep-warm that prevents free-tier cold starts.
+- **GitHub Actions** runs pytest, `tsc`, ESLint, and a production Vite build on every PR — a red run blocks the merge, and both hosts deploy whatever lands on `main`.
 
-- **Django Channels for WebSockets** - Real-time notifications without polling, scalable with Redis backend
-- **JWT Authentication** - Stateless auth with refresh tokens for better security
-- **Role-based Access Control** - Instructor vs student permissions enforced at API level
-- **Enrollment Codes** - Secure course access without requiring instructor approval for each student
+Deep dives: [deployment overview](docs/specs/deployment-overview.md) · [deployment runbooks](docs/runbooks/)
 
-## Quick Start
+## Tech Stack
+
+| Layer | Technology |
+|-------|------------|
+| **Frontend** | React 18, TypeScript, Vite, Tailwind CSS, Framer Motion |
+| **Frontend hosting** | Cloudflare Workers (static assets, global CDN) |
+| **Backend** | Django 4.2 LTS, Django REST Framework, gunicorn, WhiteNoise |
+| **Backend hosting** | Render |
+| **Database** | PostgreSQL 16 (Neon serverless in production) |
+| **Media storage** | Cloudflare R2 via django-storages |
+| **Auth** | JWT tokens, django-allauth, dj-rest-auth |
+| **Observability** | Sentry (both halves), UptimeRobot |
+| **CI/CD** | GitHub Actions; git-push deploys to Render + Cloudflare |
+| **Local dev** | Docker Compose (production runs no containers) |
+
+## Local Development
 
 ### Prerequisites
 - Docker & Docker Compose
@@ -97,7 +121,7 @@ git clone https://github.com/Cesar6060/LMS.git
 cd LMS
 
 # Start all services
-docker-compose up
+docker compose up
 
 # Access the application
 # Frontend: http://localhost:5173
@@ -105,12 +129,14 @@ docker-compose up
 # Admin Panel: http://localhost:8000/admin
 ```
 
-### Demo Accounts
+### Local Demo Accounts
 
-Seed the database with demo data:
+The live site's `jdoe@demo.com` login above is managed separately (see
+`seed_demo_account`). For **local development only**, seed a full set of
+demo data:
 
 ```bash
-docker-compose exec backend python manage.py seed_data
+docker compose exec backend python manage.py seed_data
 ```
 
 Then log in at http://localhost:5173/login:
@@ -120,77 +146,42 @@ Then log in at http://localhost:5173/login:
 | Instructor | instructor@demo.com | `Admin123!` |
 | Student | student1@demo.com … student5@demo.com | `Admin123!` |
 
-> All demo accounts (instructor and students 1–5) share the password `Admin123!`.
-
-## API Overview
-
-The platform exposes a RESTful API with 40+ endpoints:
-
-| Resource | Endpoints | Description |
-|----------|-----------|-------------|
-| Auth | 8 | Registration, login, password reset, user settings |
-| Courses | 12 | CRUD, enrollment, units, lessons |
-| Assignments | 6 | Submissions, grading, file uploads |
-| Quizzes | 10 | Questions, attempts, auto-grading |
-| Gradebook | 3 | Matrix view, export, quick grade |
-| Notifications | 4 | Real-time via WebSocket + REST fallback |
+> **Never run `seed_data` against production.** It creates courses and a
+> pile of demo users. The only command safe to point at the production
+> database is `seed_demo_account`, which touches nothing but the jdoe
+> demo account.
 
 ## Project Structure
 
 ```
-gamedev-platform/
 ├── backend/
-│   ├── accounts/        # User model, auth, preferences
-│   ├── courses/         # Courses, units, lessons, progress
-│   ├── assignments/     # Assignments, submissions, grades
-│   ├── quizzes/         # Quiz engine with auto-grading
-│   └── notifications/   # WebSocket consumers, notification model
+│   ├── accounts/        # Custom user model, auth, preferences
+│   ├── courses/         # Courses, units, lessons, sections, progress
+│   ├── quizzes/         # Unit quiz engine with auto-grading
+│   ├── discussions/     # Course threads and replies
+│   ├── gamification/    # XP, levels, streaks, badges, mascot
+│   └── notifications/   # In-app notification feed
 ├── frontend/
 │   ├── src/
-│   │   ├── components/  # 50+ reusable UI components
+│   │   ├── components/  # Reusable UI components
 │   │   ├── pages/       # Route pages (student & instructor views)
 │   │   ├── contexts/    # Auth, Theme, Notification contexts
 │   │   └── services/    # API service layer
 │   └── ...
-└── docker-compose.yml
+└── docker-compose.yml   # Local dev only
 ```
 
-## Development Highlights
+## Key Design Decisions
 
-### Security
-- Admin-only instructor promotion (no self-registration as instructor)
-- Enrollment codes prevent unauthorized course access
-- File upload validation and size limits
-- CORS and CSRF protection
-
-### Performance
-- Video progress saved on pause/seek (debounced)
-- Optimistic UI updates for better perceived performance
-- Lazy loading for course content
-
-### UX Polish
-- Framer Motion animations throughout
-- Keyboard navigation in learning mode
-- Toast notifications for async actions
-- Responsive design with mobile support
-
-## What I Learned
-
-- **WebSocket Architecture** - Implementing real-time features with Django Channels and handling connection lifecycle
-- **State Management** - Balancing React Context vs component state for auth, theme, and notifications
-- **API Design** - Structuring RESTful endpoints for complex nested resources (courses → units → lessons)
-- **Docker Development** - Creating a reproducible dev environment with hot-reload for both frontend and backend
-
-## Future Enhancements
-
-- [ ] Discussion forums for peer support
-- [ ] Instructor analytics dashboard
-- [ ] Certificate generation on course completion
-- [ ] Mobile app with React Native
+- **JWT Authentication** — stateless auth with refresh tokens
+- **Role-based Access Control** — instructor vs student permissions enforced at the API level, backed by a per-endpoint permission test suite
+- **Enrollment Codes** — secure course access without per-student instructor approval
+- **Env-gated production behavior** — R2, Sentry, and production DB config all activate only via environment variables, so local dev and CI stay inert
+- **Mastery-based comprehension checks** — missed questions re-queue until answered correctly; first-try answers are what get scored
 
 ## License
 
-MIT License - feel free to use this as a reference for your own projects.
+MIT License — feel free to use this as a reference for your own projects.
 
 ---
 
