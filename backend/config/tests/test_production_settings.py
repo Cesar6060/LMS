@@ -36,7 +36,7 @@ def test_health_deep_ok(client):
 
 def test_health_deep_returns_503_when_db_down(client, monkeypatch):
     def boom(*args, **kwargs):
-        raise RuntimeError('connection refused')
+        raise RuntimeError('connection refused to host db.neon.tech user secret')
 
     monkeypatch.setattr(connection, 'cursor', boom)
 
@@ -45,7 +45,11 @@ def test_health_deep_returns_503_when_db_down(client, monkeypatch):
     assert response.status_code == 503
     body = response.json()
     assert body['status'] == 'error'
-    assert 'connection refused' in body['database']
+    # The raw exception (host/user/SSL detail) must never reach an anonymous
+    # caller — only a generic marker.
+    assert body['database'] == 'unavailable'
+    assert 'neon.tech' not in str(body)
+    assert 'secret' not in str(body)
 
 
 def test_health_requires_no_auth():

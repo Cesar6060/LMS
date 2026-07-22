@@ -9,14 +9,23 @@ A full-stack Learning Management System for Computer Science education, deployed
 
 ### Try it
 
-Log in with the public demo account:
+The live site runs as a **public demo**. There's no sign-up — everyone shares one
+read-through demo account, a student named John Doe:
 
 | | |
 |---|---|
 | **Email** | `jdoe@demo.com` |
 | **Password** | `Admin123!` |
 
-The demo account is a student enrolled in **JAVA101 (Introduction to Java)** with Unit 1 completed and Unit 2 in progress — poke around freely; it resets to that baseline periodically. The first request may take up to a minute if the free-tier backend happens to be cold.
+The demo account is enrolled in **JAVA101 (Introduction to Java)**, which exists
+purely as a sandbox course for kicking the tires — Unit 1 is completed and Unit 2
+is in progress. Poke around freely; it resets to that baseline periodically. The
+first request may take up to a minute if the free-tier backend happens to be cold.
+
+> Self-registration is disabled in production and the demo account is a plain
+> student (never staff, superuser, or instructor), so a curious visitor can't
+> escalate privileges or reach the admin. The instructor-side tooling below is
+> shown via screenshots rather than a live login.
 
 ![Dashboard Preview](docs/screenshots/Dashboard.png)
 
@@ -103,7 +112,7 @@ Deep dives: [deployment overview](docs/specs/deployment-overview.md) · [deploym
 | **Backend hosting** | Render |
 | **Database** | PostgreSQL 16 (Neon serverless in production) |
 | **Media storage** | Cloudflare R2 via django-storages |
-| **Auth** | JWT tokens, django-allauth, dj-rest-auth |
+| **Auth** | DRF token auth, django-allauth, dj-rest-auth |
 | **Observability** | Sentry (both halves), UptimeRobot |
 | **CI/CD** | GitHub Actions; git-push deploys to Render + Cloudflare |
 | **Local dev** | Docker Compose (production runs no containers) |
@@ -173,8 +182,9 @@ Then log in at http://localhost:5173/login:
 
 ## Key Design Decisions
 
-- **JWT Authentication** — stateless auth with refresh tokens
+- **Token Authentication** — DRF token auth via dj-rest-auth; every request is deny-by-default (`IsAuthenticated`)
 - **Role-based Access Control** — instructor vs student permissions enforced at the API level, backed by a per-endpoint permission test suite
+- **Demo-mode lockdown** — public self-registration is gated behind `ALLOW_REGISTRATION` (off in production), so the live site exposes only the shared demo student; the endpoint returns 403 server-side, not just a hidden button
 - **Enrollment Codes** — secure course access without per-student instructor approval
 - **Env-gated production behavior** — R2, Sentry, and production DB config all activate only via environment variables, so local dev and CI stay inert
 - **Mastery-based comprehension checks** — missed questions re-queue until answered correctly; first-try answers are what get scored

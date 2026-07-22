@@ -10,7 +10,10 @@ from django.conf.urls.static import static
 from config.health import health, sentry_debug
 
 urlpatterns = [
-    path('admin/', admin.site.urls),
+    # Admin path is configurable so production can move it off the guessable
+    # default (set ADMIN_URL, e.g. 'secret-console/'), shrinking the brute-force
+    # surface. Defaults to 'admin/' for local dev.
+    path(settings.ADMIN_URL, admin.site.urls),
 
     # API endpoints
     #

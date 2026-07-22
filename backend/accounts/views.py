@@ -1,10 +1,27 @@
+from django.conf import settings
 from rest_framework import status
 from rest_framework.decorators import api_view, permission_classes, parser_classes
 from rest_framework.parsers import MultiPartParser, FormParser, JSONParser
-from rest_framework.permissions import IsAuthenticated
+from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 from .models import UserPreferences
 from .serializers import UserSerializer, UserPreferencesSerializer
+
+
+@api_view(['POST'])
+@permission_classes([AllowAny])
+def registration_disabled(request):
+    """Stand-in for the registration endpoint when self-signup is turned off.
+
+    The live site is a public demo — visitors log in as the shared demo student,
+    not their own accounts — so registration is disabled. Returning an explicit
+    403 (rather than leaving the real endpoint mounted) means no request can
+    create an account no matter what payload it carries.
+    """
+    return Response(
+        {'detail': 'Registration is disabled. This is a demo — log in with the demo account.'},
+        status=status.HTTP_403_FORBIDDEN,
+    )
 
 
 @api_view(['GET', 'PUT', 'PATCH'])
@@ -67,6 +84,14 @@ def upload_avatar(request):
     if 'avatar' not in request.FILES:
         return Response(
             {'error': 'No avatar file provided'},
+            status=status.HTTP_400_BAD_REQUEST
+        )
+
+    avatar_file = request.FILES['avatar']
+    if avatar_file.size > settings.AVATAR_MAX_UPLOAD_BYTES:
+        limit_mb = settings.AVATAR_MAX_UPLOAD_BYTES // (1024 * 1024)
+        return Response(
+            {'error': f'Avatar must be {limit_mb}MB or smaller.'},
             status=status.HTTP_400_BAD_REQUEST
         )
 

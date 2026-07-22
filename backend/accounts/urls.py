@@ -1,10 +1,19 @@
+from django.conf import settings
 from django.urls import path, include
 from . import views
+
+# Registration is gated by ALLOW_REGISTRATION. When off (the default, and how the
+# live demo runs), every path under registration/ resolves to a 403 stub so no
+# account can be created — the real allauth registration urls are never mounted.
+if settings.ALLOW_REGISTRATION:
+    registration_patterns = path('registration/', include('dj_rest_auth.registration.urls'))
+else:
+    registration_patterns = path('registration/', views.registration_disabled)
 
 urlpatterns = [
     # dj-rest-auth endpoints
     path('', include('dj_rest_auth.urls')),
-    path('registration/', include('dj_rest_auth.registration.urls')),
+    registration_patterns,
 
     # Custom user profile endpoint
     path('profile/', views.user_profile, name='user-profile'),

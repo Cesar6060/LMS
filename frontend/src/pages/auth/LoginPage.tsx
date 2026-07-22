@@ -111,12 +111,12 @@ export function LoginPage() {
               {isLoading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
               Sign in
             </Button>
-            <p className="text-sm text-muted-foreground text-center">
-              Don't have an account?{' '}
-              <Link to="/register" className="text-primary hover:underline">
-                Sign up
-              </Link>
-            </p>
+            <div className="rounded-md border border-primary/30 bg-primary/5 p-3 text-center text-sm">
+              <p className="font-medium text-foreground">Just exploring? Use the demo account:</p>
+              <p className="mt-1 font-mono text-muted-foreground">
+                jdoe@demo.com · Admin123!
+              </p>
+            </div>
           </CardFooter>
         </form>
       </Card>

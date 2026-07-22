@@ -9,8 +9,28 @@ courses/<code>/... routes in quizzes/discussions only resolve because the
 courses app defines no competing pattern under api/courses/.
 """
 
+import importlib
+
 import pytest
+from django.conf import settings
 from django.urls import Resolver404, resolve
+
+
+@pytest.mark.parametrize('env_value, expected', [
+    ('admin/', 'admin/'),
+    ('secret-console/', 'secret-console/'),
+    ('secret-console', 'secret-console/'),   # trailing slash added
+    ('/admin/', 'admin/'),                   # leading slash stripped
+    ('', 'admin/'),                          # empty never mounts admin at '/'
+    ('   ', 'admin/'),
+])
+def test_admin_url_normalized(env_value, expected, monkeypatch):
+    monkeypatch.setenv('ADMIN_URL', env_value)
+    import config.settings as s
+    importlib.reload(s)
+    assert s.ADMIN_URL == expected
+    # Never mount at the site root.
+    assert s.ADMIN_URL not in ('', '/')
 
 
 def test_course_quizzes_falls_through_to_quizzes_app():

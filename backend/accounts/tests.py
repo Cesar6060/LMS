@@ -132,9 +132,70 @@ class TestAuthEndpoints:
         assert response.status_code == status.HTTP_200_OK
         assert response.data['first_name'] == 'Updated'
 
+    def test_profile_update_cannot_self_promote_to_instructor(self, api_client, user):
+        """A student cannot flip is_instructor via the profile endpoint — the
+        field is read-only, so the write is silently ignored, not honored."""
+        assert user.is_instructor is False
+        api_client.force_authenticate(user=user)
+        response = api_client.patch('/api/auth/profile/', {
+            'is_instructor': True,
+        })
+        assert response.status_code == status.HTTP_200_OK
+        assert response.data['is_instructor'] is False
+        user.refresh_from_db()
+        assert user.is_instructor is False
+
     def test_unauthenticated_profile_access(self, api_client):
         response = api_client.get('/api/auth/profile/')
         assert response.status_code == status.HTTP_401_UNAUTHORIZED
+
+    def test_demo_account_password_change_blocked(self, api_client, settings):
+        """The published shared demo account cannot have its password changed,
+        so one visitor can't lock out the rest."""
+        settings.DEMO_ACCOUNT_EMAIL = 'demo@test.com'
+        demo = User.objects.create_user(email='demo@test.com', password='testpass123')
+        api_client.force_authenticate(user=demo)
+        response = api_client.post('/api/auth/password/change/', {
+            'new_password1': 'BrandNewPass!123',
+            'new_password2': 'BrandNewPass!123',
+        })
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        demo.refresh_from_db()
+        assert demo.check_password('testpass123')
+
+    def test_regular_user_password_change_allowed(self, api_client, user, settings):
+        """Non-demo users change their password normally."""
+        settings.DEMO_ACCOUNT_EMAIL = 'demo@test.com'
+        api_client.force_authenticate(user=user)
+        response = api_client.post('/api/auth/password/change/', {
+            'new_password1': 'BrandNewPass!123',
+            'new_password2': 'BrandNewPass!123',
+        })
+        assert response.status_code == status.HTTP_200_OK
+        user.refresh_from_db()
+        assert user.check_password('BrandNewPass!123')
+
+    def test_registration_disabled_by_default(self, api_client):
+        """With ALLOW_REGISTRATION off (the demo default), signup is refused and
+        no account is created regardless of payload."""
+        response = api_client.post('/api/auth/registration/', {
+            'email': 'attacker@test.com',
+            'password1': 'S3curePass!123',
+            'password2': 'S3curePass!123',
+        })
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+        assert not User.objects.filter(email='attacker@test.com').exists()
+
+    def test_registration_cannot_grant_instructor(self, api_client):
+        """Even the disabled endpoint never honors an is_instructor payload."""
+        response = api_client.post('/api/auth/registration/', {
+            'email': 'attacker2@test.com',
+            'password1': 'S3curePass!123',
+            'password2': 'S3curePass!123',
+            'is_instructor': True,
+        })
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+        assert not User.objects.filter(email='attacker2@test.com').exists()
 
 
 def make_png(name='avatar.png'):
@@ -200,6 +261,23 @@ class TestAvatarEndpoints:
             '/api/auth/settings/avatar/', {}, format='multipart')
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST
+
+    def test_oversized_avatar_rejected(self, api_client, user, settings):
+        """An avatar over the size cap is refused before it's stored, so a
+        visitor can't push huge files into media storage."""
+        settings.AVATAR_MAX_UPLOAD_BYTES = 1024  # 1 KB cap for the test
+        api_client.force_authenticate(user=user)
+        big = SimpleUploadedFile(
+            'big.png', b'\x89PNG\r\n' + b'0' * 4096, content_type='image/png')
+
+        response = api_client.post(
+            '/api/auth/settings/avatar/',
+            {'avatar': big},
+            format='multipart',
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert not UserPreferences.objects.get(user=user).avatar
 
     def test_delete_avatar(self, api_client, user):
         api_client.force_authenticate(user=user)
