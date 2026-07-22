@@ -101,13 +101,23 @@ zero new setup.
 
 ## Rollout (operator runbook — written: `docs/runbooks/phase-47-email-rollout.txt`)
 
-- [ ] USER: create a Google app password for cesarvillarreal11@gmail.com
+- [x] USER: create a Google app password for cesarvillarreal11@gmail.com
       (requires 2-Step Verification on the Google account; Google Account →
       Security → App passwords). Never commit it; paste only into Render.
-- [ ] USER: set `EMAIL_HOST_USER`, `EMAIL_HOST_PASSWORD` (the app password),
+      *(Done 2026-07-22 ~20:01 UTC — "STEM Quest Render" app password.)*
+- [x] USER: set `EMAIL_HOST_USER`, `EMAIL_HOST_PASSWORD` (the app password),
       `DEFAULT_FROM_EMAIL=cesarvillarreal11@gmail.com`, and
       `THROTTLE_PASSWORD_RESET` (e.g. `5/hour`) in the Render dashboard.
-- [ ] Merge PR → Render deploys → live verification below.
+      *(Done 2026-07-22. NOTE: `EMAIL_BACKEND`, `EMAIL_HOST`,
+      `THROTTLE_ANON`, and `THROTTLE_DEMO_LOGIN` also had to be set in the
+      dashboard — the render.yaml Blueprint env-var sync turned out to be
+      broken (values from render.yaml never reach the service; see phase-47
+      handoff). A stale dashboard `EMAIL_BACKEND=console` was also deleted.)*
+- [x] Merge PR → Render deploys → live verification below.
+      *(PR #39 merged 2026-07-22 15:20 UTC; service also upgraded free →
+      Starter because Render's free tier blocks outbound SMTP ports
+      entirely. Hotfix PR #40 — Cloudflare-aware throttle ident — merged
+      23:20 UTC.)*
 
 ## Verification
 
@@ -121,7 +131,7 @@ zero new setup.
       *(Done 2026-07-22: reset for student1@demo.com printed subject "Reset
       your STEM Quest password", branded text+HTML body, and
       `http://localhost:5173/reset-password?uid=2&token=…`.)*
-- [ ] Prod (after rollout): request a password reset for a real account you
+- [x] Prod (after rollout): request a password reset for a real account you
       control on the live site → email arrives in the inbox from
       cesarvillarreal11@gmail.com; clicking the link opens
       `/reset-password` on
@@ -129,7 +139,19 @@ zero new setup.
       populated; completing the form changes the password; logging in with
       the new password works (then reset it back or use a throwaway
       account — do NOT use the demo account, its password is operator-managed).
-- [ ] Prod: repeated anonymous reset requests hit the throttle (429) once
+      *(2026-07-22 21:02 UTC: branded email delivered to the inbox from/to
+      cesarvillarreal11@gmail.com, subject "Reset your STEM Quest password",
+      link `https://stemquest.cesarvillarreal11.workers.dev/reset-password?uid=1&token=…`,
+      plain-text link unescaped; /reset-password route serves 200. Form
+      completion + re-login handed to USER — silence convention.)*
+- [x] Prod: repeated anonymous reset requests hit the throttle (429) once
       past the configured rate.
-- [ ] Prod: Render logs show no SMTP auth errors on deploy; a reset request
+      *(2026-07-22 23:2x UTC, after hotfix PR #40: burst of 30 → 429 from
+      request 4 onward (per-worker counters part-filled by earlier probes).
+      Pre-fix the limit never fired: DRF keyed buckets on the full
+      X-Forwarded-For chain and Cloudflare's rotating edge IP gave every
+      request a fresh bucket — fixed by keying on CF-Connecting-IP.)*
+- [x] Prod: Render logs show no SMTP auth errors on deploy; a reset request
       no longer prints an email body to the logs.
+      *(Logs clean from 21:01 UTC through post-#40 deploy: no SMTP errors,
+      no printed email bodies.)*
