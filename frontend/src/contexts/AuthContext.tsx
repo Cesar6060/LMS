@@ -33,6 +33,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       console.error('Failed to fetch user:', error);
       setUser(null);
       localStorage.removeItem('token');
+      localStorage.removeItem('refresh');
     } finally {
       setIsLoading(false);
     }

@@ -1,4 +1,5 @@
 import csv
+from django.conf import settings
 from rest_framework import viewsets, status, generics
 from rest_framework.decorators import action, api_view, permission_classes as perm_classes
 from rest_framework.response import Response
@@ -2444,12 +2445,13 @@ def lesson_attachments(request, lesson_id):
             'py', 'js', 'css', 'json'  # code files
         }
 
-        # Validate file sizes (max 10MB each) and file types
-        max_size = 10 * 1024 * 1024  # 10MB
+        # Validate file sizes and file types
+        max_size = settings.ATTACHMENT_MAX_UPLOAD_BYTES
+        limit_mb = max_size // (1024 * 1024)
         for f in files:
             if f.size > max_size:
                 return Response(
-                    {'error': f'File "{f.name}" exceeds 10MB limit'},
+                    {'error': f'File "{f.name}" exceeds {limit_mb}MB limit'},
                     status=status.HTTP_400_BAD_REQUEST
                 )
 

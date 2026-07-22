@@ -4,21 +4,27 @@ import type { User, AuthResponse, LoginCredentials, RegisterData } from '../type
 export const authService = {
   async login(credentials: LoginCredentials): Promise<AuthResponse> {
     const response = await api.post<AuthResponse>('/auth/login/', credentials);
-    localStorage.setItem('token', response.data.key);
+    localStorage.setItem('token', response.data.access);
+    localStorage.setItem('refresh', response.data.refresh);
     return response.data;
   },
 
   async register(data: RegisterData): Promise<AuthResponse> {
     const response = await api.post<AuthResponse>('/auth/registration/', data);
-    localStorage.setItem('token', response.data.key);
+    localStorage.setItem('token', response.data.access);
+    localStorage.setItem('refresh', response.data.refresh);
     return response.data;
   },
 
   async logout(): Promise<void> {
     try {
-      await api.post('/auth/logout/');
+      // The backend blacklists the refresh token so it can't be reused.
+      await api.post('/auth/logout/', {
+        refresh: localStorage.getItem('refresh'),
+      });
     } finally {
       localStorage.removeItem('token');
+      localStorage.removeItem('refresh');
     }
   },
 

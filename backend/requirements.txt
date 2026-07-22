@@ -14,7 +14,11 @@ whitenoise[brotli]==6.8.2
 # Authentication
 django-allauth==65.3.0
 dj-rest-auth==7.0.1
+djangorestframework-simplejwt==5.5.0
 requests>=2.31.0
+
+# Security headers
+django-csp==4.0
 
 # Files & Images
 pillow==11.1.0

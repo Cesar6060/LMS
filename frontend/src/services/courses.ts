@@ -1,4 +1,4 @@
-import api, { API_URL } from './api';
+import api from './api';
 import type { Course, Unit, Lesson, Enrollment, LessonProgress, GradingConfig, GradeSummary, EnhancedDashboard, LessonQuestion, LessonQuestionsStatus, AnswerQuestionResult, QuizSubmissionResult, LessonAttachment, LessonSection, InstructorReminder, CalendarResponse, QuizSessionState, LessonSessionAnswerResult, CourseMap } from '../types';
 
 // Re-export types for convenience
@@ -361,8 +361,14 @@ export const courseService = {
     return response.data;
   },
 
-  getGradebookExportUrl(courseCode: string): string {
-    return `${API_URL}/courses/courses/${courseCode}/gradebook/export/`;
+  async exportGradebookCsv(courseCode: string): Promise<Blob> {
+    // Through the api client (not a raw link) so JWT auth and silent refresh
+    // apply to the download.
+    const response = await api.get<Blob>(
+      `/courses/courses/${courseCode}/gradebook/export/`,
+      { responseType: 'blob' }
+    );
+    return response.data;
   },
 
   // Student Roster

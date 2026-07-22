@@ -2,6 +2,7 @@
 Django settings for gamedev_platform project.
 """
 
+from datetime import timedelta
 from pathlib import Path
 from decouple import config, Csv
 from django.core.exceptions import ImproperlyConfigured
@@ -45,7 +46,7 @@ INSTALLED_APPS = [
 
     # Third-party apps
     'rest_framework',
-    'rest_framework.authtoken',
+    'rest_framework_simplejwt.token_blacklist',
     'corsheaders',
     'allauth',
     'allauth.account',
@@ -75,6 +76,8 @@ MIDDLEWARE = [
     'django.contrib.messages.middleware.MessageMiddleware',
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
     'allauth.account.middleware.AccountMiddleware',
+    'csp.middleware.CSPMiddleware',
+    'config.middleware.PermissionsPolicyMiddleware',
 ]
 
 ROOT_URLCONF = 'config.urls'
@@ -170,10 +173,12 @@ if USE_R2:
             'secret_key': config('R2_SECRET_ACCESS_KEY'),
             'bucket_name': config('R2_BUCKET_NAME'),
             'endpoint_url': f"https://{config('R2_ACCOUNT_ID')}.r2.cloudflarestorage.com",
-            # Public r2.dev host: makes .url return an absolute public URL
-            # instead of a path under MEDIA_URL.
-            'custom_domain': config('R2_PUBLIC_HOST'),
-            'querystring_auth': False,
+            # Private bucket (Phase 43): .url returns a presigned URL that
+            # expires, so a shared attachment link can't bypass the enrollment
+            # checks the API enforces. The bucket's public r2.dev access must
+            # stay disabled — there is no custom_domain on purpose.
+            'querystring_auth': True,
+            'querystring_expire': config('R2_SIGNED_URL_TTL', default=3600, cast=int),
             'default_acl': None,
             'file_overwrite': False,
             'region_name': 'auto',
@@ -193,7 +198,11 @@ SITE_ID = 1
 # Django REST Framework
 REST_FRAMEWORK = {
     'DEFAULT_AUTHENTICATION_CLASSES': [
-        'rest_framework.authentication.TokenAuthentication',
+        # JWTCookieAuthentication also accepts plain `Authorization: Bearer`
+        # headers (our only transport — no auth cookies are configured), so it
+        # works for the localStorage token flow the frontend uses.
+        'dj_rest_auth.jwt_auth.JWTCookieAuthentication',
+        # Session auth stays for the Django admin.
         'rest_framework.authentication.SessionAuthentication',
     ],
     'DEFAULT_PERMISSION_CLASSES': [
@@ -238,8 +247,30 @@ if USE_HTTPS:
     CSRF_COOKIE_SECURE = True
     SECURE_HSTS_SECONDS = 31536000  # 1 year — the real domain is live and stable
     SECURE_HSTS_INCLUDE_SUBDOMAINS = True
+    SECURE_HSTS_PRELOAD = True
     SECURE_CONTENT_TYPE_NOSNIFF = True
     SECURE_REFERRER_POLICY = 'same-origin'
+
+# Content-Security-Policy (django-csp 4.x) — applied to every Django-served
+# response. This host only serves JSON API responses and the Django admin, so
+# the policy is strict: nothing loads from anywhere but self. The 'unsafe-inline'
+# style allowance is what the Django 4.2 admin needs (it inlines a few style
+# attributes); admin scripts are all static files, so script-src stays 'self'.
+# The React app is served by Cloudflare and carries its own CSP
+# (frontend/public/_headers) — this policy never applies to it.
+CONTENT_SECURITY_POLICY = {
+    'DIRECTIVES': {
+        'default-src': ("'none'",),
+        'script-src': ("'self'",),
+        'style-src': ("'self'", "'unsafe-inline'"),
+        'img-src': ("'self'",),
+        'font-src': ("'self'",),
+        'connect-src': ("'self'",),
+        'form-action': ("'self'",),
+        'frame-ancestors': ("'none'",),
+        'base-uri': ("'none'",),
+    },
+}
 
 # Public self-registration. The live site runs as a demo (visitors log in as the
 # shared jdoe@demo.com student only), so registration is OFF by default and must
@@ -263,6 +294,10 @@ if not ADMIN_URL.endswith('/'):
 # Django's DATA_UPLOAD_MAX_MEMORY_SIZE deliberately excludes file fields, so the
 # only real cap on an uploaded file is a view-level size check.
 AVATAR_MAX_UPLOAD_BYTES = 5 * 1024 * 1024
+
+# Largest lesson attachment an instructor may upload, per file (enforced in
+# courses.views.lesson_attachments — same view-level pattern as avatars).
+ATTACHMENT_MAX_UPLOAD_BYTES = 25 * 1024 * 1024
 
 # Django Allauth Settings
 ACCOUNT_EMAIL_REQUIRED = True
@@ -288,13 +323,29 @@ DEFAULT_FROM_EMAIL = config('DEFAULT_FROM_EMAIL', default='noreply@localhost')
 # Frontend URL (for email links)
 FRONTEND_URL = config('FRONTEND_URL', default='http://localhost:5173')
 
-# dj-rest-auth Settings
+# dj-rest-auth Settings — JWT (Phase 43). Short-lived access tokens replace the
+# old non-expiring DRF tokens so a leaked token dies on its own. Tokens travel
+# in the response body / Authorization header only (no auth cookies): the
+# frontend keeps them in localStorage, which is CSRF-free by construction.
 REST_AUTH = {
-    'USE_JWT': False,
-    'TOKEN_MODEL': 'rest_framework.authtoken.models.Token',
+    'USE_JWT': True,
+    # False = refresh token is returned in the response body rather than set as
+    # an httpOnly cookie. Deliberate while the app is a locked public demo; see
+    # the phase 43 spec's out-of-scope note before changing.
+    'JWT_AUTH_HTTPONLY': False,
+    'TOKEN_MODEL': None,
     'USER_DETAILS_SERIALIZER': 'accounts.serializers.UserSerializer',
     'REGISTER_SERIALIZER': 'accounts.serializers.RegisterSerializer',
     'PASSWORD_CHANGE_SERIALIZER': 'accounts.serializers.ProtectedPasswordChangeSerializer',
+}
+
+SIMPLE_JWT = {
+    'ACCESS_TOKEN_LIFETIME': timedelta(minutes=60),
+    'REFRESH_TOKEN_LIFETIME': timedelta(days=7),
+    # Every refresh hands out a new refresh token and kills the old one, so a
+    # stolen refresh token stops working as soon as the real client refreshes.
+    'ROTATE_REFRESH_TOKENS': True,
+    'BLACKLIST_AFTER_ROTATION': True,
 }
 
 # Sentry Error Tracking
