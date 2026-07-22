@@ -154,7 +154,11 @@ The app remains a locked public demo (registration off, shared
 - [x] Manual flow (local, `USE_R2` off): log in as demo student → browse
       JAVA101 → download a lesson attachment → log out → confirm the API
       rejects the old access token after logout+expiry.
-- [ ] Manual flow (after prod deploy): attachment URL in DevTools contains
-      `X-Amz-Signature`/`X-Amz-Expires`; the same URL fails after TTL;
-      pasting a pre-phase-43 `pub-*.r2.dev` URL → error; login/refresh
-      works on the live site; `/api/health/?deep=1` → ok.
+- [x] Manual flow (after prod deploy) — verified 2026-07-22 during phase
+      46: live media URL contains `X-Amz-Signature`/`X-Amz-Expires` and
+      serves 200; the same URL with the signature stripped → 400 (no
+      lesson attachments exist in prod, so this was exercised via an
+      avatar upload+delete on the demo account); login/refresh works on
+      the live site; `/api/health/?deep=1` → ok. Remaining sub-item —
+      direct `pub-*.r2.dev` access erroring — lands with the Cloudflare
+      lockdown flip, tracked as phase 46 runbook step 5.

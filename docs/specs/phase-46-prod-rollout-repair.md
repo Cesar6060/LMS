@@ -43,18 +43,19 @@ working again (200 with JWT pair).
 - [x] Generate a random demo password (e.g.
       `python -c "import secrets; print(secrets.token_urlsafe(24))"`).
       Show it to the user once for the Render step; it is never committed.
-- [ ] USER (Render dashboard, from runbook):
+- [x] USER (Render dashboard, from runbook) — done 2026-07-22:
       1. Set `DEMO_ACCOUNT_PASSWORD` = generated secret on the
          stemquest-api service (unblocks the render.yaml blueprint sync).
       2. Delete the now-unused `R2_PUBLIC_HOST` env var.
       3. Confirm a deploy of latest main triggers (manual deploy if not).
-- [ ] After Render deploy is live: verify the phase 44 code is actually
-      deployed — `GET /api/auth/demo-login/` returns 405 JSON (not the
-      Django HTML 404 it returns today).
-- [ ] Reseed the demo account against Neon to rotate the stored hash:
-      `docker compose exec -T -e DATABASE_URL=<neon>
-      -e DEMO_ACCOUNT_PASSWORD=<secret> backend python manage.py
-      seed_demo_account`.
+- [x] After Render deploy is live: verify the phase 44 code is actually
+      deployed — `GET /api/auth/demo-login/` returns 405 JSON. Confirmed
+      2026-07-22 (405, content-type application/json).
+- [x] Reseed the demo account against Neon to rotate the stored hash —
+      done 2026-07-22. Gotcha: the first reseed ran with pre-phase-44
+      code (branch was cut from main before repair PR #37) whose seed
+      command hardcoded `Admin123!`; rebased onto main, restarted the
+      backend container, re-ran — old password now rejected (400).
 - [ ] USER (Cloudflare dashboard, from runbook, ONLY after the Render
       deploy is confirmed): R2 bucket → Settings → disable public
       `pub-*.r2.dev` access (phase 43 rollout step 4).
@@ -73,26 +74,35 @@ auto-deployed from main.)
 
 All against production, in this order:
 
-- [ ] `curl -s "https://stemquest-api.onrender.com/api/health/?deep=1"`
-      → `{"status": "ok", "database": "ok"}`.
-- [ ] `POST /api/auth/demo-login/` → 200 with `access`/`refresh`/`user`
-      for jdoe@demo.com; `GET` on the same URL → 405.
-- [ ] `POST /api/auth/login/` with jdoe@demo.com / Admin123! → 400/401
-      (old public password no longer works after reseed).
-- [ ] Bearer access token from demo-login authenticates
-      `GET /api/auth/user/`.
-- [ ] A lesson attachment URL from the API contains
-      `X-Amz-Signature`/`X-Amz-Expires`; a direct `pub-*.r2.dev` URL for
-      the same object errors (after the Cloudflare flip).
+- [x] `curl -s "https://stemquest-api.onrender.com/api/health/?deep=1"`
+      → `{"status": "ok", "database": "ok"}`. Confirmed 2026-07-22.
+- [x] `POST /api/auth/demo-login/` → 200 with `access`/`refresh`/`user`
+      for jdoe@demo.com; `GET` on the same URL → 405. Confirmed.
+- [x] `POST /api/auth/login/` with jdoe@demo.com / Admin123! → 400
+      (old public password no longer works after reseed). Confirmed.
+- [x] Bearer access token from demo-login authenticates
+      `GET /api/auth/user/` → 200, Jordan Doe. Confirmed.
+- [x] Live media URL contains `X-Amz-Signature`/`X-Amz-Expires` and
+      serves 200; signature-stripped URL → 400. NOTE: prod has zero
+      lesson attachments and zero avatars, so this was exercised by
+      uploading a 1px avatar on the demo account via the live API,
+      checking the returned URL, then deleting it (bucket back to
+      pre-test state).
+- [ ] Direct `pub-*.r2.dev` URL errors — pending the Cloudflare flip
+      (runbook step 5, user). The pub host hash was never recorded in
+      the repo, so the dashboard toggle itself is the confirmation;
+      silence-means-done applies after the user reports the flip.
 - [ ] Browser click-through on https://stemquest.cesarvillarreal11.workers.dev
       (phase 44 manual items, still unticked): header "Try the demo"
       button and login-card demo button both land on the dashboard
-      logged in as John Doe; logout works (JWT blacklist path — this
+      logged in as Jordan Doe; logout works (JWT blacklist path — this
       exercises the new tables). Silence-means-done applies if the user
-      clicks through instead.
-- [ ] Phase 45 leftover: README renders on GitHub main — images resolve,
-      instructor `<details>` block expands. Silence-means-done applies.
-- [ ] `/verify-stack` (no code changed; confirms the local tree is still
-      green: backend 415 passed, tsc 0 errors, lint 0 errors/22 warnings).
-- [ ] Update this checklist + tick the corresponding unticked rollout
+      clicks through instead. (API side verified via curl 2026-07-22.)
+- [x] Phase 45 leftover: README renders on GitHub main — all 9 screenshot
+      paths verified to exist on lms/main; `<details>` block present.
+      Visual render check: silence-means-done.
+- [x] `/verify-stack` run twice 2026-07-22 (pre-merge tree and rebased
+      phase-46 branch): backend 415 passed, tsc 0 errors, lint 0
+      errors/22 warnings both times.
+- [x] Update this checklist + tick the corresponding unticked rollout
       items in docs/specs/phase-43 and phase-44 specs, then `/handoff`.

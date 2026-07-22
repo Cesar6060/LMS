@@ -16,7 +16,7 @@ Statuses: [ ] not yet run. Update as steps complete.
 
 STEP 1 — MERGE THE REPAIR PR (GitHub)
 -------------------------------------
-[ ] Merge https://github.com/Cesar6060/LMS/pull/37 into main using
+[x] Merge https://github.com/Cesar6060/LMS/pull/37 into main using
     "Create a merge commit" (the green button's default). This re-lands
     the already-reviewed phase 44 + 45 content onto main. Do not use
     squash or rebase; a plain merge keeps the history readable.
@@ -27,7 +27,7 @@ STEP 1 — MERGE THE REPAIR PR (GitHub)
 
 STEP 2 — RENDER: SET THE DEMO PASSWORD (Render dashboard)
 ---------------------------------------------------------
-[ ] Render > stemquest-api service > Environment > add:
+[x] Render > stemquest-api service > Environment > add:
         DEMO_ACCOUNT_PASSWORD = <the secret Claude showed you in chat>
     This is the render.yaml sync:false variable that has been blocking
     the blueprint sync. The secret is never committed anywhere; if you
@@ -37,14 +37,14 @@ STEP 2 — RENDER: SET THE DEMO PASSWORD (Render dashboard)
 
 STEP 3 — RENDER: DELETE THE DEAD VARIABLE (Render dashboard)
 ------------------------------------------------------------
-[ ] Same Environment page: delete R2_PUBLIC_HOST. It is unused since
+[x] Same Environment page: delete R2_PUBLIC_HOST. It is unused since
     phase 43 switched R2 to signed URLs.
     >>> Tell Claude when done.
 
 
 STEP 4 — RENDER: DEPLOY LATEST MAIN (Render dashboard)
 ------------------------------------------------------
-[ ] Check that a deploy of the step-1 merge commit started on its own
+[x] Check that a deploy of the step-1 merge commit started on its own
     (Events tab). If nothing is building, click Manual Deploy >
     "Deploy latest commit". Wait for it to go Live.
     >>> Tell Claude when the deploy shows Live. Claude then verifies the
