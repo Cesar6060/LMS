@@ -4,6 +4,10 @@ PLAN.md
 TROUBLESHOOTING.md
 Troubleshooting.md
 docs/*.md
+/PHASE-*.txt
+
+# Claude Code workspace
+.claude/
 
 # Python
 __pycache__/
