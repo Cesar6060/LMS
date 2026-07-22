@@ -219,6 +219,10 @@ REST_FRAMEWORK = {
     ],
     'DEFAULT_THROTTLE_RATES': {
         'anon': config('THROTTLE_ANON', default=None),
+        # One-click demo login (accounts.views.demo_login). Same env-gated
+        # pattern: unset = unlimited locally/in tests; production sets
+        # THROTTLE_DEMO_LOGIN (render.yaml uses 10/min).
+        'demo_login': config('THROTTLE_DEMO_LOGIN', default=None),
     },
 }
 
@@ -277,10 +281,15 @@ CONTENT_SECURITY_POLICY = {
 # be explicitly enabled — set ALLOW_REGISTRATION=True for local development.
 ALLOW_REGISTRATION = config('ALLOW_REGISTRATION', default=False, cast=bool)
 
-# The shared public demo account. Its password is published in the README, so we
-# forbid changing it — otherwise any visitor could lock every other visitor out
-# of the demo until an operator re-runs seed_demo_account.
+# The shared public demo account. Visitors log in through the one-click
+# /api/auth/demo-login/ endpoint (tokens issued server-side), so the password is
+# never shown to them — but changing it is still forbidden, otherwise a visitor
+# could break the seed baseline until an operator re-runs seed_demo_account.
 DEMO_ACCOUNT_EMAIL = config('DEMO_ACCOUNT_EMAIL', default='jdoe@demo.com')
+# Password used by seed_demo_account when (re)creating the demo user. The
+# default keeps local dev and tests working with no extra setup; production
+# sets a generated secret so raw-credential login is impossible for visitors.
+DEMO_ACCOUNT_PASSWORD = config('DEMO_ACCOUNT_PASSWORD', default='Admin123!')
 
 # Django admin mount path. Production can move it off the default to shrink the
 # brute-force surface. No leading slash; must end with '/' (it's a url prefix).
