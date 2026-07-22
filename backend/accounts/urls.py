@@ -11,6 +11,10 @@ else:
     registration_patterns = path('registration/', views.registration_disabled)
 
 urlpatterns = [
+    # One-click demo login — mounted before the dj_rest_auth include so it
+    # can't be shadowed by anything that package mounts at the root.
+    path('demo-login/', views.demo_login, name='demo-login'),
+
     # dj-rest-auth endpoints
     path('', include('dj_rest_auth.urls')),
     registration_patterns,

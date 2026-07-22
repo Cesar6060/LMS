@@ -50,6 +50,15 @@ services:
         value: "false"
       - key: THROTTLE_ANON
         value: 30/min
+      # One-click demo login is unauthenticated by design; rate-limit it by IP
+      # so it can't be used to farm tokens.
+      - key: THROTTLE_DEMO_LOGIN
+        value: 10/min
+      # Secret password seed_demo_account assigns to the demo user. Set in the
+      # dashboard (not committed); rotating it + re-running seed_demo_account
+      # kills raw-credential login for visitors.
+      - key: DEMO_ACCOUNT_PASSWORD
+        sync: false
       # Move /admin/ off the guessable default. Set in the dashboard (not
       # committed) so the real path stays out of the repo; must end with '/'.
       - key: ADMIN_URL

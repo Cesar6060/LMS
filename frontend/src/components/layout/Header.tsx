@@ -9,6 +9,7 @@ import {
   ChevronRight,
   Menu,
   BarChart3,
+  Loader2,
 } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
 import { Button } from '@/components/ui/Button';
@@ -41,11 +42,12 @@ function navLinkClass(active: boolean) {
 }
 
 export function Header() {
-  const { user, logout, isAuthenticated } = useAuth();
+  const { user, logout, isAuthenticated, loginAsDemo } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
   const [enrolledCourses, setEnrolledCourses] = useState<Enrollment[]>([]);
   const [mobileOpen, setMobileOpen] = useState(false);
+  const [demoPending, setDemoPending] = useState(false);
 
   // Load enrolled courses for grades in user menu (students only)
   useEffect(() => {
@@ -65,6 +67,20 @@ export function Header() {
     setMobileOpen(false);
     await logout();
     navigate('/login');
+  };
+
+  const handleTryDemo = async () => {
+    setDemoPending(true);
+    try {
+      await loginAsDemo();
+      navigate('/dashboard');
+    } catch {
+      // Demo endpoint unavailable — fall back to the login page so the
+      // click never dead-ends.
+      navigate('/login');
+    } finally {
+      setDemoPending(false);
+    }
   };
 
   // Get breadcrumb info based on current path
@@ -314,11 +330,15 @@ export function Header() {
             </>
           ) : (
             <>
-              <Link to="/login">
-                <Button size="lg" className="px-5 text-base">
-                  Try the demo
-                </Button>
-              </Link>
+              <Button
+                size="lg"
+                className="px-5 text-base"
+                onClick={handleTryDemo}
+                disabled={demoPending}
+              >
+                {demoPending && <Loader2 className="mr-2 h-5 w-5 animate-spin" />}
+                {demoPending ? 'Starting demo…' : 'Try the demo'}
+              </Button>
             </>
           )}
         </div>

@@ -287,6 +287,90 @@ class TestJWTAuth:
         assert response.status_code == status.HTTP_401_UNAUTHORIZED
 
 
+@pytest.fixture
+def demo_user(settings):
+    """The shared demo student, wired up as settings.DEMO_ACCOUNT_EMAIL."""
+    settings.DEMO_ACCOUNT_EMAIL = 'demo@test.com'
+    return User.objects.create_user(
+        email='demo@test.com',
+        password='not-used-by-demo-login',
+        first_name='Jordan',
+        last_name='Doe',
+    )
+
+
+@pytest.mark.django_db
+class TestDemoLogin:
+    """Phase 44: POST /api/auth/demo-login/ issues a JWT pair for the shared
+    demo student server-side — no password ever crosses the wire — with the
+    same response shape as dj-rest-auth login."""
+
+    def test_returns_jwt_pair_and_demo_user(self, api_client, demo_user):
+        response = api_client.post('/api/auth/demo-login/')
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.data['access']
+        assert response.data['refresh']
+        assert response.data['user']['email'] == 'demo@test.com'
+
+        # The issued access token authenticates the standard user endpoint.
+        me = api_client.get(
+            '/api/auth/user/',
+            HTTP_AUTHORIZATION=f"Bearer {response.data['access']}")
+        assert me.status_code == status.HTTP_200_OK
+        assert me.data['email'] == 'demo@test.com'
+
+    def test_demo_user_is_student(self, api_client, demo_user):
+        response = api_client.post('/api/auth/demo-login/')
+
+        assert response.data['user']['is_instructor'] is False
+
+    def test_404_when_demo_user_missing(self, api_client, settings):
+        settings.DEMO_ACCOUNT_EMAIL = 'demo@test.com'
+
+        response = api_client.post('/api/auth/demo-login/')
+
+        assert response.status_code == status.HTTP_404_NOT_FOUND
+        assert 'access' not in response.data
+
+    def test_404_when_demo_user_inactive(self, api_client, demo_user):
+        demo_user.is_active = False
+        demo_user.save(update_fields=['is_active'])
+
+        response = api_client.post('/api/auth/demo-login/')
+
+        assert response.status_code == status.HTTP_404_NOT_FOUND
+        assert 'access' not in response.data
+
+    def test_get_not_allowed(self, api_client, demo_user):
+        response = api_client.get('/api/auth/demo-login/')
+
+        assert response.status_code == status.HTTP_405_METHOD_NOT_ALLOWED
+
+    def test_requests_over_rate_throttled(
+            self, api_client, demo_user, monkeypatch):
+        from django.core.cache import cache
+        from rest_framework.throttling import ScopedRateThrottle
+
+        # DRF snapshots DEFAULT_THROTTLE_RATES onto the throttle class at
+        # import, so override_settings(REST_FRAMEWORK=...) can't reach it —
+        # patch the class attribute instead (equivalent to booting with
+        # THROTTLE_DEMO_LOGIN=3/min).
+        monkeypatch.setattr(
+            ScopedRateThrottle, 'THROTTLE_RATES', {'demo_login': '3/min'})
+        cache.clear()
+        try:
+            for _ in range(3):
+                ok = api_client.post('/api/auth/demo-login/')
+                assert ok.status_code == status.HTTP_200_OK
+
+            throttled = api_client.post('/api/auth/demo-login/')
+            assert throttled.status_code == status.HTTP_429_TOO_MANY_REQUESTS
+        finally:
+            # Don't leak throttle history into other tests.
+            cache.clear()
+
+
 def make_png(name='avatar.png'):
     # ImageField runs Pillow verification, so the payload must be a real PNG.
     buf = BytesIO()
