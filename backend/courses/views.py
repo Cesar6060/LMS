@@ -2431,14 +2431,17 @@ def lesson_attachments(request, lesson_id):
                 status=status.HTTP_400_BAD_REQUEST
             )
 
-        # Allowed file extensions (whitelist)
+        # Allowed file extensions (whitelist). svg/html are deliberately excluded:
+        # they can carry inline scripts and are served from a host that could be
+        # same-origin in some configs, so an uploaded .svg/.html is a stored-XSS
+        # vector. Ship code samples as .txt or inside a .zip instead.
         ALLOWED_EXTENSIONS = {
             'pdf', 'doc', 'docx', 'ppt', 'pptx', 'xls', 'xlsx',
             'txt', 'md', 'csv',
-            'png', 'jpg', 'jpeg', 'gif', 'webp', 'svg',
+            'png', 'jpg', 'jpeg', 'gif', 'webp',
             'zip', 'rar', '7z',
             'mp3', 'wav', 'mp4', 'webm', 'mov',
-            'py', 'js', 'html', 'css', 'json'  # code files
+            'py', 'js', 'css', 'json'  # code files
         }
 
         # Validate file sizes (max 10MB each) and file types

@@ -6,10 +6,14 @@ IsAuthenticated default (see REST_FRAMEWORK in settings.py) would otherwise
 make this 403 for the very monitors that need it.
 """
 
+import logging
+
 from decouple import config
 from django.db import connection
 from django.http import Http404, JsonResponse
 from django.views.decorators.cache import never_cache
+
+logger = logging.getLogger(__name__)
 
 
 @never_cache
@@ -26,9 +30,12 @@ def health(request):
         with connection.cursor() as cursor:
             cursor.execute('SELECT 1')
             cursor.fetchone()
-    except Exception as exc:  # noqa: BLE001 - report any DB failure, never crash
+    except Exception:  # noqa: BLE001 - report any DB failure, never crash
+        # Log the detail server-side, but never return it: the raw exception can
+        # leak the Neon host/user/SSL config to an anonymous caller.
+        logger.exception('Health deep-check DB probe failed')
         return JsonResponse(
-            {'status': 'error', 'database': str(exc)}, status=503)
+            {'status': 'error', 'database': 'unavailable'}, status=503)
 
     return JsonResponse({'status': 'ok', 'database': 'ok'})
 

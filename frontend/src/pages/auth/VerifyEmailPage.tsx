@@ -101,11 +101,6 @@ export function VerifyEmailPage() {
           <Link to="/login" className="w-full">
             <Button className="w-full">Go to Login</Button>
           </Link>
-          <Link to="/register" className="w-full">
-            <Button variant="outline" className="w-full">
-              Create New Account
-            </Button>
-          </Link>
         </CardFooter>
       </Card>
     </div>

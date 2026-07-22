@@ -43,6 +43,17 @@ services:
         value: django.core.mail.backends.console.EmailBackend
       - key: ACCOUNT_EMAIL_VERIFICATION
         value: optional
+      # Demo lockdown: no public self-registration, and throttle anonymous
+      # (pre-login) traffic by IP so the published demo password can't be sprayed
+      # against the login/admin endpoints.
+      - key: ALLOW_REGISTRATION
+        value: "false"
+      - key: THROTTLE_ANON
+        value: 30/min
+      # Move /admin/ off the guessable default. Set in the dashboard (not
+      # committed) so the real path stays out of the repo; must end with '/'.
+      - key: ADMIN_URL
+        sync: false
       - key: USE_R2
         value: "true"
 

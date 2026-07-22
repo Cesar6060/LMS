@@ -5,7 +5,6 @@ import { AvatarProvider } from '@/contexts/AvatarContext';
 import { AccessDenied } from '@/components/AccessDenied';
 import { Layout } from '@/components/layout/Layout';
 import { LoginPage } from '@/pages/auth/LoginPage';
-import { RegisterPage } from '@/pages/auth/RegisterPage';
 import { ForgotPasswordPage } from '@/pages/auth/ForgotPasswordPage';
 import { ResetPasswordPage } from '@/pages/auth/ResetPasswordPage';
 import { VerifyEmailPage } from '@/pages/auth/VerifyEmailPage';
@@ -142,14 +141,10 @@ function App() {
               </PublicRoute>
             }
           />
-          <Route
-            path="/register"
-            element={
-              <PublicRoute>
-                <RegisterPage />
-              </PublicRoute>
-            }
-          />
+          {/* Public self-registration is removed — the live site is a demo and
+              visitors sign in with the shared demo account. /register redirects
+              to the login page so old links don't 404. */}
+          <Route path="/register" element={<Navigate to="/login" replace />} />
           <Route
             path="/forgot-password"
             element={

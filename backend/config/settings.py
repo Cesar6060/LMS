@@ -199,6 +199,18 @@ REST_FRAMEWORK = {
     'DEFAULT_PERMISSION_CLASSES': [
         'rest_framework.permissions.IsAuthenticated',
     ],
+    # Throttle anonymous (pre-login) traffic by IP. This is the brute-force guard
+    # for /api/auth/login|registration|password/reset. Off by default (rate=None
+    # => unlimited) so tests and local dev are unaffected; set THROTTLE_ANON in
+    # production, e.g. '30/min'. Authenticated demo traffic is never throttled
+    # (AnonRateThrottle only applies to anonymous requests), so a shared demo
+    # login isn't collectively rate-limited.
+    'DEFAULT_THROTTLE_CLASSES': [
+        'rest_framework.throttling.AnonRateThrottle',
+    ],
+    'DEFAULT_THROTTLE_RATES': {
+        'anon': config('THROTTLE_ANON', default=None),
+    },
 }
 
 # CORS Settings
@@ -224,10 +236,29 @@ if USE_HTTPS:
     SECURE_SSL_REDIRECT = True
     SESSION_COOKIE_SECURE = True
     CSRF_COOKIE_SECURE = True
-    SECURE_HSTS_SECONDS = 3600  # short until the real domain is verified (Phase 39)
+    SECURE_HSTS_SECONDS = 31536000  # 1 year — the real domain is live and stable
     SECURE_HSTS_INCLUDE_SUBDOMAINS = True
     SECURE_CONTENT_TYPE_NOSNIFF = True
     SECURE_REFERRER_POLICY = 'same-origin'
+
+# Public self-registration. The live site runs as a demo (visitors log in as the
+# shared jdoe@demo.com student only), so registration is OFF by default and must
+# be explicitly enabled — set ALLOW_REGISTRATION=True for local development.
+ALLOW_REGISTRATION = config('ALLOW_REGISTRATION', default=False, cast=bool)
+
+# The shared public demo account. Its password is published in the README, so we
+# forbid changing it — otherwise any visitor could lock every other visitor out
+# of the demo until an operator re-runs seed_demo_account.
+DEMO_ACCOUNT_EMAIL = config('DEMO_ACCOUNT_EMAIL', default='jdoe@demo.com')
+
+# Django admin mount path. Production can move it off the default to shrink the
+# brute-force surface. No leading slash; must end with '/' (it's a url prefix).
+ADMIN_URL = config('ADMIN_URL', default='admin/')
+
+# Largest avatar image a user may upload (enforced in accounts.views.upload_avatar).
+# Django's DATA_UPLOAD_MAX_MEMORY_SIZE deliberately excludes file fields, so the
+# only real cap on an uploaded file is a view-level size check.
+AVATAR_MAX_UPLOAD_BYTES = 5 * 1024 * 1024
 
 # Django Allauth Settings
 ACCOUNT_EMAIL_REQUIRED = True
@@ -259,6 +290,7 @@ REST_AUTH = {
     'TOKEN_MODEL': 'rest_framework.authtoken.models.Token',
     'USER_DETAILS_SERIALIZER': 'accounts.serializers.UserSerializer',
     'REGISTER_SERIALIZER': 'accounts.serializers.RegisterSerializer',
+    'PASSWORD_CHANGE_SERIALIZER': 'accounts.serializers.ProtectedPasswordChangeSerializer',
 }
 
 # Sentry Error Tracking

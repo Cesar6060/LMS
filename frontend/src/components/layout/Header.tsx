@@ -315,13 +315,8 @@ export function Header() {
           ) : (
             <>
               <Link to="/login">
-                <Button variant="ghost" size="lg" className="px-5 text-base">
-                  Login
-                </Button>
-              </Link>
-              <Link to="/register">
                 <Button size="lg" className="px-5 text-base">
-                  Register
+                  Try the demo
                 </Button>
               </Link>
             </>
