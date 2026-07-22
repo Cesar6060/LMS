@@ -1,27 +1,41 @@
-# Render blueprint for the STEM Quest Django API.
+# ============================================================================
+# DOCUMENTATION ONLY — this file does NOT configure the live service.
+# ============================================================================
 #
-# This blueprint governs the live service at https://stemquest-api.onrender.com
-# (free instance type, native Python runtime, auto-deploy from `main` on
-# Cesar6060/LMS). Applied to Render in Phase 38 via New → Blueprint, which is
-# what makes `generateValue` below take effect.
+# The Blueprint env-var sync broke at the repo migration to Cesar6060/LMS
+# (~Phase 41) and was never repaired: values declared here stopped reaching
+# the service, and every env var had to be hand-entered in the Render
+# dashboard during the Phase 46/47 rollouts. Phase 48 decision: retire this
+# file as a config source instead of reconnecting the Blueprint (a sync of
+# the stale file would have re-applied `plan: free`, which blocks all
+# outbound SMTP and would re-break Phase 47's email).
 #
-# No `databases:` key on purpose — Postgres lives on Neon, outside Render, and
-# is wired in through the DATABASE_URL secret below.
+# THE RENDER DASHBOARD IS THE SINGLE SOURCE OF TRUTH for every env var on
+# stemquest-api (srv-d9fdm3jh523c73f0rlkg) — values AND secrets alike.
+# Change config there, not here. This file records the service shape so the
+# repo still answers "how is prod deployed?" — see the env-var inventory at
+# the bottom for "what does prod need set?".
 #
-# Migrations are NOT run here, and they are NOT run in a Render shell either:
-# the free instance type has no Shell tab, no SSH, and no preDeployCommand.
-# `migrate`, `createsuperuser` and `populate_java_course` are run from a
-# developer machine with DATABASE_URL pointed at Neon (which is publicly
-# reachable over SSL). See docs/specs/phase-38-api-live-render-neon.md.
+# Deploys do not involve this file either: the service is connected directly
+# to Cesar6060/LMS and auto-deploys `backend/` on every push to `main`.
+#
+# No `databases:` key on purpose — Postgres lives on Neon (aws-us-east-1),
+# outside Render. Migrations are run from a developer machine with
+# DATABASE_URL pointed at Neon. See docs/specs/phase-38-api-live-render-neon.md.
 
 services:
   - type: web
     name: stemquest-api
     env: python
-    plan: free
-    # Must stay co-located with the Neon project (aws-us-east-1). Pairing this
-    # with a west-coast region adds ~70 ms to every query.
-    region: virginia
+    # Starter (paid) since Phase 47: Render's free tier blocks ALL outbound
+    # SMTP ports (25/465/587), which broke Gmail SMTP entirely.
+    plan: starter
+    # KNOWN DRIFT: the service actually runs in Oregon while Neon Postgres is
+    # in aws-us-east-1, so every DB round trip pays ~70-130 ms cross-country
+    # (measured Phase 48). Render can't migrate regions in place — fixing it
+    # means recreating the service. Phase 49 candidate; see
+    # docs/specs/phase-48-retire-render-yaml.md.
+    region: oregon
     rootDir: backend
     branch: main
 
@@ -32,93 +46,20 @@ services:
     # cold Neon branch waking up. Use /api/health/?deep=1 for real DB checks.
     healthCheckPath: /api/health/
 
-    envVars:
-      - key: PYTHON_VERSION
-        value: "3.12"          # matches .github/workflows/ci.yml
-      - key: DEBUG
-        value: "false"
-      - key: USE_HTTPS
-        value: "true"
-      # Real outbound email via Gmail SMTP (Phase 47). Credentials are the
-      # dashboard-set secrets below; sender is a personal Gmail app password.
-      - key: EMAIL_BACKEND
-        value: django.core.mail.backends.smtp.EmailBackend
-      - key: EMAIL_HOST
-        value: smtp.gmail.com
-      - key: EMAIL_PORT
-        value: "587"
-      - key: EMAIL_USE_TLS
-        value: "True"
-      - key: ACCOUNT_EMAIL_VERIFICATION
-        value: optional
-      # Demo lockdown: no public self-registration, and throttle anonymous
-      # (pre-login) traffic by IP so the published demo password can't be sprayed
-      # against the login/admin endpoints.
-      - key: ALLOW_REGISTRATION
-        value: "false"
-      - key: THROTTLE_ANON
-        value: 30/min
-      # One-click demo login is unauthenticated by design; rate-limit it by IP
-      # so it can't be used to farm tokens.
-      - key: THROTTLE_DEMO_LOGIN
-        value: 10/min
-      # Password reset is anonymous and now sends real email — keep the per-IP
-      # rate tight so the endpoint can't be used to spam the Gmail sender.
-      - key: THROTTLE_PASSWORD_RESET
-        value: 5/hour
-      # Secret password seed_demo_account assigns to the demo user. Set in the
-      # dashboard (not committed); rotating it + re-running seed_demo_account
-      # kills raw-credential login for visitors.
-      - key: DEMO_ACCOUNT_PASSWORD
-        sync: false
-      # Move /admin/ off the guessable default. Set in the dashboard (not
-      # committed) so the real path stays out of the repo; must end with '/'.
-      - key: ADMIN_URL
-        sync: false
-      - key: USE_R2
-        value: "true"
-
-      # Minted by Render in its own vault on first apply — the key is never
-      # pasted into a dashboard, a clipboard, or this repo.
-      - key: SECRET_KEY
-        generateValue: true
-
-      # Secrets and environment-specific values: prompted in the Render
-      # dashboard on first deploy, never committed.
-      - key: DATABASE_URL
-        sync: false
-      - key: ALLOWED_HOSTS
-        sync: false
-      - key: CORS_ALLOWED_ORIGINS
-        sync: false
-      - key: CSRF_TRUSTED_ORIGINS
-        sync: false
-      - key: FRONTEND_URL
-        sync: false
-      - key: SENTRY_DSN
-        sync: false
-
-      # Gmail SMTP credentials (Phase 47): the sending Gmail address, its app
-      # password (never the account password), and the From header. Dashboard
-      # secrets, same pattern as DEMO_ACCOUNT_PASSWORD.
-      - key: EMAIL_HOST_USER
-        sync: false
-      - key: EMAIL_HOST_PASSWORD
-        sync: false
-      - key: DEFAULT_FROM_EMAIL
-        sync: false
-
-      # Cloudflare R2 media storage (Phase 39). Bucket-scoped token; values
-      # entered in the dashboard only. The bucket is private (Phase 43):
-      # objects are served via presigned URLs that expire after
-      # R2_SIGNED_URL_TTL seconds, so there is no public host var anymore.
-      - key: R2_ACCESS_KEY_ID
-        sync: false
-      - key: R2_SECRET_ACCESS_KEY
-        sync: false
-      - key: R2_ACCOUNT_ID
-        sync: false
-      - key: R2_BUCKET_NAME
-        sync: false
-      - key: R2_SIGNED_URL_TTL
-        value: "3600"
+# ----------------------------------------------------------------------------
+# Dashboard env-var inventory (names only — values live in the dashboard).
+# Assembled from the retired Blueprint's claims plus the vars hand-entered
+# during the Phase 46-47 rollouts; the dashboard itself is authoritative. If
+# you add a var in the dashboard, add its name here so this stays accurate.
+#
+# Core:            PYTHON_VERSION, DEBUG, USE_HTTPS, SECRET_KEY, DATABASE_URL,
+#                  ALLOWED_HOSTS, CORS_ALLOWED_ORIGINS, CSRF_TRUSTED_ORIGINS,
+#                  FRONTEND_URL, ADMIN_URL, SENTRY_DSN
+# Demo lockdown:   ALLOW_REGISTRATION, DEMO_ACCOUNT_PASSWORD,
+#                  THROTTLE_ANON, THROTTLE_DEMO_LOGIN, THROTTLE_PASSWORD_RESET
+# Email (Gmail):   EMAIL_BACKEND, EMAIL_HOST, EMAIL_PORT, EMAIL_USE_TLS,
+#                  EMAIL_HOST_USER, EMAIL_HOST_PASSWORD, DEFAULT_FROM_EMAIL,
+#                  ACCOUNT_EMAIL_VERIFICATION
+# Media (R2):      USE_R2, R2_ACCESS_KEY_ID, R2_SECRET_ACCESS_KEY,
+#                  R2_ACCOUNT_ID, R2_BUCKET_NAME, R2_SIGNED_URL_TTL
+# ----------------------------------------------------------------------------
