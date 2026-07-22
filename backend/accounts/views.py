@@ -1,4 +1,5 @@
 from django.conf import settings
+from dj_rest_auth.views import PasswordResetView
 from rest_framework import status
 from rest_framework.decorators import (
     api_view, permission_classes, parser_classes, throttle_classes,
@@ -61,6 +62,19 @@ def demo_login(request):
 # reads its scope from there. Rate comes from THROTTLE_DEMO_LOGIN (unset =
 # unlimited, same env-gated pattern as THROTTLE_ANON).
 demo_login.cls.throttle_scope = 'demo_login'
+
+
+class ThrottledPasswordResetView(PasswordResetView):
+    """dj-rest-auth's password reset with its own scoped rate limit.
+
+    The endpoint is anonymous and (since Phase 47) sends real email in
+    production, so it gets a tight per-IP rate on top of the general anon
+    throttle. Rate comes from THROTTLE_PASSWORD_RESET (unset = unlimited,
+    same env-gated pattern as THROTTLE_DEMO_LOGIN). Mounted in accounts.urls
+    ahead of the dj_rest_auth include so it shadows the stock view.
+    """
+    throttle_classes = [ScopedRateThrottle]
+    throttle_scope = 'password_reset'
 
 
 @api_view(['GET', 'PUT', 'PATCH'])

@@ -1,0 +1,76 @@
+PHASE 47 EMAIL ROLLOUT — Gmail SMTP for production
+===================================================
+
+What this turns on: real outbound email from the live API
+(stemquest-api.onrender.com) via Gmail SMTP, sending as
+cesarvillarreal11@gmail.com. Password-reset emails now reach real
+inboxes with a link to the live frontend's /reset-password page.
+
+Order matters: do steps 1-2 BEFORE merging the PR. If the code deploys
+while EMAIL_HOST_USER / EMAIL_HOST_PASSWORD are missing, reset and
+invite emails fail quietly (resets return 200 either way by design).
+
+
+STEP 1 — Create a Google app password (USER, one time)
+------------------------------------------------------
+1. The Google account cesarvillarreal11@gmail.com must have 2-Step
+   Verification turned on. If it does not: Google Account > Security >
+   2-Step Verification > follow the prompts.
+2. Go to https://myaccount.google.com/apppasswords
+   (Google Account > Security > 2-Step Verification > App passwords).
+3. Create an app password named "STEM Quest Render".
+4. Google shows a 16-character password ONCE. Copy it. Never commit it,
+   never paste it into chat — it goes only into the Render dashboard in
+   step 2. (You can revoke it from the same page at any time.)
+
+STEP 2 — Set the secrets in Render (USER)
+-----------------------------------------
+1. Render dashboard > stemquest-api > Environment.
+2. Add these three variables:
+      EMAIL_HOST_USER     = cesarvillarreal11@gmail.com
+      EMAIL_HOST_PASSWORD = <the 16-character app password, no spaces>
+      DEFAULT_FROM_EMAIL  = cesarvillarreal11@gmail.com
+3. Save. (Render may redeploy the current code — that is fine; the
+   console backend ignores these vars.)
+
+Note: everything else email-related ships in render.yaml with the PR —
+EMAIL_BACKEND (smtp), EMAIL_HOST (smtp.gmail.com), EMAIL_PORT (587),
+EMAIL_USE_TLS (True), THROTTLE_PASSWORD_RESET (5/hour). No dashboard
+entry needed for those.
+
+STEP 3 — Merge the PR (USER)
+----------------------------
+1. Merge the phase-47 PR into main with a plain merge commit.
+2. Render auto-deploys the backend; Cloudflare rebuilds the frontend
+   (no frontend changes in this phase, so that deploy is a no-op).
+3. Watch the Render deploy log: it must reach "live" with no
+   SMTPAuthenticationError. An auth error here means the app password
+   was mistyped (re-paste it, no spaces) or 2-Step Verification is off.
+
+STEP 4 — Verify on the live site
+--------------------------------
+1. Go to https://stemquest.cesarvillarreal11.workers.dev, click
+   "Forgot password", and request a reset for a real account you
+   control. Do NOT use the demo account — it is blocked from email on
+   purpose and its password is operator-managed.
+2. Check the inbox: an email titled "Reset your STEM Quest password"
+   from cesarvillarreal11@gmail.com should arrive within a minute
+   (check spam the first time).
+3. Click the button in the email. It must open
+   https://stemquest.cesarvillarreal11.workers.dev/reset-password
+   with the form ready (uid and token ride in the link).
+4. Set a new password, then log in with it. Works = flow is live.
+   Reset the password back afterwards if it is an account you use.
+5. Throttle check: request resets repeatedly from the same network —
+   past 5 in an hour the API must answer 429 (the form will show an
+   error; that is the throttle working).
+6. Render logs: a reset request must no longer print an email body to
+   the log (that was the console backend), and there must be no SMTP
+   errors.
+
+ROLLBACK
+--------
+Set EMAIL_BACKEND=django.core.mail.backends.console.EmailBackend in the
+Render dashboard (dashboard vars override render.yaml) and redeploy —
+email goes back to printing in the logs, nothing else changes. Revoke
+the Google app password if it may have leaked.

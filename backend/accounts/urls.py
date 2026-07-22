@@ -15,6 +15,11 @@ urlpatterns = [
     # can't be shadowed by anything that package mounts at the root.
     path('demo-login/', views.demo_login, name='demo-login'),
 
+    # Throttled password reset — mounted before the dj_rest_auth include so it
+    # shadows the package's unthrottled view at the same path.
+    path('password/reset/', views.ThrottledPasswordResetView.as_view(),
+         name='rest_password_reset'),
+
     # dj-rest-auth endpoints
     path('', include('dj_rest_auth.urls')),
     registration_patterns,

@@ -223,6 +223,11 @@ REST_FRAMEWORK = {
         # pattern: unset = unlimited locally/in tests; production sets
         # THROTTLE_DEMO_LOGIN (render.yaml uses 10/min).
         'demo_login': config('THROTTLE_DEMO_LOGIN', default=None),
+        # Anonymous password reset (accounts.views.ThrottledPasswordResetView)
+        # sends real email in production (Phase 47), so it gets its own tight
+        # rate on top of the general anon throttle. Same env-gated pattern:
+        # unset = unlimited locally/in tests; render.yaml uses 5/hour.
+        'password_reset': config('THROTTLE_PASSWORD_RESET', default=None),
     },
 }
 
@@ -328,6 +333,10 @@ EMAIL_USE_TLS = config('EMAIL_USE_TLS', default=True, cast=bool)
 EMAIL_HOST_USER = config('EMAIL_HOST_USER', default='')
 EMAIL_HOST_PASSWORD = config('EMAIL_HOST_PASSWORD', default='')
 DEFAULT_FROM_EMAIL = config('DEFAULT_FROM_EMAIL', default='noreply@localhost')
+# Reset/invite emails send synchronously inside the request; without a timeout
+# a slow or blocked SMTP connection would hang the worker until gunicorn kills
+# it. Seconds, applied by Django to the SMTP socket.
+EMAIL_TIMEOUT = config('EMAIL_TIMEOUT', default=10, cast=int)
 
 # Frontend URL (for email links)
 FRONTEND_URL = config('FRONTEND_URL', default='http://localhost:5173')
@@ -346,6 +355,9 @@ REST_AUTH = {
     'USER_DETAILS_SERIALIZER': 'accounts.serializers.UserSerializer',
     'REGISTER_SERIALIZER': 'accounts.serializers.RegisterSerializer',
     'PASSWORD_CHANGE_SERIALIZER': 'accounts.serializers.ProtectedPasswordChangeSerializer',
+    # Sends the branded reset email whose link points at the frontend's
+    # /reset-password page instead of Django's backend-relative reset view.
+    'PASSWORD_RESET_SERIALIZER': 'accounts.serializers.PasswordResetSerializer',
 }
 
 SIMPLE_JWT = {

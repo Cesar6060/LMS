@@ -2343,3 +2343,103 @@ class TestLessonAttachments:
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert 'exceeds' in response.data['error']
         assert lesson.attachments.count() == 0
+
+
+@pytest.mark.django_db
+class TestOutboundEmail:
+    """Phase 47: mail.outbox coverage for the invite/announcement senders and
+    the demo outbound-email guard in core.email.send_templated_email."""
+
+    def test_invite_sends_email(self, api_client, instructor, course):
+        from django.core import mail
+
+        api_client.force_authenticate(user=instructor)
+        response = api_client.post(
+            f'/api/courses/courses/{course.code}/students/invite/',
+            {'email': 'newstudent@example.com'}
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        assert len(mail.outbox) == 1
+        message = mail.outbox[0]
+        assert message.to == ['newstudent@example.com']
+        assert course.title in message.subject
+        assert course.enrollment_code in message.body
+
+    def test_announcement_emails_only_opted_in_students(
+            self, api_client, instructor, course, student, enrollment,
+            monkeypatch):
+        import core.email as core_email
+        from django.core import mail
+        from accounts.models import UserPreferences
+
+        # Opted-in student (signal auto-creates prefs; default is opted in).
+        UserPreferences.objects.filter(user=student).update(
+            email_announcements=True)
+
+        # Second enrolled student who opted out.
+        opted_out = User.objects.create_user(
+            email='optout@test.com', password='testpass123')
+        UserPreferences.objects.filter(user=opted_out).update(
+            email_announcements=False)
+        Enrollment.objects.create(user=opted_out, course=course)
+
+        # send_emails_async fires a daemon thread, which races the test's
+        # outbox assertions — run the queued tasks inline instead. The
+        # task-building, per-student preference filtering, and the real
+        # send_announcement_email path are all still exercised.
+        monkeypatch.setattr(
+            core_email, 'send_emails_async',
+            lambda tasks: [f(*a, **k) for f, a, k in tasks])
+
+        api_client.force_authenticate(user=instructor)
+        response = api_client.post(
+            f'/api/courses/courses/{course.code}/announcements/', {
+                'title': 'Emailed Update',
+                'content': 'This announcement goes out by email.',
+                'send_email': True,
+            })
+
+        assert response.status_code == status.HTTP_201_CREATED
+        assert [m.to for m in mail.outbox] == [[student.email]]
+        assert 'Emailed Update' in mail.outbox[0].subject
+
+    def test_demo_user_cannot_trigger_email(self, settings):
+        from django.core import mail
+        from core.email import send_templated_email
+
+        settings.DEMO_ACCOUNT_EMAIL = 'demo@test.com'
+        demo = User.objects.create_user(
+            email='demo@test.com', password='testpass123')
+
+        sent = send_templated_email(
+            subject='Should never send',
+            template_name='emails/course_invitation.html',
+            context={
+                'course_title': 'X', 'instructor_name': 'Y',
+                'enrollment_code': 'Z',
+            },
+            recipient_list=['victim@example.com'],
+            triggered_by=demo,
+        )
+
+        assert sent is False
+        assert len(mail.outbox) == 0
+
+    def test_non_demo_user_can_trigger_email(self, instructor):
+        from django.core import mail
+        from core.email import send_templated_email
+
+        sent = send_templated_email(
+            subject='Legit email',
+            template_name='emails/course_invitation.html',
+            context={
+                'course_title': 'X', 'instructor_name': 'Y',
+                'enrollment_code': 'Z',
+            },
+            recipient_list=['student@example.com'],
+            triggered_by=instructor,
+        )
+
+        assert sent is True
+        assert len(mail.outbox) == 1

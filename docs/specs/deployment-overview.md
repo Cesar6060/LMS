@@ -17,6 +17,8 @@ and holds the shared decisions.
 - **R2 public-read bucket** (`pub-<hash>.r2.dev`). Media links are public;
   not auth-enforced (accepted for avatars + lesson attachments).
 - **Email stays console backend** in prod — no real email provider yet.
+  *(Superseded in Phase 47: prod now sends real email via Gmail SMTP — see
+  `docs/specs/phase-47-prod-email-smtp.md`.)*
 - **Prod data**: clean DB + one real superuser/instructor +
   `populate_java_course` (JAVA101). **Never run `seed_data` in prod** (demo
   accounts with known passwords).
@@ -51,7 +53,7 @@ through the UI; observability last (40) once there's real traffic to see.
 ## Out of scope for the whole track
 
 - Custom domain / DNS
-- Real email provider (SMTP/Resend)
+- Real email provider (SMTP/Resend) *(landed later in Phase 47: Gmail SMTP)*
 - Grafana metrics exporters and dashboards (traces + logs only)
 - Redis in production (nothing uses it; Channels still commented out)
 - Celery/queues, autoscaling, staging environment
