@@ -33,6 +33,10 @@ and holds the shared decisions.
 - Secrets live **only** in provider dashboards (Render/Pages env vars) —
   never in the repo or chat. Rotate the Neon password before first use (the
   old one sat in local `.env`; gitignored, never committed, rotate anyway).
+  *(Update, Phase 48: not just secrets — ALL Render env vars are
+  dashboard-managed now. The render.yaml Blueprint env sync broke at the
+  repo migration and was retired rather than repaired; render.yaml is
+  documentation only. See `docs/specs/phase-48-retire-render-yaml.md`.)*
 
 ## Phase breakdown
 
