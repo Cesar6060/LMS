@@ -9,6 +9,15 @@ export const authService = {
     return response.data;
   },
 
+  async demoLogin(): Promise<AuthResponse> {
+    // The backend issues tokens for the shared demo student server-side —
+    // no credentials leave the client. Same storage contract as login().
+    const response = await api.post<AuthResponse>('/auth/demo-login/');
+    localStorage.setItem('token', response.data.access);
+    localStorage.setItem('refresh', response.data.refresh);
+    return response.data;
+  },
+
   async register(data: RegisterData): Promise<AuthResponse> {
     const response = await api.post<AuthResponse>('/auth/registration/', data);
     localStorage.setItem('token', response.data.access);

@@ -1,10 +1,11 @@
 """
 Management command to create/reset the public portfolio demo account.
 
-The demo account (jdoe@demo.com) is a plain student enrolled in JAVA101
-with a fixed baseline of progress: all Unit 1 lessons completed, first
-Unit 2 lesson partially read. Its credentials are public, so anything the
-account owns is world-editable — this command re-asserts the baseline.
+The demo account (settings.DEMO_ACCOUNT_EMAIL, default jdoe@demo.com) is a
+plain student enrolled in JAVA101 with a fixed baseline of progress: all
+Unit 1 lessons completed, first Unit 2 lesson partially read. Every visitor
+shares it via the one-click demo login, so anything the account owns is
+world-editable — this command re-asserts the baseline.
 
 Usage: python manage.py seed_demo_account           (create / re-assert)
        python manage.py seed_demo_account --reset   (wipe visitor changes,
@@ -15,6 +16,7 @@ Step 1 for the DATABASE_URL pattern). Every write is scoped to the demo
 user; course content and other users are never touched.
 """
 
+from django.conf import settings
 from django.core.management.base import BaseCommand, CommandError
 from django.db import transaction
 from django.utils import timezone
@@ -30,8 +32,8 @@ from gamification.models import GameProfile, XPEvent, UserBadge
 from notifications.models import Notification
 from quizzes.models import QuizAttempt
 
-DEMO_EMAIL = 'jdoe@demo.com'
-DEMO_PASSWORD = 'Admin123!'
+# Email and password come from settings (DEMO_ACCOUNT_EMAIL /
+# DEMO_ACCOUNT_PASSWORD) so production can rotate the password via env var.
 DEMO_FIRST_NAME = 'Jordan'
 DEMO_LAST_NAME = 'Doe'
 COURSE_CODE = 'JAVA101'
@@ -40,7 +42,8 @@ COURSE_CODE = 'JAVA101'
 class Command(BaseCommand):
     help = (
         'Creates or resets the public demo student account '
-        f'({DEMO_EMAIL}, enrolled in {COURSE_CODE} with baseline progress)'
+        f'(settings.DEMO_ACCOUNT_EMAIL, enrolled in {COURSE_CODE} with '
+        f'baseline progress)'
     )
 
     def add_arguments(self, parser):
@@ -82,14 +85,16 @@ class Command(BaseCommand):
         self._apply_baseline_progress(user, units, force=options['reset'])
 
         self.stdout.write(self.style.SUCCESS(
-            f'Demo account ready: {DEMO_EMAIL} enrolled in {COURSE_CODE}'
+            f'Demo account ready: {settings.DEMO_ACCOUNT_EMAIL} enrolled in '
+            f'{COURSE_CODE}'
             + (' (reset to baseline)' if options['reset'] else '')
         ))
 
     def _assert_account(self):
         """Create the demo user, or force it back to known-good state."""
+        demo_email = settings.DEMO_ACCOUNT_EMAIL
         user, created = User.objects.get_or_create(
-            email=DEMO_EMAIL,
+            email=demo_email,
             defaults={
                 'first_name': DEMO_FIRST_NAME,
                 'last_name': DEMO_LAST_NAME,
@@ -106,23 +111,23 @@ class Command(BaseCommand):
         user.is_staff = False
         user.is_superuser = False
         user.is_active = True
-        user.set_password(DEMO_PASSWORD)
+        user.set_password(settings.DEMO_ACCOUNT_PASSWORD)
         user.save()
 
         # Verified allauth email is required for login.
         email_address, _ = EmailAddress.objects.get_or_create(
             user=user,
-            email=DEMO_EMAIL,
+            email=demo_email,
             defaults={'verified': True, 'primary': True}
         )
         if not (email_address.verified and email_address.primary):
             email_address.verified = True
             email_address.primary = True
             email_address.save(update_fields=['verified', 'primary'])
-        EmailAddress.objects.filter(user=user).exclude(email=DEMO_EMAIL).delete()
+        EmailAddress.objects.filter(user=user).exclude(email=demo_email).delete()
 
         self.stdout.write(
-            f'  {"Created" if created else "Re-asserted"} user {DEMO_EMAIL} '
+            f'  {"Created" if created else "Re-asserted"} user {demo_email} '
             f'(student, verified email)'
         )
         return user

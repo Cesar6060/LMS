@@ -9,13 +9,9 @@ A full-stack Learning Management System for Computer Science education, deployed
 
 ### Try it
 
-The live site runs as a **public demo**. There's no sign-up — everyone shares one
-read-through demo account, a student named John Doe:
-
-| | |
-|---|---|
-| **Email** | `jdoe@demo.com` |
-| **Password** | `Admin123!` |
+The live site runs as a **public demo**. There's no sign-up and nothing to
+type — click **Try the demo** on the landing page (or the login page) and
+you're in as Jordan Doe, the shared demo student.
 
 The demo account is enrolled in **JAVA101 (Introduction to Java)**, which exists
 purely as a sandbox course for kicking the tires — Unit 1 is completed and Unit 2

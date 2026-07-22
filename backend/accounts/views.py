@@ -1,10 +1,14 @@
 from django.conf import settings
 from rest_framework import status
-from rest_framework.decorators import api_view, permission_classes, parser_classes
+from rest_framework.decorators import (
+    api_view, permission_classes, parser_classes, throttle_classes,
+)
 from rest_framework.parsers import MultiPartParser, FormParser, JSONParser
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
-from .models import UserPreferences
+from rest_framework.throttling import ScopedRateThrottle
+from rest_framework_simplejwt.tokens import RefreshToken
+from .models import User, UserPreferences
 from .serializers import UserSerializer, UserPreferencesSerializer
 
 
@@ -22,6 +26,41 @@ def registration_disabled(request):
         {'detail': 'Registration is disabled. This is a demo — log in with the demo account.'},
         status=status.HTTP_403_FORBIDDEN,
     )
+
+
+@api_view(['POST'])
+@permission_classes([AllowAny])
+@throttle_classes([ScopedRateThrottle])
+def demo_login(request):
+    """One-click login as the shared demo student.
+
+    Issues a JWT pair for settings.DEMO_ACCOUNT_EMAIL server-side, so the demo
+    password never appears in the client (it's a rotated secret in production).
+    The response mirrors dj-rest-auth's login body — access/refresh/user — so
+    the frontend consumes it through the exact same code path.
+    """
+    user = User.objects.filter(
+        email=settings.DEMO_ACCOUNT_EMAIL, is_active=True,
+    ).first()
+    if user is None:
+        return Response(
+            {'detail': 'The demo account is not available. If you run this '
+                       'instance, seed it with `manage.py seed_demo_account`.'},
+            status=status.HTTP_404_NOT_FOUND,
+        )
+
+    refresh = RefreshToken.for_user(user)
+    return Response({
+        'access': str(refresh.access_token),
+        'refresh': str(refresh),
+        'user': UserSerializer(user, context={'request': request}).data,
+    })
+
+
+# @api_view exposes the generated view class as `.cls`; ScopedRateThrottle
+# reads its scope from there. Rate comes from THROTTLE_DEMO_LOGIN (unset =
+# unlimited, same env-gated pattern as THROTTLE_ANON).
+demo_login.cls.throttle_scope = 'demo_login'
 
 
 @api_view(['GET', 'PUT', 'PATCH'])

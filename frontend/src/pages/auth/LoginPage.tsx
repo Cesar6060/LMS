@@ -12,8 +12,9 @@ export function LoginPage() {
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const [isLoading, setIsLoading] = useState(false);
+  const [isDemoLoading, setIsDemoLoading] = useState(false);
 
-  const { login } = useAuth();
+  const { login, loginAsDemo } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
   const [searchParams] = useSearchParams();
@@ -47,6 +48,24 @@ export function LoginPage() {
       }
     } finally {
       setIsLoading(false);
+    }
+  };
+
+  const handleDemoLogin = async () => {
+    setError('');
+    setIsDemoLoading(true);
+
+    try {
+      await loginAsDemo();
+      navigate(redirectTo, { replace: true });
+    } catch (err: unknown) {
+      const error = err as { response?: { data?: { detail?: string } } };
+      setError(
+        error.response?.data?.detail ??
+          'The demo is unavailable right now. Please try again in a moment.'
+      );
+    } finally {
+      setIsDemoLoading(false);
     }
   };
 
@@ -107,16 +126,21 @@ export function LoginPage() {
             </div>
           </CardContent>
           <CardFooter className="flex flex-col space-y-4">
-            <Button type="submit" className="w-full" variant="neon" disabled={isLoading}>
+            <Button type="submit" className="w-full" variant="neon" disabled={isLoading || isDemoLoading}>
               {isLoading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
               Sign in
             </Button>
-            <div className="rounded-md border border-primary/30 bg-primary/5 p-3 text-center text-sm">
-              <p className="font-medium text-foreground">Just exploring? Use the demo account:</p>
-              <p className="mt-1 font-mono text-muted-foreground">
-                jdoe@demo.com · Admin123!
-              </p>
-            </div>
+            <p className="text-center text-sm text-muted-foreground">Just exploring?</p>
+            <Button
+              type="button"
+              variant="secondary"
+              className="w-full"
+              onClick={handleDemoLogin}
+              disabled={isLoading || isDemoLoading}
+            >
+              {isDemoLoading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+              Try the demo
+            </Button>
           </CardFooter>
         </form>
       </Card>
