@@ -1,8 +1,20 @@
+import logging
+
+from allauth.account.forms import default_token_generator
+from allauth.account.utils import user_pk_to_url_str
 from django.conf import settings
+from django.core.mail import EmailMultiAlternatives
+from django.template.loader import render_to_string
 from rest_framework import serializers
+from dj_rest_auth.forms import AllAuthPasswordResetForm
 from dj_rest_auth.registration.serializers import RegisterSerializer as BaseRegisterSerializer
-from dj_rest_auth.serializers import PasswordChangeSerializer as BasePasswordChangeSerializer
+from dj_rest_auth.serializers import (
+    PasswordChangeSerializer as BasePasswordChangeSerializer,
+    PasswordResetSerializer as BasePasswordResetSerializer,
+)
 from .models import User, UserPreferences
+
+logger = logging.getLogger(__name__)
 
 
 class UserPreferencesSerializer(serializers.ModelSerializer):
@@ -72,6 +84,84 @@ class RegisterSerializer(BaseRegisterSerializer):
         user.last_name = self.cleaned_data.get('last_name', '')
         user.save()
         return user
+
+
+class FrontendPasswordResetForm(AllAuthPasswordResetForm):
+    """Reset form that emails a frontend link using the branded templates.
+
+    The stock AllAuthPasswordResetForm sends allauth's bare
+    `account/email/password_reset_key` template with a link into Django's own
+    `/reset/<uid>/<token>/` view — a page that doesn't exist for API clients.
+    This override keeps the parts that must stay allauth-compatible (uid is
+    base36 via `user_pk_to_url_str`, token from allauth's generator — exactly
+    what /api/auth/password/reset/confirm/ decodes) and swaps only the email:
+    branded templates under templates/registration/ whose link points at the
+    frontend's /reset-password page.
+    """
+
+    def save(self, request, **kwargs):
+        token_generator = kwargs.get('token_generator', default_token_generator)
+        extra_context = kwargs.get('extra_email_context') or {}
+        frontend_url = extra_context.get('frontend_url', settings.FRONTEND_URL)
+
+        for user in self.users:
+            # The demo account's mailbox isn't ours (jdoe@demo.com), and its
+            # password is operator-managed — never email a working reset link
+            # for it. Silently skipping keeps the endpoint's response identical
+            # to the unknown-email case (no account enumeration).
+            if user.email == settings.DEMO_ACCOUNT_EMAIL:
+                logger.warning(
+                    'Refusing to send password-reset email for the demo account.'
+                )
+                continue
+
+            uid = user_pk_to_url_str(user)
+            token = token_generator.make_token(user)
+            context = {
+                'user': user,
+                'uid': uid,
+                'token': token,
+                'reset_url': (
+                    f'{frontend_url}/reset-password?uid={uid}&token={token}'
+                ),
+                **extra_context,
+            }
+
+            subject = render_to_string(
+                'registration/password_reset_subject.txt', context)
+            # Subject must be a single line or SMTP rejects it.
+            subject = ' '.join(subject.split())
+            text_body = render_to_string(
+                'registration/password_reset_email.txt', context)
+            html_body = render_to_string(
+                'registration/password_reset_email.html', context)
+
+            message = EmailMultiAlternatives(
+                subject=subject,
+                body=text_body,
+                from_email=settings.DEFAULT_FROM_EMAIL,
+                to=[user.email],
+            )
+            message.attach_alternative(html_body, 'text/html')
+            message.send()
+
+        return self.cleaned_data['email']
+
+
+class PasswordResetSerializer(BasePasswordResetSerializer):
+    """Password reset that emails the frontend's /reset-password link.
+
+    Registered as REST_AUTH['PASSWORD_RESET_SERIALIZER'].
+    """
+
+    @property
+    def password_reset_form_class(self):
+        return FrontendPasswordResetForm
+
+    def get_email_options(self):
+        return {
+            'extra_email_context': {'frontend_url': settings.FRONTEND_URL},
+        }
 
 
 class ProtectedPasswordChangeSerializer(BasePasswordChangeSerializer):

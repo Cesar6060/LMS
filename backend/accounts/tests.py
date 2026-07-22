@@ -1,7 +1,9 @@
+import re
 from io import BytesIO
 from pathlib import Path
 
 import pytest
+from django.core import mail
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.urls import reverse
 from PIL import Image
@@ -476,3 +478,81 @@ class TestAvatarEndpoints:
         )
 
         assert response.status_code == status.HTTP_401_UNAUTHORIZED
+
+
+@pytest.mark.django_db
+class TestPasswordResetEmail:
+    """First mail.outbox coverage in the repo (Phase 47). The reset email must
+    link to the frontend's /reset-password page with allauth-compatible
+    uid/token — exactly what /api/auth/password/reset/confirm/ decodes."""
+
+    RESET_URL = '/api/auth/password/reset/'
+
+    def test_reset_request_sends_branded_email(self, api_client, user, settings):
+        response = api_client.post(self.RESET_URL, {'email': user.email})
+
+        assert response.status_code == status.HTTP_200_OK
+        assert len(mail.outbox) == 1
+        message = mail.outbox[0]
+        assert message.to == [user.email]
+        assert message.subject == 'Reset your STEM Quest password'
+        assert f'{settings.FRONTEND_URL}/reset-password?uid=' in message.body
+        assert 'token=' in message.body
+
+    def test_reset_round_trip(self, api_client, user):
+        api_client.post(self.RESET_URL, {'email': user.email})
+
+        match = re.search(
+            r'/reset-password\?uid=([^&\s]+)&token=([^\s]+)',
+            mail.outbox[0].body)
+        assert match, 'reset link not found in email body'
+        uid, token = match.groups()
+
+        confirm = api_client.post('/api/auth/password/reset/confirm/', {
+            'uid': uid,
+            'token': token,
+            'new_password1': 'fresh-Pass-9021',
+            'new_password2': 'fresh-Pass-9021',
+        })
+        assert confirm.status_code == status.HTTP_200_OK
+
+        login = api_client.post('/api/auth/login/', {
+            'email': user.email, 'password': 'fresh-Pass-9021'})
+        assert login.status_code == status.HTTP_200_OK
+        assert 'access' in login.data
+
+    def test_unknown_email_200_and_no_email(self, api_client):
+        response = api_client.post(
+            self.RESET_URL, {'email': 'nobody@test.com'})
+
+        # 200 with an empty outbox: no account enumeration.
+        assert response.status_code == status.HTTP_200_OK
+        assert len(mail.outbox) == 0
+
+    def test_demo_account_never_gets_reset_email(self, api_client, demo_user):
+        response = api_client.post(self.RESET_URL, {'email': demo_user.email})
+
+        # Same 200 as the unknown-email case, but nothing is sent — the demo
+        # mailbox isn't ours and the password is operator-managed.
+        assert response.status_code == status.HTTP_200_OK
+        assert len(mail.outbox) == 0
+
+    def test_requests_over_rate_throttled(self, api_client, user, monkeypatch):
+        from django.core.cache import cache
+        from rest_framework.throttling import ScopedRateThrottle
+
+        # Same pattern as the demo_login throttle test: DRF snapshots
+        # DEFAULT_THROTTLE_RATES onto the class at import, so patch the class
+        # attribute (equivalent to booting with THROTTLE_PASSWORD_RESET=3/min).
+        monkeypatch.setattr(
+            ScopedRateThrottle, 'THROTTLE_RATES', {'password_reset': '3/min'})
+        cache.clear()
+        try:
+            for _ in range(3):
+                ok = api_client.post(self.RESET_URL, {'email': user.email})
+                assert ok.status_code == status.HTTP_200_OK
+
+            throttled = api_client.post(self.RESET_URL, {'email': user.email})
+            assert throttled.status_code == status.HTTP_429_TOO_MANY_REQUESTS
+        finally:
+            cache.clear()

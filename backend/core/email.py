@@ -15,21 +15,37 @@ def send_templated_email(
     template_name: str,
     context: dict,
     recipient_list: list[str],
-    fail_silently: bool = True
+    fail_silently: bool = True,
+    triggered_by=None,
 ) -> bool:
     """
     Send an email using an HTML template with a plain text fallback.
-    
+
     Args:
         subject: Email subject line
         template_name: Path to the HTML template (e.g., 'emails/announcement.html')
         context: Context dictionary for the template
         recipient_list: List of recipient email addresses
         fail_silently: If True, don't raise exceptions on failure
-        
+        triggered_by: The user whose action caused this email, if any
+
     Returns:
         True if email was sent successfully, False otherwise
     """
+    # Defense-in-depth (Phase 47): the shared public demo account must never
+    # cause outbound email. Today it's a student and can't reach the
+    # instructor-only invite/announcement endpoints, but this holds even if a
+    # demo instructor is ever added.
+    if (
+        triggered_by is not None
+        and triggered_by.email == settings.DEMO_ACCOUNT_EMAIL
+    ):
+        logger.warning(
+            f"Refusing to send email to {recipient_list}: "
+            "triggered by the demo account."
+        )
+        return False
+
     try:
         # Add frontend_url to context if not present
         if 'frontend_url' not in context:
@@ -65,7 +81,8 @@ def send_course_invitation_email(
     recipient_email: str,
     course_title: str,
     instructor_name: str,
-    enrollment_code: str
+    enrollment_code: str,
+    triggered_by=None,
 ) -> bool:
     """Send a course invitation email."""
     return send_templated_email(
@@ -76,7 +93,8 @@ def send_course_invitation_email(
             'instructor_name': instructor_name,
             'enrollment_code': enrollment_code,
         },
-        recipient_list=[recipient_email]
+        recipient_list=[recipient_email],
+        triggered_by=triggered_by,
     )
 
 
@@ -87,7 +105,8 @@ def send_announcement_email(
     announcement_content: str,
     announcement_url: str,
     instructor_name: str,
-    posted_date: str
+    posted_date: str,
+    triggered_by=None,
 ) -> bool:
     """Send an announcement notification email."""
     return send_templated_email(
@@ -101,7 +120,8 @@ def send_announcement_email(
             'instructor_name': instructor_name,
             'posted_date': posted_date,
         },
-        recipient_list=[recipient_email]
+        recipient_list=[recipient_email],
+        triggered_by=triggered_by,
     )
 
 

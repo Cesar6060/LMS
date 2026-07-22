@@ -862,6 +862,7 @@ class CourseAnnouncementsView(generics.ListCreateAPIView):
                             'announcement_url': f"{settings.FRONTEND_URL}/courses/{announcement.course.code}/announcements/{announcement.id}",
                             'instructor_name': announcement.author.get_full_name() or announcement.author.email,
                             'posted_date': announcement.created_at.strftime('%B %d, %Y'),
+                            'triggered_by': announcement.author,
                         }
                     ))
 
@@ -1578,7 +1579,8 @@ def send_course_invite(request, course_code):
         recipient_email=email,
         course_title=course.title,
         instructor_name=instructor_name,
-        enrollment_code=course.enrollment_code
+        enrollment_code=course.enrollment_code,
+        triggered_by=request.user,
     )
 
     if not success:

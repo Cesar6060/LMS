@@ -39,8 +39,16 @@ services:
         value: "false"
       - key: USE_HTTPS
         value: "true"
+      # Real outbound email via Gmail SMTP (Phase 47). Credentials are the
+      # dashboard-set secrets below; sender is a personal Gmail app password.
       - key: EMAIL_BACKEND
-        value: django.core.mail.backends.console.EmailBackend
+        value: django.core.mail.backends.smtp.EmailBackend
+      - key: EMAIL_HOST
+        value: smtp.gmail.com
+      - key: EMAIL_PORT
+        value: "587"
+      - key: EMAIL_USE_TLS
+        value: "True"
       - key: ACCOUNT_EMAIL_VERIFICATION
         value: optional
       # Demo lockdown: no public self-registration, and throttle anonymous
@@ -54,6 +62,10 @@ services:
       # so it can't be used to farm tokens.
       - key: THROTTLE_DEMO_LOGIN
         value: 10/min
+      # Password reset is anonymous and now sends real email — keep the per-IP
+      # rate tight so the endpoint can't be used to spam the Gmail sender.
+      - key: THROTTLE_PASSWORD_RESET
+        value: 5/hour
       # Secret password seed_demo_account assigns to the demo user. Set in the
       # dashboard (not committed); rotating it + re-running seed_demo_account
       # kills raw-credential login for visitors.
@@ -84,6 +96,16 @@ services:
       - key: FRONTEND_URL
         sync: false
       - key: SENTRY_DSN
+        sync: false
+
+      # Gmail SMTP credentials (Phase 47): the sending Gmail address, its app
+      # password (never the account password), and the From header. Dashboard
+      # secrets, same pattern as DEMO_ACCOUNT_PASSWORD.
+      - key: EMAIL_HOST_USER
+        sync: false
+      - key: EMAIL_HOST_PASSWORD
+        sync: false
+      - key: DEFAULT_FROM_EMAIL
         sync: false
 
       # Cloudflare R2 media storage (Phase 39). Bucket-scoped token; values
