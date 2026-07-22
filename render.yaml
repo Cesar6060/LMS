@@ -78,8 +78,9 @@ services:
         sync: false
 
       # Cloudflare R2 media storage (Phase 39). Bucket-scoped token; values
-      # entered in the dashboard only. R2_PUBLIC_HOST is the pub-<hash>.r2.dev
-      # dev subdomain host, no scheme.
+      # entered in the dashboard only. The bucket is private (Phase 43):
+      # objects are served via presigned URLs that expire after
+      # R2_SIGNED_URL_TTL seconds, so there is no public host var anymore.
       - key: R2_ACCESS_KEY_ID
         sync: false
       - key: R2_SECRET_ACCESS_KEY
@@ -88,5 +89,5 @@ services:
         sync: false
       - key: R2_BUCKET_NAME
         sync: false
-      - key: R2_PUBLIC_HOST
-        sync: false
+      - key: R2_SIGNED_URL_TTL
+        value: "3600"

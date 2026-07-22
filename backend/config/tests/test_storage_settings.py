@@ -21,7 +21,6 @@ R2_ENV = {
     'R2_SECRET_ACCESS_KEY': 'test-secret',
     'R2_ACCOUNT_ID': 'abc123def456',
     'R2_BUCKET_NAME': 'stemquest-media',
-    'R2_PUBLIC_HOST': 'pub-test.r2.dev',
 }
 
 
@@ -62,12 +61,49 @@ def test_use_r2_swaps_default_storage(reload_settings):
     assert options['bucket_name'] == 'stemquest-media'
     assert options['endpoint_url'] == (
         'https://abc123def456.r2.cloudflarestorage.com')
-    # custom_domain is what turns .url into an absolute public r2.dev URL.
-    assert options['custom_domain'] == 'pub-test.r2.dev'
-    # Public bucket: no signed query strings, no ACL header (R2 rejects ACLs).
-    assert options['querystring_auth'] is False
+    # Private bucket (Phase 43): .url must be a signed, expiring URL served
+    # from the API endpoint host — no public custom_domain anymore.
+    assert 'custom_domain' not in options
+    assert options['querystring_auth'] is True
+    assert options['querystring_expire'] == 3600  # default TTL
+    # No ACL header (R2 rejects ACLs).
     assert options['default_acl'] is None
     assert options['file_overwrite'] is False
+
+
+def test_r2_signed_url_ttl_env_overrides_default(reload_settings):
+    module = reload_settings(**R2_ENV, R2_SIGNED_URL_TTL='600')
+
+    assert module.STORAGES['default']['OPTIONS']['querystring_expire'] == 600
+
+
+def test_r2_generated_urls_are_signed_and_expiring(reload_settings):
+    """The storage backend must emit presigned URLs: signature + expiry in the
+    query string. Presigning is a local boto3 computation — no network."""
+    from storages.backends.s3 import S3Storage
+
+    module = reload_settings(**R2_ENV)
+    storage = S3Storage(**module.STORAGES['default']['OPTIONS'])
+
+    url = storage.url('lesson_attachments/notes.pdf')
+
+    assert url.startswith(
+        'https://abc123def456.r2.cloudflarestorage.com/stemquest-media/')
+    assert 'X-Amz-Signature=' in url
+    assert 'X-Amz-Expires=3600' in url
+
+
+def test_build_absolute_uri_leaves_signed_urls_intact():
+    """Serializers wrap file URLs in request.build_absolute_uri(). With signed
+    storage the URL is already absolute, and Django must pass it through
+    unchanged rather than grafting it onto the API host."""
+    from django.test import RequestFactory
+
+    request = RequestFactory().get('/api/courses/lessons/1/attachments/')
+    signed = ('https://abc123def456.r2.cloudflarestorage.com/stemquest-media/'
+              'lesson_attachments/notes.pdf?X-Amz-Signature=abc&X-Amz-Expires=3600')
+
+    assert request.build_absolute_uri(signed) == signed
 
 
 def test_use_r2_leaves_staticfiles_on_whitenoise(reload_settings):
@@ -83,7 +119,6 @@ def test_use_r2_leaves_staticfiles_on_whitenoise(reload_settings):
     'R2_SECRET_ACCESS_KEY',
     'R2_ACCOUNT_ID',
     'R2_BUCKET_NAME',
-    'R2_PUBLIC_HOST',
 ])
 def test_use_r2_missing_var_fails_fast(reload_settings, monkeypatch, missing):
     env = {k: v for k, v in R2_ENV.items() if k != missing}

@@ -114,6 +114,47 @@ def test_secure_settings_absent_by_default():
     assert not getattr(settings, 'CSRF_COOKIE_SECURE', False)
 
 
+def test_csp_header_on_every_response(client):
+    # django-csp is always-on (not gated on USE_HTTPS): the API host serves
+    # only JSON and the admin, so the strict policy is safe in every env.
+    response = client.get('/api/health/')
+
+    csp = response.headers['Content-Security-Policy']
+    assert "default-src 'none'" in csp
+    assert "frame-ancestors 'none'" in csp
+    # The admin allowances.
+    assert "script-src 'self'" in csp
+    assert "style-src 'self' 'unsafe-inline'" in csp
+
+
+def test_permissions_policy_header_on_every_response(client):
+    response = client.get('/api/health/')
+
+    assert response.headers['Permissions-Policy'] == (
+        'camera=(), microphone=(), geolocation=()')
+
+
+def test_use_https_enables_hsts_preload(monkeypatch):
+    # Same reload idiom as test_storage_settings: the flag lives inside the
+    # USE_HTTPS block, which is off in this test environment.
+    import importlib
+    import config.settings as settings_module
+
+    monkeypatch.setenv('USE_HTTPS', 'true')
+    try:
+        module = importlib.reload(settings_module)
+        assert module.SECURE_HSTS_PRELOAD is True
+        assert module.SECURE_HSTS_SECONDS == 31536000
+    finally:
+        monkeypatch.undo()
+        importlib.reload(settings_module)
+
+
+def test_hsts_preload_absent_by_default():
+    # "Inert unless its env var is set" — no preload flag without USE_HTTPS.
+    assert not getattr(settings, 'SECURE_HSTS_PRELOAD', False)
+
+
 def test_whitenoise_middleware_follows_security_middleware():
     security = settings.MIDDLEWARE.index(
         'django.middleware.security.SecurityMiddleware')

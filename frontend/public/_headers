@@ -1,0 +1,17 @@
+# Security headers for the Cloudflare Workers static-assets deploy (Phase 43).
+# Workers assets honors Pages-style _headers files; Vite copies this from
+# public/ into dist/ verbatim.
+#
+# Hosts that must stay in sync with reality:
+# - connect-src: the Render API host, plus Sentry ingest (VITE_SENTRY_DSN).
+# - img-src: R2 presigned URLs are served from <account>.r2.cloudflarestorage.com
+#   (avatars render in <img> tags). data: covers inline icons.
+# - script-src/frame-src: the YouTube iframe player API
+#   (YouTubePlayer.tsx loads https://www.youtube.com/iframe_api, which pulls
+#   its widget script from https://s.ytimg.com).
+# - style-src/font-src: Google Fonts (@import in index.css).
+/*
+  Content-Security-Policy: default-src 'self'; script-src 'self' https://www.youtube.com https://s.ytimg.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: https://*.r2.cloudflarestorage.com https://i.ytimg.com; connect-src 'self' https://stemquest-api.onrender.com https://*.ingest.sentry.io https://*.ingest.us.sentry.io; frame-src https://www.youtube.com https://www.youtube-nocookie.com; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'
+  Permissions-Policy: camera=(), microphone=(), geolocation=()
+  X-Content-Type-Options: nosniff
+  Referrer-Policy: same-origin

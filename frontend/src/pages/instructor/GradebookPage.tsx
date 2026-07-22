@@ -48,19 +48,8 @@ export function GradebookPage() {
   };
 
   const handleExport = async () => {
-    const token = localStorage.getItem('token');
-    const exportUrl = courseService.getGradebookExportUrl(code!);
-
     try {
-      const response = await fetch(exportUrl, {
-        headers: {
-          'Authorization': `Token ${token}`,
-        },
-      });
-
-      if (!response.ok) throw new Error('Export failed');
-
-      const blob = await response.blob();
+      const blob = await courseService.exportGradebookCsv(code!);
       const url = window.URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;

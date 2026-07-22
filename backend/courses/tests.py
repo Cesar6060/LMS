@@ -2326,3 +2326,20 @@ class TestLessonAttachments:
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert 'Maximum 10 attachments' in response.data['error']
         assert lesson.attachments.count() == 10
+
+    def test_oversized_attachment_rejected(
+            self, api_client, instructor, lesson, settings):
+        """A file over ATTACHMENT_MAX_UPLOAD_BYTES is refused before storage,
+        mirroring the avatar cap."""
+        settings.ATTACHMENT_MAX_UPLOAD_BYTES = 1024  # 1 KB cap for the test
+        api_client.force_authenticate(user=instructor)
+
+        response = api_client.post(
+            self.url(lesson),
+            {'files': [make_attachment_file('big.txt', b'0' * 4096)]},
+            format='multipart',
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert 'exceeds' in response.data['error']
+        assert lesson.attachments.count() == 0
