@@ -1,0 +1,63 @@
+PHASE 46 ROLLOUT RUNBOOK — Finish the phases 43-45 production rollout
+=====================================================================
+Written 2026-07-22. This phase is ops-only: no code changes. Background:
+the phase 43-45 PR stack was merged in the wrong direction (#35 and #36
+landed on their base branches instead of main), so main only got phase
+43. The token_blacklist migrations are already applied to Neon and live
+email/password login works again (done during scoping). Everything below
+happens in dashboards and is done by Cesar, in order.
+
+IMPORTANT: after EACH step, tell Claude it is done (or just say "done
+through step N"). Claude runs live verification between steps; do not
+run ahead — especially do not do step 5 before Claude confirms step 4.
+
+Statuses: [ ] not yet run. Update as steps complete.
+
+
+STEP 1 — MERGE THE REPAIR PR (GitHub)
+-------------------------------------
+[ ] Merge https://github.com/Cesar6060/LMS/pull/37 into main using
+    "Create a merge commit" (the green button's default). This re-lands
+    the already-reviewed phase 44 + 45 content onto main. Do not use
+    squash or rebase; a plain merge keeps the history readable.
+    Note: merging auto-deploys the frontend (Cloudflare Workers). The
+    new demo-login buttons will 404 until steps 2-4 finish — expected.
+    >>> Tell Claude when done.
+
+
+STEP 2 — RENDER: SET THE DEMO PASSWORD (Render dashboard)
+---------------------------------------------------------
+[ ] Render > stemquest-api service > Environment > add:
+        DEMO_ACCOUNT_PASSWORD = <the secret Claude showed you in chat>
+    This is the render.yaml sync:false variable that has been blocking
+    the blueprint sync. The secret is never committed anywhere; if you
+    lose it, ask Claude to generate a new one.
+    >>> Tell Claude when done.
+
+
+STEP 3 — RENDER: DELETE THE DEAD VARIABLE (Render dashboard)
+------------------------------------------------------------
+[ ] Same Environment page: delete R2_PUBLIC_HOST. It is unused since
+    phase 43 switched R2 to signed URLs.
+    >>> Tell Claude when done.
+
+
+STEP 4 — RENDER: DEPLOY LATEST MAIN (Render dashboard)
+------------------------------------------------------
+[ ] Check that a deploy of the step-1 merge commit started on its own
+    (Events tab). If nothing is building, click Manual Deploy >
+    "Deploy latest commit". Wait for it to go Live.
+    >>> Tell Claude when the deploy shows Live. Claude then verifies the
+    demo-login endpoint is really deployed (expects 405, not 404) and
+    reseeds the demo account on Neon with the new password.
+
+
+STEP 5 — CLOUDFLARE: LOCK DOWN R2 (Cloudflare dashboard)
+--------------------------------------------------------
+ONLY after Claude confirms step 4 verification passed.
+[ ] Cloudflare > R2 > stemquest-media bucket > Settings > Public access
+    > disable the pub-*.r2.dev subdomain (phase 43 rollout step 4).
+    Media now flows exclusively through signed URLs.
+    >>> Tell Claude when done. Claude then runs the full live
+    verification list from the phase 46 spec (demo login, old password
+    rejected, signed attachment URLs, r2.dev direct access blocked).
