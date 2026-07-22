@@ -23,7 +23,7 @@ first request may take up to a minute if the free-tier backend happens to be col
 > escalate privileges or reach the admin. The instructor-side tooling below is
 > shown via screenshots rather than a live login.
 
-![Dashboard Preview](docs/screenshots/Dashboard.png)
+![Student Dashboard](docs/screenshots/Student-Dashboard.png)
 
 ## Features
 
@@ -45,30 +45,38 @@ first request may take up to a minute if the free-tier backend happens to be col
 
 ### Student Experience
 
-![Student Courses](docs/screenshots/Student_Courses.png)
-*Course catalog and enrollment*
+![Course Roadmap](docs/screenshots/Student-Course-Roadmap.png)
+*Course roadmap — completed, current, and locked lessons per unit, with best quiz scores*
 
-![Learning Mode](docs/screenshots/Student_Learning_Mode.png)
-*Immersive learning mode with paginated lesson content*
+![Quiz Taking](docs/screenshots/Student-Assessments.png)
+*Unit quiz with per-question progress, instant feedback, and keyboard shortcuts*
 
 <details>
 <summary>Instructor views (demo account is student-only — expand to see the other half)</summary>
 
-### Course Management
-![Course Management](docs/screenshots/Course-Manage.png)
-*Instructor course builder with units, lessons, and content management*
+### Instructor Dashboard
+![Instructor Dashboard](docs/screenshots/Instructor-Dashboard.png)
+*Instructor dashboard with quick actions, a weekly reminder calendar, course cards, and enrollment notifications*
+
+### Course Overview
+![Course Overview](docs/screenshots/Instructor-Course-Overview.png)
+*Course builder — units with draggable lessons and unit quizzes, plus the course enrollment code*
+
+### Assessment Management
+![Assessment Management](docs/screenshots/Instructor-Assessment-Management.png)
+*Quiz management — questions with correct answers marked, points, passing score, and attempt limits*
 
 ### Gradebook
-![Gradebook](docs/screenshots/Gradebook.png)
-*Instructor gradebook with inline editing and CSV export*
+![Gradebook](docs/screenshots/Instructor-Gradebook.png)
+*Gradebook matrix — per-quiz scores, lesson completion, average and letter grade, with CSV export*
 
-### Grading Interface
-![Grading](docs/screenshots/Grading.png)
-*Grading with feedback support*
+### Course Roster
+![Course Roster](docs/screenshots/Instructor-Course-Roster.png)
+*Student roster with enrollment dates, last-active tracking, progress, and invitations*
 
-### Student Roster
-![Roster](docs/screenshots/Roster.png)
-*Student roster with activity tracking and enrollment management*
+### Analytics
+![Analytics](docs/screenshots/Instructor-Analytics.png)
+*Course analytics — 30-day activity chart and per-quiz score, pass rate, and completion stats*
 
 </details>
 
