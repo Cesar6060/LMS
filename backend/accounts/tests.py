@@ -556,3 +556,43 @@ class TestPasswordResetEmail:
             assert throttled.status_code == status.HTTP_429_TOO_MANY_REQUESTS
         finally:
             cache.clear()
+
+    def test_throttle_keys_on_cf_connecting_ip(
+            self, api_client, user, monkeypatch):
+        """Cloudflare's rotating edge IP must not defeat the throttle.
+
+        Production sits behind Cloudflare, which appends a per-request edge
+        IP to X-Forwarded-For — under DRF's default ident every request got
+        a fresh bucket and no rate limit ever fired. The fix keys the bucket
+        on CF-Connecting-IP, so requests from one client throttle together
+        no matter what the rest of the chain looks like.
+        """
+        from django.core.cache import cache
+        from rest_framework.throttling import ScopedRateThrottle
+
+        monkeypatch.setattr(
+            ScopedRateThrottle, 'THROTTLE_RATES', {'password_reset': '3/min'})
+        cache.clear()
+        try:
+            for i in range(3):
+                ok = api_client.post(
+                    self.RESET_URL, {'email': user.email},
+                    HTTP_CF_CONNECTING_IP='203.0.113.50',
+                    HTTP_X_FORWARDED_FOR=f'203.0.113.50, 172.71.0.{i}')
+                assert ok.status_code == status.HTTP_200_OK
+
+            throttled = api_client.post(
+                self.RESET_URL, {'email': user.email},
+                HTTP_CF_CONNECTING_IP='203.0.113.50',
+                HTTP_X_FORWARDED_FOR='203.0.113.50, 172.71.0.99')
+            assert throttled.status_code == status.HTTP_429_TOO_MANY_REQUESTS
+
+            # A different client (different CF-Connecting-IP) has its own
+            # bucket and is not caught by the first client's limit.
+            other = api_client.post(
+                self.RESET_URL, {'email': user.email},
+                HTTP_CF_CONNECTING_IP='198.51.100.7',
+                HTTP_X_FORWARDED_FOR='198.51.100.7, 172.71.0.99')
+            assert other.status_code == status.HTTP_200_OK
+        finally:
+            cache.clear()

@@ -7,8 +7,8 @@ from rest_framework.decorators import (
 from rest_framework.parsers import MultiPartParser, FormParser, JSONParser
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
-from rest_framework.throttling import ScopedRateThrottle
 from rest_framework_simplejwt.tokens import RefreshToken
+from core.throttling import ClientIPScopedRateThrottle
 from .models import User, UserPreferences
 from .serializers import UserSerializer, UserPreferencesSerializer
 
@@ -31,7 +31,7 @@ def registration_disabled(request):
 
 @api_view(['POST'])
 @permission_classes([AllowAny])
-@throttle_classes([ScopedRateThrottle])
+@throttle_classes([ClientIPScopedRateThrottle])
 def demo_login(request):
     """One-click login as the shared demo student.
 
@@ -73,7 +73,7 @@ class ThrottledPasswordResetView(PasswordResetView):
     same env-gated pattern as THROTTLE_DEMO_LOGIN). Mounted in accounts.urls
     ahead of the dj_rest_auth include so it shadows the stock view.
     """
-    throttle_classes = [ScopedRateThrottle]
+    throttle_classes = [ClientIPScopedRateThrottle]
     throttle_scope = 'password_reset'
 
 

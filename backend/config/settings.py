@@ -214,8 +214,12 @@ REST_FRAMEWORK = {
     # production, e.g. '30/min'. Authenticated demo traffic is never throttled
     # (AnonRateThrottle only applies to anonymous requests), so a shared demo
     # login isn't collectively rate-limited.
+    # ClientIPAnonRateThrottle (not the stock AnonRateThrottle): production
+    # sits behind Cloudflare, whose rotating edge IP in X-Forwarded-For gives
+    # every request a fresh throttle bucket under DRF's default ident. The
+    # subclass keys on CF-Connecting-IP instead — see core/throttling.py.
     'DEFAULT_THROTTLE_CLASSES': [
-        'rest_framework.throttling.AnonRateThrottle',
+        'core.throttling.ClientIPAnonRateThrottle',
     ],
     'DEFAULT_THROTTLE_RATES': {
         'anon': config('THROTTLE_ANON', default=None),
