@@ -102,7 +102,11 @@ in with raw credentials.
          GET → 405.
       5. Refresh the page after demo login → still authenticated (tokens
          persisted, interceptor refresh path untouched).
-- [ ] Prod rollout (after merge — ORDER MATTERS):
+- [x] Prod rollout (after merge — ORDER MATTERS) — completed 2026-07-22
+      during phase 46 (stack had mis-merged; re-landed via PR #37):
+      `DEMO_ACCOUNT_PASSWORD` set on Render, `seed_demo_account` re-run
+      against Neon with the rotated secret, live demo-login → 200 with
+      tokens, old `Admin123!` login → 400:
       1. Render dashboard: set `DEMO_ACCOUNT_PASSWORD` to a generated
          secret (and confirm `THROTTLE_DEMO_LOGIN` from render.yaml).
       2. Re-run `seed_demo_account` against prod (Render shell or
