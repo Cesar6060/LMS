@@ -20,4 +20,4 @@ Do NOT write any implementation code during this skill. Follow these steps:
    - **Frontend tasks** — types, services, components, pages, as a checklist
    - **Verification** — the exact checks that prove the phase works end to end (specific pytest cases, tsc, a manual flow to click through)
 6. Tell the user to review the spec, then start a FRESH session (or /clear) and prompt:
-   "Read docs/specs/phase-<N>-<name>.md and implement it. Work through the checklist in order. Run /verify-stack before marking anything complete."
+   "Read docs/specs/phase-<N>-<name>.md and implement it on a feature branch. Work through the checklist in order. Run /verify-stack before marking anything complete, and /finish-phase when the checklist is done."

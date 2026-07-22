@@ -94,34 +94,51 @@ STEP 4 — CLOUDFLARE WORKERS BUILD VARIABLES (Cesar, Cloudflare dash)
 Workers & Pages > stemquest > Settings > BUILD > Variables.
 SAME TRAP AS PHASE 39: these must be BUILD variables, not runtime
 Worker variables — Vite and the Sentry plugin run at build time.
-[ ] VITE_SENTRY_DSN    = <stemquest-react DSN from step 2>
-[ ] SENTRY_AUTH_TOKEN  = <token from step 2>   (mark as secret)
-[ ] SENTRY_ORG         = <org slug>
-[ ] SENTRY_PROJECT     = stemquest-react
-[ ] Trigger a redeploy (Deployments > retry latest, or push to main).
+[x] VITE_SENTRY_DSN    = <stemquest-react DSN from step 2>
+[x] SENTRY_AUTH_TOKEN  = <token from step 2>   (mark as secret)
+[x] SENTRY_ORG         = <org slug>
+[x] SENTRY_PROJECT     = stemquest-react
+[x] Trigger a redeploy (Deployments > retry latest, or push to main).
     Build log should show the Sentry plugin uploading source maps.
+    VERIFIED REMOTELY 2026-07-21: the live bundle (index-DxqSN_qf.js)
+    contains the React DSN AND Sentry debug-ID markers
+    (_sentryDebugId / sentry-dbid-...), which the vite plugin only
+    injects when SENTRY_AUTH_TOKEN was present at build time — so the
+    vars are set and the source-map upload ran.
 
 
 STEP 5 — VERIFY SOURCE MAPS DID NOT DEPLOY (Cesar or agent)
 -----------------------------------------------------------
-[ ] View source of the live site, find the hashed JS asset URL, then:
+[x] View source of the live site, find the hashed JS asset URL, then:
       curl -s -o /dev/null -w "%{http_code}\n" <asset URL>.map
     Expect 404.
-[ ] curl -s <asset URL> | tail -c 200   -> no sourceMappingURL=...map
+    RESULT 2026-07-21: returns 200 BUT it is the SPA fallback serving
+    index.html (457 bytes, content-type text/html) — the Worker answers
+    every unknown path with the app shell. The actual map is NOT
+    deployed (a real map would be JSON). Expectation adjusted: the
+    check is "response is the HTML fallback, not JSON map content".
+[x] curl -s <asset URL> | tail -c 200   -> no sourceMappingURL=...map
+    RESULT 2026-07-21: 0 occurrences of sourceMappingURL. PASS.
 
 
 STEP 6 — BACKEND SENTRY SMOKE TEST (Cesar, Render + sentry.io)
 --------------------------------------------------------------
-[ ] Render > Environment: add SENTRY_DEBUG_ENDPOINT = true (redeploys)
-[ ] curl -s -o /dev/null -w "%{http_code}\n" \
+[x] Render > Environment: add SENTRY_DEBUG_ENDPOINT = true (redeploys)
+[x] curl -s -o /dev/null -w "%{http_code}\n" \
       https://stemquest-api.onrender.com/api/sentry-debug/
     Expect 500.
-[ ] In sentry.io > stemquest-django: a ZeroDivisionError event appears
+    RESULT 2026-07-21 18:53: 500 after ~2 min redeploy (polled every
+    20s; flipped 404 -> 500 on attempt 7).
+[x] In sentry.io > stemquest-django: a ZeroDivisionError event appears
     with environment=production and a release SHA. OPEN THE EVENT and
     confirm NO user email/IP is attached (PII check —
     send_default_pii=False doing its job).
-[ ] Render > Environment: REMOVE SENTRY_DEBUG_ENDPOINT (redeploys)
-[ ] curl the endpoint again -> 404
+    (Cesar checked, then removed the env var — 2026-07-21 evening.
+    A second event was also triggered by the agent's curl at ~00:52
+    UTC while the flag was still on; either proves the pipeline.)
+[x] Render > Environment: REMOVE SENTRY_DEBUG_ENDPOINT (redeploys)
+[x] curl the endpoint again -> 404  (verified 2026-07-21 evening,
+    health endpoint still 200)
 
 
 STEP 7 — FRONTEND SENTRY SMOKE TEST (Cesar, browser + sentry.io)
@@ -137,29 +154,31 @@ STEP 7 — FRONTEND SENTRY SMOKE TEST (Cesar, browser + sentry.io)
       - the route name from router instrumentation.
 
 
-STEP 8 — UPTIMEROBOT (Cesar, uptimerobot.com)  ** DESCOPED 2026-07-21 **
+STEP 8 — UPTIMEROBOT (Cesar, uptimerobot.com)  ** DONE 2026-07-21 **
 ---------------------------------------------
-Cesar decided not to implement UptimeRobot. Consequences accepted:
-no down alerts, deep DB check unwatched, and Render cold starts
-return for the first request after 15+ idle minutes. If keep-warm is
-ever wanted without an UptimeRobot account: a GitHub Actions cron
-curling /api/health/ every 10 min does the same job for free.
-[ ] Create free account, confirm alert email address works.
-[ ] Monitor 1 (keep-warm + uptime): HTTP(s),
+(Was descoped 2026-07-21; descope REVERSED same day — Cesar created
+the account + monitors in the dashboard, agent fixed/verified via MCP.)
+[x] Create free account, confirm alert email address works.
+    (cesarvillarreal11@gmail.com; TEST down/up emails received 00:27 UTC)
+[x] Monitor 1 (keep-warm + uptime): HTTP(s),
       https://stemquest-api.onrender.com/api/health/
-      interval 5 min.
+      interval 5 min.  (id 803564203, UP)
     Shallow ON PURPOSE: it never touches the DB, so it keeps Render
     warm without keeping Neon's compute awake.
-[ ] Monitor 2 (DB alerting): Keyword monitor,
+[x] Monitor 2 (DB alerting): Keyword monitor,
       https://stemquest-api.onrender.com/api/health/?deep=1
       keyword: "database": "ok"   (alert when keyword NOT exists)
       interval 60 min. (~24 brief Neon wakes/day, negligible.)
-[ ] Monitor 3 (frontend): HTTP(s),
+    (id 803564235, UP — see AS-RUN: first attempt was inverted)
+[x] Monitor 3 (frontend): HTTP(s),
       https://stemquest.cesarvillarreal11.workers.dev/
-      interval 5 min.
-[ ] Alert-email proof: create a scratch monitor pointing at
-      https://stemquest-api.onrender.com/api/nope/
-    wait for the down alert email to arrive, then DELETE the monitor.
+      interval 5 min.  (id 803564204, UP)
+[x] Alert-email proof: no scratch monitor needed — the inverted
+    keyword monitor (see AS-RUN) fired a REAL down alert whose email
+    arrived at Gmail 00:35 UTC, proving delivery end-to-end.
+[ ] Dashboard cleanup (Cesar): DELETE the paused monitor named
+    "DELETE ME — inverted keyword (replaced by 803564235)"
+    (id 803564196). The MCP server has no delete-monitor tool.
 
 
 STEP 9 — POST-SETUP CHECKS (Cesar, ~1 hour later)
@@ -198,3 +217,33 @@ AS-RUN NOTES
             trusting the pipeline. Next session pivots to portfolio
             polish (README + jdoe@demo.com demo account); see the
             2026-07-21 phase-40 handoff.
+
+2026-07-21  REOPENED (later session): Cesar resumed the phase. Step 4
+            turned out to be already done between sessions — verified
+            remotely from the live bundle (React DSN + sentry-dbid
+            debug IDs present, proving the auth token was set and maps
+            uploaded). Step 5 verified: no sourceMappingURL comment;
+            .map URL answers with the SPA HTML fallback, not map
+            content. /verify-stack re-run on main: 376 passed, tsc 0
+            errors, lint 0 errors / 22 warnings. Remaining: smoke
+            tests (steps 6-7). Step 8 stays descoped.
+
+2026-07-21  STEP 8 UN-DESCOPED (evening session): Cesar authenticated
+            the UptimeRobot MCP server and created all three monitors
+            in the dashboard. The deep-DB keyword monitor was created
+            with the alert condition INVERTED (ALERT_EXISTS instead of
+            ALERT_NOT_EXISTS), so it went DOWN immediately even though
+            the endpoint was healthy. The MCP update-monitor API cannot
+            change keywordType, so the agent recreated the monitor
+            correctly (new id 803564235, UP on first check) and paused
+            + renamed the bad one (803564196) for manual deletion.
+            Silver lining: the false alarm's DOWN email reached Gmail,
+            satisfying the alert-email-proof step without a scratch
+            monitor. NOTE: all three UptimeRobot emails were found in
+            Gmail TRASH (unread) — if Cesar didn't trash them manually,
+            a Gmail filter may be eating alerts; worth checking.
+            Step 6 smoke test also progressed this session:
+            SENTRY_DEBUG_ENDPOINT=true is live (endpoint returns 500);
+            an event was triggered at ~00:52 UTC; Cesar to confirm it
+            in sentry.io (env=production, release SHA, no PII) then
+            remove the env var.

@@ -101,28 +101,29 @@ figure gets recorded once, before keep-warm makes it unmeasurable.
 - [x] Write `docs/runbooks/phase-40-observability-steps.txt` (plain
       text, step-by-step, per house style) covering everything below,
       and keep AS-RUN NOTES in it as the deploy proceeds
-- [ ] Sentry: create account (cesarvillarreal11@gmail.com), one org,
+- [x] Sentry: create account (cesarvillarreal11@gmail.com), one org,
       two projects — `stemquest-django`, `stemquest-react`. Collect:
       both DSNs, org slug, project slug, and an auth token with
       `project:releases` + source-map upload scope
-- [ ] Render (backend env vars): set `SENTRY_DSN`; optionally
+- [x] Render (backend env vars): set `SENTRY_DSN`; optionally
       `SENTRY_ENVIRONMENT=production` (matches the default). Later,
       briefly: `SENTRY_DEBUG_ENDPOINT=true` for the smoke test, then
       remove it
-- [ ] Cloudflare Workers **build** variables (Settings > Build — NOT
+- [x] Cloudflare Workers **build** variables (Settings > Build — NOT
       runtime variables; same trap as Phase 39): `VITE_SENTRY_DSN`,
       `SENTRY_AUTH_TOKEN` (secret), `SENTRY_ORG`, `SENTRY_PROJECT`
-- [ ] UptimeRobot: create account, three monitors, email alerts on:
-  - [ ] `https://stemquest-api.onrender.com/api/health/` — every
-        **5 min** (SHALLOW on purpose: it never touches the DB, so it
-        keeps Render warm without keeping Neon's compute awake —
-        health.py was written for exactly this)
-  - [ ] `https://stemquest-api.onrender.com/api/health/?deep=1` —
-        keyword monitor for `"database": "ok"`, every **60 min** (DB
-        alerting; ~24 brief Neon wakes/day is negligible compute)
-  - [ ] `https://stemquest.cesarvillarreal11.workers.dev/` — every 5 min
-- [ ] Optional cleanup while in `/admin/`: delete the Phase 39 test
-      account `r2-check@example.com`
+      (verified 2026-07-21 from the live bundle: DSN + sentry debug
+      IDs present → plugin ran, maps uploaded)
+- [x] UptimeRobot: create account, three monitors, email alerts
+      **DESCOPE REVERSED 2026-07-21** — Cesar created the account and
+      three monitors in the dashboard; the deep-DB keyword monitor was
+      created inverted (ALERT_EXISTS) and immediately alarmed. Fixed
+      via MCP by recreating it as ALERT_NOT_EXISTS (id 803564235); the
+      inverted one is paused and renamed "DELETE ME…" (MCP cannot
+      delete monitors — remove it in the dashboard).
+- [ ] ~~Optional cleanup while in `/admin/`: delete the Phase 39 test
+      account `r2-check@example.com`~~ MOVED to backlog (tracked in
+      the phase-40 handoffs) — optional, not a phase gate.
 
 ## Verification
 
@@ -133,28 +134,34 @@ figure gets recorded once, before keep-warm makes it unmeasurable.
       (plugin correctly skipped): `VITE_API_URL=https://stemquest-api.onrender.com/api npm run build`
 - [x] Cold-start figures recorded (see sequencing constraint) in
       runbook + handoff
-- [ ] **Backend Sentry smoke test**: set `SENTRY_DEBUG_ENDPOINT=true`
+- [x] **Backend Sentry smoke test**: set `SENTRY_DEBUG_ENDPOINT=true`
       on Render → `curl /api/sentry-debug/` returns 500 → event
       appears in `stemquest-django` with environment=production, a
       release SHA, and **no** user email/IP in the event (PII check) →
       remove the env var → endpoint 404s again
-- [ ] **Frontend Sentry smoke test**: on the live site, in the browser
-      console run `setTimeout(() => { throw new Error('phase-40 smoke') })`
-      (Sentry's global handlers catch uncaught errors — no code change
-      needed) → event appears in `stemquest-react` with a **readable,
-      source-mapped stack trace** (proves the upload worked) and the
-      route name from router instrumentation
-- [ ] Served JS exposes no source maps: `curl` a deployed asset URL
-      with `.map` appended → 404; deployed JS contains no
-      `sourceMappingURL` pointing at a map
-- [ ] UptimeRobot: all three monitors green; deep monitor shows the
-      keyword match; alert email confirmed deliverable (temporarily
-      point a scratch monitor at a known-404 path, receive the email,
-      delete it)
-- [ ] After ~1 hour of monitors running: hit the API after 20+ min of
-      no manual traffic and confirm response is instant (keep-warm
-      works)
-- [ ] Manual click-through of the live site: register/login, course
+      (completed 2026-07-21 evening; endpoint re-verified 404,
+      /api/health/ 200)
+- [ ] ~~**Frontend Sentry smoke test**~~ WAIVED 2026-07-21 at phase
+      close (Cesar: "let's be done"). Frontend Sentry is live and the
+      source-map upload was verified indirectly (debug IDs in the
+      bundle, maps not served); the end-to-end event test was skipped.
+      If frontend errors ever look unreadable in Sentry, run this
+      one-minute test first: on the live site console,
+      `setTimeout(() => { throw new Error('smoke') })` → readable
+      stack in `stemquest-react`.
+- [x] Served JS exposes no source maps: deployed JS contains no
+      `sourceMappingURL`; the `.map` URL answers with the SPA HTML
+      fallback (200 text/html app shell — Worker serves index.html
+      for unknown paths), not map content, so the real map is not
+      deployed (verified 2026-07-21)
+- [x] UptimeRobot monitors green / alert email — verified 2026-07-21:
+      all three monitors UP; alert email delivery proven by the real
+      DOWN alert from the inverted keyword monitor (landed in Gmail,
+      though in Trash — check filters if that wasn't manual)
+- [x] ~~Keep-warm check after 1 hour~~ MOOT — no cold start exists
+      (measured 2026-07-21, runbook step 0)
+- [x] Manual click-through of the live site: register/login, course
       map, a lesson — console clean, no Sentry noise events from
       normal browsing (replay/tracing sampling working, no 4xx spam
-      from the interceptor)
+      from the interceptor). Passed per working convention: no
+      problems reported.
