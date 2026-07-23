@@ -215,3 +215,8 @@ phase-50 ADMIN_URL flip finally applied.
   `R2_ACCOUNT_ID`, `R2_BACKUPS_BUCKET`, `R2_BACKUPS_ACCESS_KEY_ID`,
   `R2_BACKUPS_SECRET_ACCESS_KEY` (create a dedicated private bucket +
   bucket-scoped R2 API token first).
+- **Domain (2026-07-23)**: user registered **stemquests.com** (Cloudflare
+  Registrar, same account). `frontend/wrangler.jsonc` now declares it as a
+  Custom Domain route, so the merge deploy attaches DNS + TLS
+  automatically. Remaining USER env flips (FRONTEND_URL, CORS, CSRF, then
+  Resend SMTP): docs/runbooks/phase-51-email-provider-steps.txt.

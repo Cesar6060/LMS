@@ -108,7 +108,9 @@ Glue libraries:
 ----------------------------------------
 What it is: Cloudflare's edge platform. We use its "static assets" mode:
 no server code, just files served from Cloudflare's global CDN. Live at
-https://stemquest.cesarvillarreal11.workers.dev.
+https://stemquests.com (custom domain, Phase 51 — declared in
+wrangler.jsonc `routes`; the original
+https://stemquest.cesarvillarreal11.workers.dev URL still serves too).
 
 What it does here: git-connected to the repo — on every push to main it
 runs `npm run build` (Vite) and deploys frontend/dist with
