@@ -403,9 +403,12 @@ export function CoursePlayerPage() {
   const hasContentSections = contentSections.length > 0;
   const hasQuiz = questionsStatus && questionsStatus.total_questions > 0;
 
-  // Legacy content (no sections) still counts as a single page, so a blob+quiz
-  // lesson is 2 pages (content, then quiz) rather than a quiz-only page.
-  const contentPageCount = hasContentSections ? contentSections.length : 1;
+  // Phase 53: sections are the sole content model. A lesson with no sections
+  // has no content page — unless it also has no quiz, in which case we still
+  // show a single empty-state page so navigation works.
+  const contentPageCount = hasContentSections
+    ? contentSections.length
+    : (hasQuiz ? 0 : 1);
 
   // Total pages = content pages + quiz page (if a comprehension quiz exists)
   const totalSections = contentPageCount + (hasQuiz ? 1 : 0);
@@ -494,41 +497,15 @@ export function CoursePlayerPage() {
     }
 
     if (!currentSection) {
-      // Fallback: render lesson content directly (legacy lessons without sections)
+      // Phase 53: sections are the sole content model — lesson-level
+      // content/video is no longer rendered. A lesson with no sections shows an
+      // empty state (quiz-only lessons render the quiz page instead).
       return (
-        <>
-          {/* Video - currently only YouTube is supported */}
-          {currentLesson?.video_type === 'youtube' && currentLesson.video_id && (
-            <div className="mb-8 mx-auto w-full max-w-[calc((100vh-15rem)*1.7778)]">
-              <VideoPlayer
-                videoType="youtube"
-                videoId={currentLesson.video_id}
-                initialPosition={progress?.video_position || 0}
-                onProgress={handleVideoProgress}
-                onEnded={handleVideoEnded}
-              />
-            </div>
-          )}
-
-          {/* Content */}
-          {currentLesson?.content && (
-            <Card>
-              <CardContent className="prose prose-neutral dark:prose-invert max-w-none py-6">
-                <ReactMarkdown remarkPlugins={[remarkGfm]}>
-                  {currentLesson.content}
-                </ReactMarkdown>
-              </CardContent>
-            </Card>
-          )}
-
-          {!currentLesson?.content && currentLesson?.video_type === 'none' && (
-            <Card>
-              <CardContent className="py-12 text-center text-muted-foreground">
-                No content available for this lesson.
-              </CardContent>
-            </Card>
-          )}
-        </>
+        <Card>
+          <CardContent className="py-12 text-center text-muted-foreground">
+            No content available for this lesson yet.
+          </CardContent>
+        </Card>
       );
     }
 

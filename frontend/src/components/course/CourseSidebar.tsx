@@ -16,6 +16,8 @@ interface Lesson {
   order: number;
   required_quiz?: number | null;
   required_quiz_info?: RequiredQuizInfo | null;
+  /** Phase 53 — true if any section has a playable YouTube video. */
+  has_video?: boolean;
 }
 
 interface LessonWithProgress extends Lesson {
@@ -189,7 +191,8 @@ export function CourseSidebar({
                 <div className="bg-muted/30">
                   {unit.lessons.map((lesson) => {
                     const isActive = lesson.id === currentLessonId;
-                    const hasVideo = lesson.video_type !== 'none' && lesson.video_id;
+                    // Phase 53: video lives in sections; the API exposes has_video.
+                    const hasVideo = lesson.has_video ?? false;
 
                     return (
                       <button

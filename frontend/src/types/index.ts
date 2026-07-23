@@ -86,9 +86,12 @@ export interface Lesson {
   id: number;
   unit: number;
   title: string;
+  /** @deprecated Phase 53 — lesson body lives in `sections`. Kept dormant; not rendered. */
   content: string | null;
   order: number;
+  /** @deprecated Phase 53 — video lives on sections. Kept dormant; not rendered. */
   video_type: 'none' | 'youtube';
+  /** @deprecated Phase 53 — video lives on sections. Kept dormant; not rendered. */
   video_id: string | null;
   required_quiz?: number | null;
   required_quiz_info?: RequiredQuizInfo | null;
@@ -98,6 +101,8 @@ export interface Lesson {
   attachment_count?: number;
   sections?: LessonSection[];
   section_count?: number;
+  /** Phase 53 — true if any section has a playable YouTube video. */
+  has_video?: boolean;
 }
 
 export interface Enrollment {
