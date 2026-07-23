@@ -15,7 +15,7 @@ export default defineConfig(({ mode }) => {
   if (mode === 'production' && !env.VITE_API_URL) {
     throw new Error(
       'VITE_API_URL must be set for production builds ' +
-      '(e.g. https://stemquest-api.onrender.com/api — the /api suffix is required).'
+      '(e.g. https://stemquest-api-va.onrender.com/api — the /api suffix is required).'
     )
   }
 
