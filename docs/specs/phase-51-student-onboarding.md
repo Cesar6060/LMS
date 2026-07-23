@@ -143,7 +143,7 @@ phase-50 ADMIN_URL flip finally applied.
   committed; USER adds the repo secrets. Restore runbook written as
   `docs/runbooks/phase-51-db-restore-steps.txt` (plain text) and drilled once
   against a scratch Neon branch (evidence in spec).
-- [ ] Email provider swap (code side is env-only): `.env.example` +
+- [x] Email provider swap (code side is env-only): `.env.example` +
   `render.yaml` env inventory updated for the transactional provider
   (e.g. Resend SMTP) on the user's own domain; runbook
   `docs/runbooks/phase-51-email-provider-steps.txt` covering DNS records
@@ -272,3 +272,15 @@ sign-off.
 - Sentry note: the Workers build already carries VITE_SENTRY_DSN +
   SENTRY_ORG/PROJECT/AUTH_TOKEN build vars (seen in build settings), so
   the remaining Sentry item is likely just the forced-test-error check.
+
+## Email swap verified (2026-07-23, later)
+
+USER completed Resend signup, DNS records, and the Render env flip.
+Agent verification: SPF/MX/DKIM records live on stemquests.com; a
+production password-reset email (same SMTP path as invites) arrived in
+the user's Gmail INBOX within seconds, From: noreply@stemquests.com,
+with the reset link correctly pointing at
+https://stemquests.com/reset-password?... (FRONTEND_URL confirmed).
+Remaining email-adjacent items: USER's manual invite E2E click-through
+(runbook step B5 — now unblocked) and revoking the old Gmail app
+password (runbook cleanup).
