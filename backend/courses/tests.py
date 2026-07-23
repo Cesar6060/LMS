@@ -1644,6 +1644,60 @@ class TestLessonCompletionGating:
         )
         assert status_resp2.data['can_complete_lesson'] is True
 
+    def test_other_students_passing_attempt_does_not_unlock(
+        self, api_client, student, lesson, enrollment
+    ):
+        """A different student's passing attempt must not unlock this student."""
+        questions = _add_comprehension_quiz(lesson, count=2)  # requires_quiz on
+        other = User.objects.create_user(
+            email='other-student@test.com', password='testpass123')
+        LessonQuizAttempt.objects.create(
+            user=other, lesson=lesson, attempt_number=1,
+            score=len(questions), total_questions=len(questions), passed=True,
+        )
+
+        api_client.force_authenticate(user=student)
+        resp = api_client.patch(
+            f'/api/courses/lessons/{lesson.id}/progress/', {'completed': True}
+        )
+        assert resp.status_code == status.HTTP_400_BAD_REQUEST
+
+    def test_in_progress_passing_attempt_does_not_unlock(
+        self, api_client, student, lesson, enrollment
+    ):
+        """A `passed=True` attempt still `in_progress` must not satisfy the gate
+        (defense-in-depth: only finalized/completed attempts count)."""
+        questions = _add_comprehension_quiz(lesson, count=2)  # requires_quiz on
+        LessonQuizAttempt.objects.create(
+            user=student, lesson=lesson, attempt_number=1,
+            score=len(questions), total_questions=len(questions),
+            passed=True, status=LessonQuizAttempt.STATUS_IN_PROGRESS,
+        )
+
+        api_client.force_authenticate(user=student)
+        resp = api_client.patch(
+            f'/api/courses/lessons/{lesson.id}/progress/', {'completed': True}
+        )
+        assert resp.status_code == status.HTTP_400_BAD_REQUEST
+
+    def test_other_course_instructor_cannot_set_requires_quiz(
+        self, api_client, lesson
+    ):
+        """An instructor of a different course cannot toggle requires_quiz on
+        someone else's lesson (permission boundary on the new field)."""
+        other_instructor = User.objects.create_user(
+            email='other-instr@test.com', password='testpass123',
+            is_instructor=True)
+
+        api_client.force_authenticate(user=other_instructor)
+        resp = api_client.patch(
+            f'/api/courses/lessons/{lesson.id}/', {'requires_quiz': True},
+            format='json')
+
+        assert resp.status_code == status.HTTP_403_FORBIDDEN
+        lesson.refresh_from_db()
+        assert lesson.requires_quiz is False
+
 
 @pytest.mark.django_db
 class TestRequiresQuizMigration:

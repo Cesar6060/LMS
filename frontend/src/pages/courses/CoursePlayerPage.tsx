@@ -191,8 +191,10 @@ export function CoursePlayerPage() {
       lastSavedSectionRef.current = progressData?.current_section || 0;
 
       // Calculate total pages for resume logic (phase 53: sections are content).
-      // Phase 54: the quiz page only exists when the lesson opts into gating.
-      const hasQuizSection = !!(quizStatusData && quizStatusData.total_questions > 0 && quizStatusData.requires_quiz);
+      // Phase 54: the comprehension quiz is its own page whenever the lesson has
+      // questions — whether or not passing is *required* (see `quizGates`). This
+      // keeps optional-practice questions reachable in the player.
+      const hasQuizSection = !!(quizStatusData && quizStatusData.total_questions > 0);
       const contentPageCount = contentPageCountFor(
         lessonData.sections?.length || 0, hasQuizSection);
       const maxSectionIndex = contentPageCount + (hasQuizSection ? 1 : 0) - 1;
@@ -247,7 +249,7 @@ export function CoursePlayerPage() {
     if (!currentLesson || isSavingRef.current) return;
 
     // Calculate total pages (phase 53: sections are content, + quiz if present)
-    const hasQuizSection = !!(questionsStatus && questionsStatus.total_questions > 0 && questionsStatus.requires_quiz);
+    const hasQuizSection = !!(questionsStatus && questionsStatus.total_questions > 0);
     const contentPageCount = contentPageCountFor(
       currentLesson.sections?.length || 0, hasQuizSection);
     const maxIndex = contentPageCount + (hasQuizSection ? 1 : 0) - 1;
@@ -341,7 +343,7 @@ export function CoursePlayerPage() {
     if (!currentLesson || progress?.completed) return;
 
     // Page count including an appended comprehension-quiz page.
-    const hasQuizSection = !!(questionsStatus && questionsStatus.total_questions > 0 && questionsStatus.requires_quiz);
+    const hasQuizSection = !!(questionsStatus && questionsStatus.total_questions > 0);
     const contentPageCount = contentPageCountFor(
       currentLesson.sections?.length || 0, hasQuizSection);
     const totalPages = contentPageCount + (hasQuizSection ? 1 : 0);
@@ -414,10 +416,12 @@ export function CoursePlayerPage() {
   // Get current section data
   const contentSections = currentLesson?.sections || [];
   const hasContentSections = contentSections.length > 0;
-  // Phase 54: a lesson only shows/gates on its comprehension quiz when it opts
-  // in via `requires_quiz`. Otherwise the questions are optional practice and
-  // are not part of the student's completion flow.
-  const hasQuiz = !!(questionsStatus && questionsStatus.total_questions > 0 && questionsStatus.requires_quiz);
+  // Phase 54: `hasQuiz` = the lesson has a comprehension-quiz PAGE (questions
+  // exist) — it's always shown so students can take it. `quizGates` = passing it
+  // is REQUIRED to complete (the `requires_quiz` toggle). Rendering/navigation
+  // key off `hasQuiz`; completion gating keys off `quizGates`.
+  const hasQuiz = !!(questionsStatus && questionsStatus.total_questions > 0);
+  const quizGates = hasQuiz && !!questionsStatus?.requires_quiz;
 
   // Phase 53: sections are the sole content model (see contentPageCountFor).
   const contentPageCount = contentPageCountFor(contentSections.length, !!hasQuiz);
@@ -655,8 +659,9 @@ export function CoursePlayerPage() {
                       </p>
                     )}
 
-                    {/* Lesson questions requirement badge - only show when NOT on quiz section */}
-                    {hasQuiz && !progress?.completed && !isOnQuizSection && (
+                    {/* Lesson questions requirement badge - only when the quiz
+                        gates completion, and not while on the quiz page itself */}
+                    {quizGates && !progress?.completed && !isOnQuizSection && (
                       <div className={`inline-flex items-center gap-2 px-3 py-1.5 rounded-lg mb-3 ${
                         questionsStatus.can_complete_lesson
                           ? 'bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400'
@@ -684,9 +689,10 @@ export function CoursePlayerPage() {
                       </div>
                     )}
 
-                    {/* Only show Mark Complete button if this lesson isn't gated by
-                        its quiz and we're on the last page */}
-                    {(!hasSections || isLastSection) && !hasQuiz && (
+                    {/* Show Mark Complete on the last page unless the quiz gates
+                        completion (then completion happens via the quiz page). When
+                        the quiz is optional practice, completion stays available here. */}
+                    {(!hasSections || isLastSection) && !quizGates && (
                       <div className="flex items-center gap-3">
                         <Button
                           variant={progress?.completed ? 'default' : 'outline'}
@@ -706,8 +712,9 @@ export function CoursePlayerPage() {
                       </div>
                     )}
 
-                    {/* Show completion status when there IS a quiz requirement */}
-                    {hasQuiz && progress?.completed && (
+                    {/* Show completion status when the quiz gates completion (the
+                        Mark Complete button is hidden in that case) */}
+                    {quizGates && progress?.completed && (
                       <div className="flex items-center gap-2 text-green-600 dark:text-green-400">
                         <CheckCircle className="h-5 w-5" />
                         <span className="font-medium">Lesson Completed</span>

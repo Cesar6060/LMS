@@ -82,7 +82,7 @@ Two UX problems surfaced by the user after reviewing the live lesson editor
 
 ## Backend tasks
 
-- [ ] **Migration `backend/courses/migrations/0020_lesson_requires_quiz.py`**
+- [x] **Migration `backend/courses/migrations/0020_lesson_requires_quiz.py`**
       (confirm `0020` is next). Inside `transaction.atomic()`:
       - `AddField` `requires_quiz = BooleanField(default=False)` on `Lesson`.
       - `RunPython` forward (historical models via `apps.get_model`):
@@ -94,21 +94,21 @@ Two UX problems surfaced by the user after reviewing the live lesson editor
       - Reverse = `migrations.RunPython.noop` for the data step (the AddField
         reverses normally). One-way data retirement; cleared FK values are not
         reconstructable.
-- [ ] Run **`db-migration-checker`** on `0020` before merge (expect: one additive
+- [x] Run **`db-migration-checker`** on `0020` before merge (expect: one additive
       column with a default + data-only RunPython, reversible AddField,
       noop-reverse data, no destructive drop). Record the verdict in this spec.
-- [ ] `[P]` **Migration tests** (`backend/courses/tests.py`):
+- [x] `[P]` **Migration tests** (`backend/courses/tests.py`):
       - Lesson with ≥1 `LessonQuestion` → `requires_quiz` becomes `True`.
       - Lesson with 0 questions → `requires_quiz` stays `False`.
       - Lesson with a `required_quiz` FK set → cleared to `None` after migration.
-- [ ] **`backend/courses/serializers.py` — completion gate**
+- [x] **`backend/courses/serializers.py` — completion gate**
       (`LessonProgressUpdateSerializer.validate_completed`, ~lines 474–501):
       - **Remove** the System-A `required_quiz` branch entirely (was ~490–501).
       - **Change** the System-B branch (~474–487) to gate only when
         `lesson.requires_quiz and lesson.questions.exists()` (today it's
         `lesson.questions.count() > 0`). Keep the existing
         `LessonQuizAttempt(passed=True)` check as the pass condition.
-- [ ] **`backend/courses/serializers.py` — surfacing & write fields:**
+- [x] **`backend/courses/serializers.py` — surfacing & write fields:**
       - Add `requires_quiz` (writable) to the lesson serializers used by the
         editor (`LessonSerializer` / `LessonCreateSerializer` as applicable) and
         expose it read-side wherever `question_count` is exposed.
@@ -119,7 +119,7 @@ Two UX problems surfaced by the user after reviewing the live lesson editor
         `LessonQuizScopeMixin` (Phase-53 IDOR fix — moot once the field isn't
         writable). Grep for every reader before deleting.
       - Keep the `required_quiz` **model column** dormant (no migration drop).
-- [ ] **`backend/courses/views.py` — align the "can complete" status with the
+- [x] **`backend/courses/views.py` — align the "can complete" status with the
       gate** (fixes an inconsistency found while scoping). Three definitions of
       "can complete lesson" currently disagree:
       - `can_complete_lesson` endpoint (~`views.py:2254`) = `has_passed or
@@ -131,7 +131,7 @@ Two UX problems surfaced by the user after reviewing the live lesson editor
       False or no questions) ⇒ can complete; **required** ⇒ can complete iff a
       passing `LessonQuizAttempt` exists. This prevents the UI showing "ready to
       complete" while the save 400s.
-- [ ] `[P]` **Gate tests** (`backend/courses/tests.py`): student cannot complete
+- [x] `[P]` **Gate tests** (`backend/courses/tests.py`): student cannot complete
       a `requires_quiz=True` lesson without a passing `LessonQuizAttempt`; **can**
       complete when `requires_quiz=False` even with unpassed questions; toggling
       `requires_quiz` off unblocks completion; setting a `required_quiz` FK via
@@ -141,25 +141,25 @@ Two UX problems surfaced by the user after reviewing the live lesson editor
 
 ### Rename "Section" → "Page" (presentation only)
 
-- [ ] **`frontend/src/components/lesson/SectionEditor.tsx`** — visible strings:
+- [x] **`frontend/src/components/lesson/SectionEditor.tsx`** — visible strings:
       `"Add Section"`/`"Edit Section"` (266, 382), `"Section {index+1}"`
       (334, 572), `"Paste to add sections"` (262, 292, 514) → "Paste to add
       pages", `"Create a new section for this lesson."` (387), placeholder
       `"Write section content using Markdown…"` (463), `"Failed to add sections"`
       (243), `"…produced no sections."` (560), `title="Remove this section"`
       (585), and the empty-state copy. → all "Page(s)".
-- [ ] **`frontend/src/pages/courses/CoursePlayerPage.tsx`** — student-facing:
+- [x] **`frontend/src/pages/courses/CoursePlayerPage.tsx`** — student-facing:
       dot tooltip `` title={`Section ${i + 1}`} `` (788) → `` `Page ${i + 1}` ``;
       `"No content available for this section."` (555) → "…for this page."; any
       other visible "section" text in the player empty state.
-- [ ] Grep sweep `grep -rniE 'section' frontend/src --include=*.tsx` filtered to
+- [x] Grep sweep `grep -rniE 'section' frontend/src --include=*.tsx` filtered to
       JSX text / string literals / `title=`/`placeholder=`/`aria-*` to confirm no
       user-facing "Section" remains. (CourseSidebar / OutlineUnitCard confirmed
       to have **no** user-facing "section" text — nothing to change there.)
 
 ### Quiz gating + Details-tab removal
 
-- [ ] **`frontend/src/pages/instructor/LessonEditorPage.tsx`:**
+- [x] **`frontend/src/pages/instructor/LessonEditorPage.tsx`:**
       - Remove the **Details** `TabsTrigger`/`TabsContent` and the Required Quiz
         `<select>` + `quizzes` state + `quizzesService.getCourseQuizzes` fetch +
         `required_quiz` from `LessonDetailsForm` / `saveDetails`.
@@ -168,7 +168,7 @@ Two UX problems surfaced by the user after reviewing the live lesson editor
         the header save-status indicator and the `beforeunload` leave-guard.
       - Tabs become `defaultValue="content"` → **Content · Questions ·
         Attachments**.
-- [ ] **`frontend/src/components/lesson/LessonQuestionsManager.tsx`:**
+- [x] **`frontend/src/components/lesson/LessonQuestionsManager.tsx`:**
       - Add a prominent toggle at the top: **"Require students to pass this
         lesson's quiz to complete it"** (readable label + helper text per the UI
         readability prefs, not tiny grey). Wire to
@@ -177,29 +177,42 @@ Two UX problems surfaced by the user after reviewing the live lesson editor
       - Update the standing copy line (~192) "Students must answer all questions
         correctly to complete the lesson." to be conditional on the toggle
         (required vs optional-practice wording).
-- [ ] **`frontend/src/pages/courses/CoursePlayerPage.tsx` — gate rendering:**
+- [x] **`frontend/src/pages/courses/CoursePlayerPage.tsx` — gate rendering:**
       - **Remove** the System-A required-quiz badge + "Take Quiz" off-player link
         (~655–682) and the `required_quiz_info` suppression of Mark Complete
         (~714). (`required_quiz_info` is now always null.)
-      - Gate Mark Complete on **`requires_quiz && total_questions > 0 && !passed`**
-        instead of `total_questions > 0`. When `requires_quiz` is OFF, the quiz
-        page still renders (optional practice) but Mark Complete is allowed.
-      - The mastery "must pass" badge (~685–711) shows only when `requires_quiz`.
-- [ ] **`frontend/src/types/index.ts` + `frontend/src/services/courses.ts`:** add
+      - **Split render from gate** (per code-review Finding 1): `hasQuiz`
+        (= `total_questions > 0`) means the lesson has a comprehension-quiz PAGE,
+        always rendered so students can take it; `quizGates`
+        (= `hasQuiz && requires_quiz`) means passing is REQUIRED to complete.
+        All page-count / nav / resume derivations key off `hasQuiz`; completion
+        gating keys off `quizGates`. So when `requires_quiz` is OFF the questions
+        remain reachable as optional practice, and Mark Complete stays available
+        on the last page.
+      - Gate the Mark Complete button on `!quizGates`; the "must pass" badge and
+        the alternate "Lesson Completed" indicator show only when `quizGates`.
+- [x] **`frontend/src/types/index.ts` + `frontend/src/services/courses.ts`:** add
       `requires_quiz: boolean` to the `Lesson` type and `updateLesson` payload;
       drop `required_quiz` / `required_quiz_info` / `required_quiz_passed` from
       the types once no reader remains (tsc will enforce).
 
 ## Verification & review
 
-- [ ] `db-migration-checker` on `0020` (before merge).
-- [ ] `code-reviewer` on the full diff against this spec.
-- [ ] `adversarial-tester` — focus: completing a `requires_quiz` lesson without
-      passing (API-level, bypassing the hidden button); toggling `requires_quiz`
-      mid-course; attempting to set `required_quiz` via the API; a lesson with
-      `requires_quiz=True` but zero questions (must not soft-lock — nothing to
-      pass ⇒ completable).
-- [ ] `/verify-stack` — pytest + `tsc --noEmit` + lint all clean; show output.
+- [x] `db-migration-checker` on `0020` — **SAFE-WITH-NOTES**. DDL is additive
+      (metadata-only column add; AlterField is a no-op). One rollout note: the
+      data step nulls `required_quiz` on all lessons, so it retires the live
+      System-A gate; apply it close to merge and dump existing `required_quiz`
+      values first (noop reverse = one-way). Dev had **0** such values.
+- [x] `code-reviewer` — **REQUEST-CHANGES on Finding 1** (OFF hid the questions
+      instead of leaving them as optional practice); **fixed** via the
+      render/gate split above. Findings 2–4 non-blocking (dead course-map FK
+      reader kept dormant; `has_passed` type made optional; checklist updated).
+- [x] `adversarial-tester` — **30/30 probes held, no BROKEN**. One SUSPICIOUS
+      (gate didn't filter `LessonQuizAttempt.status`) **hardened**: both the gate
+      and the status serializer now require `status=STATUS_COMPLETED`. Added
+      regression tests (cross-user, in-progress attempt, cross-course IDOR).
+- [x] `/verify-stack` (post-fix) — pytest **503 passed**, `tsc --noEmit`
+      **0 errors**, lint **0**.
 - [ ] Manual click-through (instructor): title inline edit saves; toggle on/off;
       no Details tab. (Student): required lesson blocks until passed; optional
       lesson completes freely; player says "Page N".

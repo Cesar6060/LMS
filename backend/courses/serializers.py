@@ -374,7 +374,8 @@ class LessonProgressSerializer(serializers.ModelSerializer):
         all_correct = correct_count == total_questions
 
         has_passed = LessonQuizAttempt.objects.filter(
-            user=obj.user, lesson=lesson, passed=True
+            user=obj.user, lesson=lesson,
+            status=LessonQuizAttempt.STATUS_COMPLETED, passed=True
         ).exists()
 
         gated = lesson.requires_quiz
@@ -411,6 +412,7 @@ class LessonProgressUpdateSerializer(serializers.ModelSerializer):
                 has_passed = LessonQuizAttempt.objects.filter(
                     user=user,
                     lesson=lesson,
+                    status=LessonQuizAttempt.STATUS_COMPLETED,
                     passed=True
                 ).exists()
 

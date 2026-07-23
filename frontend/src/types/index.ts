@@ -337,7 +337,7 @@ export interface LessonQuestionsStatus {
   max_attempts?: number | null;
   attempts_remaining?: number | null;
   can_attempt?: boolean;
-  has_passed: boolean;
+  has_passed?: boolean;
 }
 
 export interface QuizSubmissionResult {
