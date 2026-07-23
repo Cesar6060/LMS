@@ -25,14 +25,12 @@ import {
 interface LessonDetailsForm {
   title: string;
   required_quiz: number | null;
-  max_quiz_attempts: number;
 }
 
 function detailsFromLesson(lesson: Lesson): LessonDetailsForm {
   return {
     title: lesson.title,
     required_quiz: lesson.required_quiz ?? null,
-    max_quiz_attempts: lesson.max_quiz_attempts ?? 0,
   };
 }
 
@@ -110,7 +108,6 @@ export function LessonEditorPage() {
       const updated = await courseService.updateLesson(lesson.id, {
         title: snapshot.title,
         required_quiz: snapshot.required_quiz,
-        max_quiz_attempts: snapshot.max_quiz_attempts,
       });
       setLesson(updated);
       setSavedForm(snapshot);
@@ -296,25 +293,6 @@ export function LessonEditorPage() {
               </select>
               <p className="text-xs text-muted-foreground">
                 Students must pass this quiz to complete the lesson.
-              </p>
-            </div>
-
-            {/* Max attempts */}
-            <div className="space-y-2 max-w-xs">
-              <label htmlFor="max-attempts" className="text-sm font-medium">
-                Max Quiz Attempts
-              </label>
-              <Input
-                id="max-attempts"
-                type="number"
-                min={0}
-                value={form.max_quiz_attempts}
-                onChange={(e) =>
-                  updateForm({ max_quiz_attempts: Math.max(0, Number(e.target.value) || 0) })
-                }
-              />
-              <p className="text-xs text-muted-foreground">
-                Maximum attempts for the comprehension quiz (0 = unlimited).
               </p>
             </div>
           </div>

@@ -3217,3 +3217,48 @@ class TestConsolidateContentIntoSectionsMigration:
         lesson.refresh_from_db()
         assert lesson.sections.count() == 0
         assert (lesson.content, lesson.video_type, lesson.video_id) == ('', 'none', '')
+
+
+@pytest.mark.django_db
+class TestRequiredQuizCourseScope:
+    """Phase 53 hardening: required_quiz must belong to the lesson's own course.
+
+    Guards against the API-only IDOR where an instructor gates a lesson on a
+    quiz from a different course (the React UI only lists same-course quizzes).
+    """
+
+    def _make_quiz(self, unit, title):
+        from quizzes.models import Quiz
+        return Quiz.objects.create(unit=unit, title=title)
+
+    def test_cannot_set_required_quiz_from_another_course(
+        self, api_client, instructor, lesson
+    ):
+        other_course = Course.objects.create(
+            code='OTHER1', title='Other', description='x', instructor=instructor)
+        other_unit = Unit.objects.create(course=other_course, title='U', order=1)
+        foreign_quiz = self._make_quiz(other_unit, 'Foreign')
+
+        api_client.force_authenticate(user=instructor)
+        resp = api_client.patch(
+            f'/api/courses/lessons/{lesson.id}/',
+            {'required_quiz': foreign_quiz.id}, format='json')
+
+        assert resp.status_code == status.HTTP_400_BAD_REQUEST
+        assert 'required_quiz' in resp.data
+        lesson.refresh_from_db()
+        assert lesson.required_quiz_id is None
+
+    def test_can_set_required_quiz_from_same_course(
+        self, api_client, instructor, unit, lesson
+    ):
+        same_quiz = self._make_quiz(unit, 'Same')
+
+        api_client.force_authenticate(user=instructor)
+        resp = api_client.patch(
+            f'/api/courses/lessons/{lesson.id}/',
+            {'required_quiz': same_quiz.id}, format='json')
+
+        assert resp.status_code == status.HTTP_200_OK
+        lesson.refresh_from_db()
+        assert lesson.required_quiz_id == same_quiz.id

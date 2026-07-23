@@ -195,7 +195,7 @@ function SortableLessonRow({ lesson, courseCode, onRename, onDelete }: SortableL
       >
         <GripVertical className="h-4 w-4" />
       </button>
-      {lesson.video_type !== 'none' ? (
+      {lesson.has_video ? (
         <Play className="h-4 w-4 text-muted-foreground flex-shrink-0" />
       ) : (
         <FileText className="h-4 w-4 text-muted-foreground flex-shrink-0" />

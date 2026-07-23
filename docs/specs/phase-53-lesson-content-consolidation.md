@@ -99,25 +99,35 @@ low-risk.
       `LessonListSerializer` so the sidebar can show a video icon without the
       full `sections` payload. `sections` stays `read_only` on the lesson. No
       code path requires lesson-level content.
-- [~] `[P]` **Low-risk hardening — SKIPPED (documented).** `lesson_section_detail`
-      PUT uses `LessonSectionCreateSerializer(..., data=...)` without
-      `partial=True`. The frontend always sends the full section object, so this
-      is latent only. Left unchanged to keep the phase scoped to the
-      consolidation; recorded here as a known follow-up footgun.
+- [~] `[P]` **Low-risk hardening — not needed.** The spec suspected
+      `lesson_section_detail` PUT (no `partial=True`) could blank omitted fields.
+      Adversarial testing showed it does NOT: DRF doesn't copy the model's
+      `default=` onto the auto-generated serializer field, so omitted optional
+      fields are simply excluded from `validated_data` and left untouched. The
+      original risk note was over-stated; left unchanged.
+- [x] **Security fix (from adversarial review): cross-course `required_quiz`
+      IDOR.** `required_quiz` was a bare `PrimaryKeyRelatedField` over all quizzes,
+      letting an instructor gate a lesson on another course's quiz via the API.
+      Added `LessonQuizScopeMixin.validate_required_quiz` (applied to
+      `LessonSerializer` + `LessonCreateSerializer`) constraining the quiz to the
+      lesson's own course (from the instance on update, from the URL `unit_id` on
+      create). Regression tests in `TestRequiredQuizCourseScope`.
 
 ## Frontend tasks
 
 - [x] **`frontend/src/pages/instructor/LessonEditorPage.tsx`** — reorganize:
       - Rename the **Sections** tab to **"Content"** and make it the **default**
         tab (`defaultValue`). Rename the old **Content** tab to **"Details"**.
-      - **Details tab** keeps only: Lesson Title, Required Quiz, max quiz attempts.
-        Remove the Video Type select, the YouTube URL input, `YouTubeVideoPreview`,
-        the Markdown textarea + ReactMarkdown preview from this tab.
-      - **Remove the global top "Save" button** and its `isDirty`-gated logic for
-        content/video. Replace with **auto-save**: persist Title / Required Quiz /
-        max attempts via `courseService.updateLesson` on blur (or debounced), and
-        remove the `extractYouTubeVideoId` call from `handleSave` (video is no
-        longer edited here).
+      - **Details tab** keeps only: Lesson Title + Required Quiz. Removed the
+        Video Type select, YouTube URL input, `YouTubeVideoPreview`, and the
+        Markdown editor/preview. **Note:** `max_quiz_attempts` was initially added
+        here but removed after adversarial review found it's a dead control — the
+        current student mastery-quiz flow (Phase 32) doesn't enforce the cap, so a
+        "max attempts" field would mislead instructors. Not surfaced.
+      - **Removed the global top "Save" button** and its `isDirty`-gated logic.
+        Replaced with **auto-save**: Title / Required Quiz persist via
+        `courseService.updateLesson` on an 800ms debounce; removed the
+        `extractYouTubeVideoId` call from the old save handler.
       - Add a **global save-status indicator** in the header area: "All changes
         saved" / "Saving…" / "Couldn't save — retry" (real, readable text per the
         UI readability preferences — not tiny grey text). It reflects the most
@@ -183,12 +193,15 @@ low-risk.
       preview thumbnail appears → status shows "Saving…" then "All changes saved"
       → open the lesson as a student → the video plays. *(Browser click-through
       not run by me — logic verified via tests + data; user to confirm in-app.)*
-- [x] **The original bug is structurally gone:** there is no longer any
+- [x] **The original bug is gone through the app:** there is no longer any
       lesson-level video/markdown field in the editor; video/content live only in
-      sections, and the player renders only sections — so a video can no longer be
-      entered somewhere that silently fails to appear. (Verified in code + the
-      migrated data: the screenshot's "Hello World" lesson's dormant fields are
-      blanked and its 4 sections are intact.)
+      sections, and the player renders only sections — so via the UI a video can no
+      longer be entered somewhere that silently fails to appear. (Verified in code
+      + the migrated data: the screenshot's "Hello World" lesson's dormant fields
+      are blanked and its 4 sections are intact.) **Caveat:** the dormant columns
+      are intentionally kept (spec out-of-scope to drop them), so a *raw API*
+      client can still PATCH `content`/`video_id` onto a lesson — it just won't
+      render. Dropping the columns is a possible future phase.
 - [ ] **Manual flow — Details auto-save / empty lesson / reorder / sidebar icon:**
       click-throughs left for the user to confirm in-app. Underlying logic is
       covered by tsc + the section/serializer tests; auto-save + status wiring is
@@ -214,6 +227,43 @@ low-risk.
   types) touch different files with no shared state and may go to parallel
   subagents. The editor reorg (LessonEditorPage + SectionEditor) is one coupled
   unit; the data migration must exist before its tests run.
+
+## Finish-phase review (2026-07-23)
+
+Two review agents ran against the phase diff. **code-reviewer** found 2 confirmed
+correctness bugs; **adversarial-tester** found 1 security bug + surfaced dead-code
+and N+1 notes. All confirmed/BROKEN items fixed and re-verified (pytest 495, tsc 0,
+lint 0). Deferred items are documented below, not silently dropped.
+
+**FIXED:**
+1. **Page-count desync (code-reviewer).** The player's render path used the new
+   sections-only page formula but three helpers (`loadLesson` resume,
+   `handleSectionChange`, `handleVideoEnded`) still used the old
+   `sections?.length || 1`. On a **quiz-only lesson**, a student with a persisted
+   `current_section` could land on a blank page with the quiz unreachable.
+   Fixed with a single shared `contentPageCountFor()` helper used at all 4 sites.
+2. **Two un-migrated video indicators (code-reviewer).** After 0019 blanks
+   lesson-level `video_type`, `OutlineUnitCard.tsx` and `CourseDetailPage.tsx`
+   still keyed their Play/FileText icon off `lesson.video_type` → always "no
+   video." Switched both to `has_video` (added to `LessonListItem`).
+3. **Cross-course `required_quiz` IDOR (adversarial-tester, BROKEN).** See backend
+   task above — `LessonQuizScopeMixin` now scopes the quiz to the lesson's course;
+   regression tests added.
+4. **Dead `max_quiz_attempts` control (adversarial-tester).** Removed from the
+   Details tab — the student mastery-quiz flow doesn't enforce the cap, so it
+   would mislead. See frontend task note.
+
+**DEFERRED (documented, low-risk):**
+- **`has_video` N+1.** `get_has_video` adds ~1 query/lesson to list endpoints that
+  already have per-row `section_count`/`question_count`/`attachment_count` method
+  fields (measured ~83 queries / 20 lessons). Not new in kind; a future pass could
+  `Prefetch`/annotate these endpoints. These list endpoints are unpaginated —
+  worth revisiting if a course grows to hundreds of lessons.
+- **Whitespace-only `video_id` → `has_video=True`.** Only reachable by bypassing
+  the serializer (direct DB write); all real write paths reject it via
+  `VideoFieldsValidationMixin`. Defense-in-depth only.
+- **Raw-API dormant-field writes.** Documented above under Verification — keeping
+  the columns was an explicit scope decision; dropping them is a future phase.
 
 ## Reminder carried out of scope (Phase 52 deploy debt)
 
