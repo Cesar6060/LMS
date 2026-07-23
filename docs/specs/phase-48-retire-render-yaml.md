@@ -76,9 +76,10 @@ every service env var, and render.yaml documents the service shape only.
       skill file itself was removed from `.claude/` in the repo cleanup
       merged with PR #41 — suite run manually per CLAUDE.md commands.)*
 - [x] `render blueprints validate` output clean. *(2026-07-22: `{"valid": true}`, totalActions 0.)*
-- [ ] Live service untouched: `/api/health/` still 200 after merge; no new
+- [x] Live service untouched: `/api/health/` still 200 after merge; no new
       deploy config drift introduced (repo-only change; Render deploy of
-      the merge is a code no-op).
+      the merge is a code no-op). *(2026-07-22 post-merge: 3/3 requests
+      200, 0.22-0.32 s.)*
 
 ## Related live verification done this session (Phase 47 leftover)
 
