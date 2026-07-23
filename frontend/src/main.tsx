@@ -15,6 +15,21 @@ import ErrorBoundary from './components/ErrorBoundary'
 import App from './App'
 import './index.css'
 
+// Self-heal stale tabs after a deploy. Every deploy rotates the hashed
+// lazy-chunk filenames; a tab opened under an older deploy then fails to
+// import route chunks ("Failed to fetch dynamically imported module") and
+// crashes into the ErrorBoundary. Vite fires vite:preloadError for exactly
+// this case — reload once to pick up the fresh index.html. The timestamp
+// guard prevents a reload loop if the network itself is broken.
+window.addEventListener('vite:preloadError', (event) => {
+  const lastReload = Number(sessionStorage.getItem('chunk-reload-at') ?? 0)
+  if (Date.now() - lastReload > 30_000) {
+    sessionStorage.setItem('chunk-reload-at', String(Date.now()))
+    event.preventDefault()
+    window.location.reload()
+  }
+})
+
 // Initialize Sentry for error tracking
 const sentryDsn = import.meta.env.VITE_SENTRY_DSN
 if (sentryDsn) {
