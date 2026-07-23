@@ -619,3 +619,40 @@ export interface CourseMap {
   current_node_id: string | null;
   units: CourseMapUnit[];
 }
+
+// Phase 51: Course invite types
+export type CourseInviteStatus = 'pending' | 'accepted' | 'expired' | 'revoked';
+
+export interface CourseInvite {
+  id: number;
+  email: string;
+  status: CourseInviteStatus;
+  created_at: string;
+  expires_at: string;
+}
+
+export type InviteOutcome = 'invited' | 'resent' | 'already_enrolled' | 'invalid';
+
+export interface InviteOutcomeRow {
+  email: string;
+  status: InviteOutcome;
+}
+
+export interface InviteBatchResult {
+  results: InviteOutcomeRow[];
+}
+
+export interface InviteTokenInfo {
+  course_title: string | null;
+  course_code: string | null;
+  email_masked: string | null;
+  status: CourseInviteStatus | 'invalid';
+  account_exists: boolean;
+}
+
+export interface AcceptInvitePayload {
+  first_name: string;
+  last_name: string;
+  password: string;
+  agree_terms: boolean;
+}

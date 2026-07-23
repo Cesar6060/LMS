@@ -136,11 +136,6 @@ export interface RosterStudent {
   is_inactive: boolean;
 }
 
-export interface InviteResult {
-  message: string;
-  email: string;
-}
-
 export const courseService = {
   // Courses
   async listCourses(): Promise<CourseListItem[]> {
@@ -379,14 +374,6 @@ export const courseService = {
 
   async removeStudent(courseCode: string, enrollmentId: number): Promise<void> {
     await api.delete(`/courses/courses/${courseCode}/students/${enrollmentId}/`);
-  },
-
-  async sendCourseInvite(courseCode: string, email: string): Promise<InviteResult> {
-    const response = await api.post<InviteResult>(
-      `/courses/courses/${courseCode}/students/invite/`,
-      { email }
-    );
-    return response.data;
   },
 
   async updateCourseActivity(courseCode: string): Promise<void> {
