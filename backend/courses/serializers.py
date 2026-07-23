@@ -5,6 +5,33 @@ from .models import (
     LessonAttachment, LessonSection, InstructorReminder, CourseInvite
 )
 from accounts.serializers import UserSerializer
+from .video import extract_youtube_video_id
+
+
+class VideoFieldsValidationMixin:
+    """Normalize/validate video_id against video_type on lessons and sections.
+
+    On partial updates, fields absent from the payload fall back to the
+    instance so a title-only PATCH can't bypass validation.
+    """
+
+    def validate(self, attrs):
+        attrs = super().validate(attrs)
+        video_type = attrs.get(
+            'video_type', getattr(self.instance, 'video_type', 'none'))
+        video_id = attrs.get(
+            'video_id', getattr(self.instance, 'video_id', ''))
+
+        if video_type == 'youtube':
+            extracted = extract_youtube_video_id(video_id)
+            if extracted is None:
+                raise serializers.ValidationError({
+                    'video_id': 'Could not extract a YouTube video ID from this value.'
+                })
+            attrs['video_id'] = extracted
+        else:
+            attrs['video_id'] = ''
+        return attrs
 
 
 class LessonAttachmentSerializer(serializers.ModelSerializer):
@@ -22,7 +49,7 @@ class LessonAttachmentSerializer(serializers.ModelSerializer):
         return obj.file.url if obj.file else None
 
 
-class LessonSectionSerializer(serializers.ModelSerializer):
+class LessonSectionSerializer(VideoFieldsValidationMixin, serializers.ModelSerializer):
     """Serializer for lesson sections."""
 
     class Meta:
@@ -31,7 +58,7 @@ class LessonSectionSerializer(serializers.ModelSerializer):
         read_only_fields = ['id', 'created_at', 'updated_at']
 
 
-class LessonSectionCreateSerializer(serializers.ModelSerializer):
+class LessonSectionCreateSerializer(VideoFieldsValidationMixin, serializers.ModelSerializer):
     """Serializer for creating/updating lesson sections (lesson set in view)."""
 
     class Meta:
@@ -56,7 +83,7 @@ class RequiredQuizSerializer(serializers.Serializer):
     passing_score = serializers.IntegerField()
 
 
-class LessonSerializer(serializers.ModelSerializer):
+class LessonSerializer(VideoFieldsValidationMixin, serializers.ModelSerializer):
     """Serializer for Lesson model."""
     required_quiz_info = serializers.SerializerMethodField()
     question_count = serializers.SerializerMethodField()
@@ -91,7 +118,7 @@ class LessonSerializer(serializers.ModelSerializer):
         return None
 
 
-class LessonCreateSerializer(serializers.ModelSerializer):
+class LessonCreateSerializer(VideoFieldsValidationMixin, serializers.ModelSerializer):
     """Serializer for creating lessons (unit set in view)."""
 
     class Meta:

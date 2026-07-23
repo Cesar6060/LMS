@@ -1,58 +1,42 @@
 /**
- * Extract YouTube video ID from various URL formats or return the ID if already extracted.
- * Supports:
- * - https://www.youtube.com/watch?v=VIDEO_ID
- * - https://youtu.be/VIDEO_ID
- * - https://www.youtube.com/embed/VIDEO_ID
- * - VIDEO_ID (already extracted)
+ * Extract the 11-char YouTube video ID from a URL or bare ID.
+ * Mirrors backend/courses/video.py; keep the two in sync.
+ *
+ * Accepts watch?v= (v anywhere in the query), youtu.be, shorts/, live/,
+ * embed/ URLs (www./m./bare hosts), and a bare 11-char ID.
+ * Returns null when no ID can be extracted — callers must block the save
+ * and surface an error instead of storing the raw input.
  */
-export function extractYouTubeVideoId(input: string): string {
-  if (!input) return '';
+const VIDEO_ID_RE = /^[A-Za-z0-9_-]{11}$/;
+const PATH_RE = /^\/(?:shorts|live|embed)\/([A-Za-z0-9_-]{11})(?:\/|$)/;
+const YOUTUBE_HOSTS = ['youtube.com', 'm.youtube.com'];
 
+export function extractYouTubeVideoId(input: string): string | null {
+  if (!input) return null;
   const trimmed = input.trim();
 
-  const patterns = [
-    /(?:youtube\.com\/watch\?v=|youtu\.be\/|youtube\.com\/embed\/)([a-zA-Z0-9_-]{11})/,
-    /^([a-zA-Z0-9_-]{11})$/, // Just the ID itself
-  ];
+  if (VIDEO_ID_RE.test(trimmed)) return trimmed;
 
-  for (const pattern of patterns) {
-    const match = trimmed.match(pattern);
-    if (match && match[1]) {
-      return match[1];
-    }
+  let url: URL;
+  try {
+    url = new URL(trimmed.includes('//') ? trimmed : `https://${trimmed}`);
+  } catch {
+    return null;
+  }
+  const host = url.hostname.toLowerCase().replace(/^www\./, '');
+
+  if (host === 'youtu.be') {
+    const candidate = url.pathname.split('/')[1] ?? '';
+    return VIDEO_ID_RE.test(candidate) ? candidate : null;
   }
 
-  // Return as-is if no pattern matched (let backend validate)
-  return trimmed;
-}
+  if (!YOUTUBE_HOSTS.includes(host)) return null;
 
-/**
- * Extract Vimeo video ID from various URL formats or return the ID if already extracted.
- * Supports:
- * - https://vimeo.com/VIDEO_ID
- * - https://vimeo.com/channels/name/VIDEO_ID
- * - https://player.vimeo.com/video/VIDEO_ID
- * - VIDEO_ID (already extracted, numeric)
- */
-export function extractVimeoVideoId(input: string): string {
-  if (!input) return '';
-
-  const trimmed = input.trim();
-
-  const patterns = [
-    /player\.vimeo\.com\/video\/(\d+)/,
-    /vimeo\.com\/(?:[a-zA-Z]+\/[^/]+\/)?(\d+)/,
-    /^(\d+)$/, // Just the ID itself
-  ];
-
-  for (const pattern of patterns) {
-    const match = trimmed.match(pattern);
-    if (match && match[1]) {
-      return match[1];
-    }
+  if (url.pathname === '/watch') {
+    const candidate = url.searchParams.get('v') ?? '';
+    return VIDEO_ID_RE.test(candidate) ? candidate : null;
   }
 
-  // Return as-is if no pattern matched (let backend validate)
-  return trimmed;
+  const match = url.pathname.match(PATH_RE);
+  return match ? match[1] : null;
 }

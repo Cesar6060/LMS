@@ -20,7 +20,7 @@ export interface LessonListItem {
   id: number;
   title: string;
   order: number;
-  video_type: 'none' | 'youtube' | 'vimeo';
+  video_type: 'none' | 'youtube';
   content?: string;
   video_id: string | null;
   required_quiz?: number | null;
@@ -538,7 +538,7 @@ export const courseService = {
   async createLessonSection(lessonId: number, data: {
     title?: string;
     content?: string;
-    video_type?: 'none' | 'youtube' | 'vimeo';
+    video_type?: 'none' | 'youtube';
     video_id?: string;
     order?: number;
   }): Promise<LessonSection> {
@@ -549,7 +549,7 @@ export const courseService = {
   async bulkCreateLessonSections(lessonId: number, sections: Array<{
     title?: string;
     content?: string;
-    video_type?: 'none' | 'youtube' | 'vimeo';
+    video_type?: 'none' | 'youtube';
     video_id?: string;
   }>): Promise<LessonSection[]> {
     const response = await api.post<LessonSection[]>(
@@ -562,7 +562,7 @@ export const courseService = {
   async updateLessonSection(lessonId: number, sectionId: number, data: {
     title?: string;
     content?: string;
-    video_type?: 'none' | 'youtube' | 'vimeo';
+    video_type?: 'none' | 'youtube';
     video_id?: string;
     order?: number;
   }): Promise<LessonSection> {

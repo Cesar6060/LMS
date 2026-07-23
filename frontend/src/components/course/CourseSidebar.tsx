@@ -11,7 +11,7 @@ interface RequiredQuizInfo {
 interface Lesson {
   id: number;
   title: string;
-  video_type: 'none' | 'youtube' | 'vimeo';
+  video_type: 'none' | 'youtube';
   video_id: string | null;
   order: number;
   required_quiz?: number | null;

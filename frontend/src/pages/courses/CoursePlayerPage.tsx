@@ -21,7 +21,7 @@ interface LessonDetail {
   id: number;
   title: string;
   content: string | null;
-  video_type: 'none' | 'youtube' | 'vimeo';
+  video_type: 'none' | 'youtube';
   video_id: string | null;
   order: number;
   unit: number;
@@ -34,7 +34,7 @@ interface LessonWithProgress {
   id: number;
   title: string;
   content?: string;
-  video_type: 'none' | 'youtube' | 'vimeo';
+  video_type: 'none' | 'youtube';
   video_id: string | null;
   order: number;
   is_completed?: boolean;

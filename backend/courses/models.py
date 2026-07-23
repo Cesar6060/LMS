@@ -84,7 +84,6 @@ class Lesson(models.Model):
     VIDEO_TYPE_CHOICES = [
         ('none', 'No Video'),
         ('youtube', 'YouTube'),
-        ('vimeo', 'Vimeo'),
     ]
 
     unit = models.ForeignKey(
@@ -106,7 +105,7 @@ class Lesson(models.Model):
     video_id = models.CharField(
         max_length=50,
         blank=True,
-        help_text='YouTube or Vimeo video ID'
+        help_text='YouTube video ID'
     )
     required_quiz = models.ForeignKey(
         'quizzes.Quiz',
@@ -634,7 +633,6 @@ class LessonSection(models.Model):
     VIDEO_TYPE_CHOICES = [
         ('none', 'No Video'),
         ('youtube', 'YouTube'),
-        ('vimeo', 'Vimeo'),
     ]
 
     lesson = models.ForeignKey(
@@ -660,7 +658,7 @@ class LessonSection(models.Model):
     video_id = models.CharField(
         max_length=100,
         blank=True,
-        help_text='YouTube or Vimeo video ID'
+        help_text='YouTube video ID'
     )
     order = models.PositiveIntegerField(default=0)
     created_at = models.DateTimeField(auto_now_add=True)
