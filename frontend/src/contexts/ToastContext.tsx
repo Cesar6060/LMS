@@ -1,11 +1,6 @@
-import { createContext, useContext, useCallback, useState, ReactNode } from 'react';
+import { useCallback, useState, ReactNode } from 'react';
 import { ToastViewport, type ToastItem, type ToastOptions } from '@/components/ui/Toast';
-
-interface ToastContextType {
-  show: (opts: ToastOptions) => void;
-}
-
-const ToastContext = createContext<ToastContextType | undefined>(undefined);
+import { ToastContext } from './useToast';
 
 let nextId = 1;
 
@@ -31,12 +26,4 @@ export function ToastProvider({ children }: { children: ReactNode }) {
       <ToastViewport toasts={toasts} onDismiss={dismiss} />
     </ToastContext.Provider>
   );
-}
-
-export function useToast() {
-  const ctx = useContext(ToastContext);
-  if (!ctx) {
-    throw new Error('useToast must be used within a ToastProvider');
-  }
-  return ctx;
 }

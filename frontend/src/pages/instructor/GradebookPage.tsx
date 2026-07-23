@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useParams, Link } from 'react-router';
 import { Card, CardContent } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
@@ -24,13 +24,7 @@ export function GradebookPage() {
   const [forbidden, setForbidden] = useState(false);
   const [showConfigModal, setShowConfigModal] = useState(false);
 
-  useEffect(() => {
-    if (code) {
-      loadGradebook();
-    }
-  }, [code]);
-
-  const loadGradebook = async () => {
+  const loadGradebook = useCallback(async () => {
     try {
       setIsLoading(true);
       const data = await courseService.getGradebook(code!);
@@ -45,7 +39,13 @@ export function GradebookPage() {
     } finally {
       setIsLoading(false);
     }
-  };
+  }, [code]);
+
+  useEffect(() => {
+    if (code) {
+      loadGradebook();
+    }
+  }, [code, loadGradebook]);
 
   const handleExport = async () => {
     try {

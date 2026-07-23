@@ -1,6 +1,6 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useParams, useNavigate, useSearchParams } from 'react-router';
-import { useAuth } from '@/contexts/AuthContext';
+import { useAuth } from '@/contexts/useAuth';
 import { Card, CardContent } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { courseService, type Announcement } from '@/services/courses';
@@ -50,13 +50,7 @@ export function AnnouncementDetailPage() {
 
   const isAuthor = user?.id === announcement?.author.id;
 
-  useEffect(() => {
-    if (announcementId) {
-      loadAnnouncement();
-    }
-  }, [announcementId]);
-
-  const loadAnnouncement = async () => {
+  const loadAnnouncement = useCallback(async () => {
     try {
       setIsLoading(true);
       const data = await courseService.getAnnouncement(Number(announcementId));
@@ -72,7 +66,13 @@ export function AnnouncementDetailPage() {
     } finally {
       setIsLoading(false);
     }
-  };
+  }, [announcementId]);
+
+  useEffect(() => {
+    if (announcementId) {
+      loadAnnouncement();
+    }
+  }, [announcementId, loadAnnouncement]);
 
   const handleSave = async () => {
     if (!formData.title.trim() || !formData.content.trim()) {

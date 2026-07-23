@@ -1,6 +1,6 @@
 import { type ReactNode } from 'react';
 import { useLocation } from 'react-router';
-import { useAuth } from '@/contexts/AuthContext';
+import { useAuth } from '@/contexts/useAuth';
 import { Header } from '@/components/layout/Header';
 import { AnimatedBackground } from '@/components/ui/AnimatedBackground';
 

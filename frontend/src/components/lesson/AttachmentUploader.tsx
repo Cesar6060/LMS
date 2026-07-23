@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { Button } from '@/components/ui/Button';
 import { Card, CardContent } from '@/components/ui/Card';
 import { courseService } from '@/services/courses';
@@ -35,11 +35,7 @@ export function AttachmentUploader({ lessonId, lessonTitle }: AttachmentUploader
   const [error, setError] = useState('');
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  useEffect(() => {
-    loadAttachments();
-  }, [lessonId]);
-
-  const loadAttachments = async () => {
+  const loadAttachments = useCallback(async () => {
     setIsLoading(true);
     setError('');
     try {
@@ -51,7 +47,11 @@ export function AttachmentUploader({ lessonId, lessonTitle }: AttachmentUploader
     } finally {
       setIsLoading(false);
     }
-  };
+  }, [lessonId]);
+
+  useEffect(() => {
+    loadAttachments();
+  }, [loadAttachments]);
 
   const handleUpload = async (files: FileList | null) => {
     if (!files || files.length === 0) return;

@@ -1,11 +1,11 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { useSearchParams } from 'react-router';
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { settingsService } from '@/services/settings';
 import { gamificationService } from '@/services/gamification';
-import { useAuth } from '@/contexts/AuthContext';
+import { useAuth } from '@/contexts/useAuth';
 import type { UserPreferences, GamificationProfile } from '@/types';
 import {
   Settings, User, Bell, Loader2, Camera, Trash2, Check, Trophy, Flame
@@ -38,9 +38,29 @@ export function SettingsPage() {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [isUploadingAvatar, setIsUploadingAvatar] = useState(false);
 
+  const loadSettings = useCallback(async () => {
+    try {
+      setIsLoading(true);
+      const data = await settingsService.getSettings();
+      setPreferences(data);
+      // Achievements are student-only; instructors get an inert payload.
+      if (isInstructor) {
+        return;
+      }
+      gamificationService
+        .getProfile()
+        .then(setGameProfile)
+        .catch((err) => console.error('Failed to load gamification profile:', err));
+    } catch (err) {
+      console.error('Failed to load settings:', err);
+    } finally {
+      setIsLoading(false);
+    }
+  }, [isInstructor]);
+
   useEffect(() => {
     loadSettings();
-  }, []);
+  }, [loadSettings]);
 
   useEffect(() => {
     if (user) {
@@ -48,25 +68,6 @@ export function SettingsPage() {
       setLastName(user.last_name || '');
     }
   }, [user]);
-
-  const loadSettings = async () => {
-    try {
-      setIsLoading(true);
-      const data = await settingsService.getSettings();
-      setPreferences(data);
-      // Achievements are student-only; instructors get an inert payload.
-      if (!user?.is_instructor) {
-        gamificationService
-          .getProfile()
-          .then(setGameProfile)
-          .catch((err) => console.error('Failed to load gamification profile:', err));
-      }
-    } catch (err) {
-      console.error('Failed to load settings:', err);
-    } finally {
-      setIsLoading(false);
-    }
-  };
 
   // Deep link support: the badge notification links to ?tab=achievements.
   useEffect(() => {

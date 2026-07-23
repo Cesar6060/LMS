@@ -10,7 +10,7 @@ import { LessonQuizSection } from '@/components/lesson/LessonQuizSection';
 import { LessonAttachmentsList } from '@/components/lesson/LessonAttachmentsList';
 import { courseService } from '@/services/courses';
 import { quizzesService } from '@/services/quizzes';
-import { useAuth } from '@/contexts/AuthContext';
+import { useAuth } from '@/contexts/useAuth';
 import { useGamificationFeedback } from '@/components/gamification/useGamificationFeedback';
 import type { LessonProgress, LessonQuestionsStatus, LessonAttachment, LessonSection, Quiz } from '@/types';
 import {
@@ -212,12 +212,15 @@ export function CoursePlayerPage() {
     }
   }, [code, loadCourse]);
 
-  // Load specific lesson when lessonId changes
+  // Load specific lesson when lessonId changes. Depends on the primitive
+  // courseId (not the course object) so lesson reloads only when the course
+  // actually changes, not on every course-object refresh.
+  const courseId = course?.id;
   useEffect(() => {
-    if (lessonId && course) {
+    if (lessonId && courseId !== undefined) {
       loadLesson(parseInt(lessonId));
     }
-  }, [lessonId, course?.id, loadLesson]);
+  }, [lessonId, courseId, loadLesson]);
 
   const handleLessonSelect = useCallback((id: number) => {
     navigate(`/courses/${code}/learn/${id}`);

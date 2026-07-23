@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useParams, Link, useNavigate } from 'react-router';
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
@@ -21,13 +21,7 @@ export function MyGradesPage() {
   const [error, setError] = useState('');
   const [forbidden, setForbidden] = useState(false);
 
-  useEffect(() => {
-    if (code) {
-      loadGrades();
-    }
-  }, [code]);
-
-  const loadGrades = async () => {
+  const loadGrades = useCallback(async () => {
     if (!code) return;
     try {
       setIsLoading(true);
@@ -48,7 +42,13 @@ export function MyGradesPage() {
     } finally {
       setIsLoading(false);
     }
-  };
+  }, [code]);
+
+  useEffect(() => {
+    if (code) {
+      loadGrades();
+    }
+  }, [code, loadGrades]);
 
   const getLetterGradeColor = (letter: string | null) => {
     if (!letter) return 'text-muted-foreground';

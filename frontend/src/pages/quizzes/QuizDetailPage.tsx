@@ -5,7 +5,7 @@ import { Button } from '@/components/ui/Button';
 import { quizzesService } from '@/services/quizzes';
 import { isForbidden } from '@/services/api';
 import { AccessDenied } from '@/components/AccessDenied';
-import { useAuth } from '@/contexts/AuthContext';
+import { useAuth } from '@/contexts/useAuth';
 import type { Quiz, QuizAttempt } from '@/types';
 import { useGamificationFeedback } from '@/components/gamification/useGamificationFeedback';
 import { QuizSessionFlow } from '@/components/quiz/QuizSessionFlow';

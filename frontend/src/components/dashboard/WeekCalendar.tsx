@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { ChevronLeft, ChevronRight, Plus, Bell } from 'lucide-react';
 import { Button } from '@/components/ui/Button';
 import { courseService } from '@/services/courses';
@@ -10,21 +10,23 @@ interface WeekCalendarProps {
   onEditReminder: (reminder: InstructorReminder) => void;
 }
 
+// Get the start of the week (Sunday)
+const getWeekStart = (date: Date) => {
+  const d = new Date(date);
+  const day = d.getDay();
+  d.setDate(d.getDate() - day);
+  d.setHours(0, 0, 0, 0);
+  return d;
+};
+
+const formatDate = (date: Date) => date.toISOString().split('T')[0];
+
 export function WeekCalendar({ onAddReminder, onEditReminder }: WeekCalendarProps) {
   const [currentDate, setCurrentDate] = useState(new Date());
   const [events, setEvents] = useState<CalendarEvent[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [selectedEvent, setSelectedEvent] = useState<CalendarEvent | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
-
-  // Get the start of the week (Sunday)
-  const getWeekStart = (date: Date) => {
-    const d = new Date(date);
-    const day = d.getDay();
-    d.setDate(d.getDate() - day);
-    d.setHours(0, 0, 0, 0);
-    return d;
-  };
 
   const weekStart = getWeekStart(currentDate);
   const weekDays = Array.from({ length: 7 }, (_, i) => {
@@ -33,25 +35,26 @@ export function WeekCalendar({ onAddReminder, onEditReminder }: WeekCalendarProp
     return d;
   });
 
-  const formatDate = (date: Date) => date.toISOString().split('T')[0];
-
-  useEffect(() => {
-    loadEvents();
-  }, [currentDate]);
-
-  const loadEvents = async () => {
+  // Derives the week range from currentDate (not weekStart/weekDays, which
+  // are fresh objects every render and would retrigger the effect).
+  const loadEvents = useCallback(async () => {
     try {
       setIsLoading(true);
-      const startDate = formatDate(weekStart);
-      const endDate = formatDate(weekDays[6]);
-      const response = await courseService.getInstructorCalendar(startDate, endDate);
+      const start = getWeekStart(currentDate);
+      const end = new Date(start);
+      end.setDate(end.getDate() + 6);
+      const response = await courseService.getInstructorCalendar(formatDate(start), formatDate(end));
       setEvents(response.events);
     } catch (err) {
       console.error('Failed to load calendar events:', err);
     } finally {
       setIsLoading(false);
     }
-  };
+  }, [currentDate]);
+
+  useEffect(() => {
+    loadEvents();
+  }, [loadEvents]);
 
   const goToPreviousWeek = () => {
     const d = new Date(currentDate);

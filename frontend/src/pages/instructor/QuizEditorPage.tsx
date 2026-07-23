@@ -1,4 +1,4 @@
-import { useState, useEffect, type FormEvent } from 'react';
+import { useState, useEffect, useCallback, type FormEvent } from 'react';
 import { useParams, useSearchParams } from 'react-router';
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
@@ -73,23 +73,7 @@ export function QuizEditorPage() {
   // Inline validation error for the question modal
   const [questionError, setQuestionError] = useState('');
 
-  useEffect(() => {
-    if (code) {
-      loadData();
-    }
-  }, [code]);
-
-  // Deep link from the course outline: /instructor/courses/:code/quizzes?quiz={id}
-  useEffect(() => {
-    const quizParam = searchParams.get('quiz');
-    if (quizParam && !isLoading && quizzes.some(q => q.id === Number(quizParam))) {
-      setExpandedQuizId(Number(quizParam));
-      loadQuizDetail(Number(quizParam));
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [searchParams, isLoading, quizzes.length]);
-
-  const loadData = async () => {
+  const loadData = useCallback(async () => {
     try {
       setIsLoading(true);
       const [courseData, quizzesData] = await Promise.all([
@@ -108,7 +92,23 @@ export function QuizEditorPage() {
     } finally {
       setIsLoading(false);
     }
-  };
+  }, [code]);
+
+  useEffect(() => {
+    if (code) {
+      loadData();
+    }
+  }, [code, loadData]);
+
+  // Deep link from the course outline: /instructor/courses/:code/quizzes?quiz={id}
+  useEffect(() => {
+    const quizParam = searchParams.get('quiz');
+    if (quizParam && !isLoading && quizzes.some(q => q.id === Number(quizParam))) {
+      setExpandedQuizId(Number(quizParam));
+      loadQuizDetail(Number(quizParam));
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [searchParams, isLoading, quizzes.length]);
 
   const loadQuizDetail = async (quizId: number) => {
     try {

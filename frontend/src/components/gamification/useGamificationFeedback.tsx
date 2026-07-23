@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
-import { useAuth } from '@/contexts/AuthContext';
-import { useToast } from '@/contexts/ToastContext';
+import { useAuth } from '@/contexts/useAuth';
+import { useToast } from '@/contexts/useToast';
 import type { GamificationDelta, NewBadge } from '@/types';
 import { LevelUpModal } from './LevelUpModal';
 import { BadgeEarnedModal } from './BadgeEarnedModal';

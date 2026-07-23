@@ -6,7 +6,7 @@ import {
   useState,
   ReactNode,
 } from 'react';
-import { useAuth } from '@/contexts/AuthContext';
+import { useAuth } from '@/contexts/useAuth';
 import { gamificationService } from '@/services/gamification';
 import type { AvatarState, AvatarUpdatePatch } from '@/types';
 

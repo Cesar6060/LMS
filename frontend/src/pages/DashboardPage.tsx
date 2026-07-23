@@ -1,6 +1,6 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { Link, useNavigate } from 'react-router';
-import { useAuth } from '@/contexts/AuthContext';
+import { useAuth } from '@/contexts/useAuth';
 import { Button } from '@/components/ui/Button';
 import { courseService, type InstructorCourse } from '@/services/courses';
 import { gamificationService } from '@/services/gamification';
@@ -31,11 +31,7 @@ export function DashboardPage() {
   const [gameProfile, setGameProfile] = useState<GamificationProfile | null>(null);
   const [showCustomizer, setShowCustomizer] = useState(false);
 
-  useEffect(() => {
-    loadData();
-  }, [user]);
-
-  const loadData = async () => {
+  const loadData = useCallback(async () => {
     if (!user) return;
     try {
       setIsLoading(true);
@@ -58,7 +54,11 @@ export function DashboardPage() {
     } finally {
       setIsLoading(false);
     }
-  };
+  }, [user]);
+
+  useEffect(() => {
+    loadData();
+  }, [loadData]);
 
   const isInstructor = user?.is_instructor;
   const courses = isInstructor ? instructorCourses : enrolledCourses;
