@@ -1,10 +1,26 @@
-# Handoff: Phase 51 student onboarding — implemented, PR #48 open
+# Handoff: Phase 51 — merged + production cutover done; email swap remains
 
 ## Current state
 
 Phase 51 implementation is COMPLETE on branch `feat/phase-51-student-onboarding`
-(3 commits off main after PR #47), pushed to `lms`, **PR #48 open**:
-https://github.com/Cesar6060/LMS/pull/48 — NOT merged (user decision).
+(6 commits off main after PR #47), pushed to `lms`, **PR #48 open**:
+https://github.com/Cesar6060/LMS/pull/48 — MERGED 2026-07-23 06:30 UTC.
+CUTOVER EXECUTED same day (user-approved, see spec "Production cutover
+log"): Neon migrated; DEMO101 cloned + demo reseeded on prod;
+stemquests.com live (Worker custom domain, Render env flipped, CORS
+verified); backups fully live (bucket, token, 5 secrets, green run, dump
+in R2); UptimeRobot covers stemquests.com. NOTE: three late commits
+missed the merge and were recovered into the follow-up evidence PR.
+
+DOMAIN: user registered **stemquests.com** (2026-07-23, Cloudflare
+Registrar, same account as the Worker). `frontend/wrangler.jsonc` now
+declares it as a Custom Domain route — the merge deploy attaches DNS+TLS
+automatically (validated with `wrangler deploy --dry-run`). README +
+deployment-tools updated; cutover runbook rewritten with concrete values
+(Part A app domain, Part B Resend email). Also: the live-site invite
+failure the user hit is the OLD Gmail SMTP path (pre-phase-51 code) —
+diagnosis confirmed no request ever reached local; the merge + Resend
+swap replaces that path entirely.
 
 - Backend: `CourseInvite` model + migration 0016 (additive, checker: SAFE);
   bulk invite create/list/revoke + public token detail/accept endpoints
@@ -34,8 +50,11 @@ prod build clean. Migration 0016 applied to local Docker DB only.
 - Render env: THROTTLE_USER/THROTTLE_INVITE_SEND/THROTTLE_INVITE_ACCEPT.
 - GitHub secrets for backups (NEON_DATABASE_URL, R2_ACCOUNT_ID,
   R2_BACKUPS_BUCKET, R2_BACKUPS_ACCESS_KEY_ID/SECRET) → one green run.
-- Email provider swap (Resend runbook), frontend Sentry DSN on Pages,
-  ADMIN_URL flip (phase-50 runbook), UptimeRobot Gmail filter fix.
+- Domain cutover env flips after merge: FRONTEND_URL=https://stemquests.com,
+  add origin to CORS_ALLOWED_ORIGINS + CSRF_TRUSTED_ORIGINS (keep
+  workers.dev during transition); then Resend on stemquests.com (runbook
+  Part B). Frontend Sentry DSN, ADMIN_URL flip (phase-50 runbook),
+  UptimeRobot Gmail filter fix + repoint frontend monitor.
 - Manual E2E (silence = passed): invite own email → accept → enrolled;
   revoke a second invite → revoked screen. Legal pages + DRAFT sign-off.
 

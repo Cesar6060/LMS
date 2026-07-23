@@ -16,5 +16,14 @@
   "assets": {
     "directory": "./dist",
     "not_found_handling": "single-page-application"
-  }
+  },
+  // Phase 51: stemquests.com (registered 2026-07-23, zone in this same
+  // Cloudflare account) is attached as a Custom Domain — wrangler creates
+  // the DNS record and certificate on deploy. The workers.dev URL keeps
+  // serving during the transition. Render env (FRONTEND_URL,
+  // CORS_ALLOWED_ORIGINS, CSRF_TRUSTED_ORIGINS) must follow — see
+  // docs/runbooks/phase-51-email-provider-steps.txt Part A.
+  "routes": [
+    { "pattern": "stemquests.com", "custom_domain": true }
+  ]
 }
