@@ -56,11 +56,11 @@ region-agnostic; there is NO data migration.
 
 ## Plan (detail in the runbook)
 
-- [ ] **A. Prepare.** Collect every secret to re-enter: DATABASE_URL (Neon
+- [x] **A. Prepare.** Collect every secret to re-enter: DATABASE_URL (Neon
       console), Gmail app password (mint a new one if not saved),
       DEMO_ACCOUNT_PASSWORD, ADMIN_URL, R2 keys, SENTRY_DSN (if set).
       Merge nothing yet.
-- [ ] **B. Build + verify the new service in Virginia** (old service keeps
+- [x] **B. Build + verify the new service in Virginia** (old service keeps
       serving): New → Web Service (NOT Blueprint) from `Cesar6060/LMS`,
       region Virginia, plan Starter, shape per `render.yaml`; enter all
       env vars; note the assigned URL; set ALLOWED_HOSTS; verify directly
@@ -85,13 +85,20 @@ monitors. The old service is untouched until step D.
 
 ## Verification
 
-- [ ] New service: `/api/health/?deep=1` 200 with deep latency within
-      ~20 ms of shallow (run 5 samples of each).
+- [x] New service: `/api/health/?deep=1` 200 with deep latency within
+      ~20 ms of shallow (run 5 samples of each). *(2026-07-22: shallow
+      ~0.11-0.22 s, deep ~0.12-0.19 s after first-connection warmup —
+      Oregon's +70-130 ms DB penalty is gone. Service
+      stemquest-api-va.onrender.com / srv-d9go1em1a83c73f50r2g; NOTE:
+      Render granted the clean name, no random suffix.)*
 - [ ] Live click-through post-cutover: demo login, course roadmap, media
       loads (R2 presigned), reset email round trip, no CSP/CORS errors in
       the console.
-- [ ] Throttles fire on the new service (30-burst at demo-login →
-      20×200 / 10×429 pattern for 10/min × 2 workers).
+- [x] Throttles fire on the new service (30-burst at demo-login →
+      20×200 / 10×429 pattern for 10/min × 2 workers). *(2026-07-22:
+      exactly 20 allowed then 429s; SMTP reset request 200, logs clean.)*
 - [ ] UptimeRobot both monitors UP against new URL.
-- [ ] `/verify-stack` green on the cutover PR (CSP/README changes).
+- [x] `/verify-stack` green on the cutover PR (CSP/README changes).
+      *(2026-07-22: 425 passed, tsc 0 errors, lint 0/22 baseline — PR #44,
+      merged; CI green.)*
 - [ ] Old service deleted; billing shows a single Starter instance.
