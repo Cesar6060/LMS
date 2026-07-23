@@ -160,7 +160,7 @@ phase-50 ADMIN_URL flip finally applied.
 
 ## Verification
 
-- [ ] `/verify-stack` green: full pytest suite (425 existing + new invite/
+- [x] `/verify-stack` green: full pytest suite (425 existing + new invite/
   demo/throttle tests), `tsc --noEmit` 0 errors, lint 0 warnings.
 - [x] Backend flow (pytest, exact cases listed per section above) — invite
   lifecycle: create → accept → enrolled → token dead on reuse.
@@ -169,12 +169,12 @@ phase-50 ADMIN_URL flip finally applied.
   account with ToS checkbox → land enrolled in the course → appears on the
   roster; revoke a second pending invite and confirm its link shows the
   revoked screen.
-- [ ] Demo check: "Try the demo" on the live site lands in DEMO101; JAVA101
+- [x] Demo check: "Try the demo" on the live site lands in DEMO101; JAVA101
   roster contains no demo account; demo visitor actions never appear to a
   JAVA101 student.
 - [ ] `/terms` and `/privacy` render on the live site; links present on Login
   and AcceptInvite.
-- [ ] Backups: one green scheduled workflow run; dump object visible in R2;
+- [x] Backups: one green scheduled workflow run; dump object visible in R2;
   restore drill output recorded.
 - [ ] Admin: `curl -o /dev/null -w '%{http_code}' https://stemquest-api-va.onrender.com/admin/`
   → 404, and the slug path → 200/302 (paste outputs).
