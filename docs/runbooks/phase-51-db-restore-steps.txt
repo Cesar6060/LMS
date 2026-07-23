@@ -1,0 +1,94 @@
+PHASE 51 — RESTORE A DATABASE BACKUP (NEON, FROM R2)
+=====================================================
+
+What this covers
+----------------
+The db-backup GitHub Actions workflow (.github/workflows/db-backup.yml)
+uploads a pg_dump of the production Neon database to the private R2
+backups bucket every day (daily/ prefix, 14 kept) and every Sunday
+(weekly/ prefix, 8 kept). This runbook restores one of those dumps.
+
+Two scenarios:
+  A) DRILL / INSPECTION — restore into a scratch Neon branch to verify a
+     backup works or to look at old data. Safe, do this any time.
+  B) DISASTER RECOVERY — production data is lost or corrupted and the
+     Neon point-in-time restore (which you should try FIRST — Neon keeps
+     its own history and it is faster) cannot get you there.
+
+You need
+--------
+- psql and pg_restore version 16 (macOS: brew install postgresql@16, or
+  use the compose db container: docker compose exec db bash)
+- Access to the Cloudflare dashboard (R2) and the Neon console
+  (project: LMS / shy-cloud-68280619)
+
+STEP 1 — Download the dump from R2
+----------------------------------
+Cloudflare dashboard -> R2 -> the backups bucket -> daily/ (or weekly/)
+-> pick the date you want -> Download.
+
+Or with the aws CLI (same env names the workflow uses):
+
+    aws s3 cp s3://<BUCKET>/daily/stemquest-YYYY-MM-DD.dump . \
+      --endpoint-url https://<ACCOUNT_ID>.r2.cloudflarestorage.com
+
+STEP 2 — Create a scratch Neon branch
+-------------------------------------
+Neon console -> project LMS -> Branches -> New branch.
+Name it e.g. restore-drill. A branch is instant and free to delete later.
+
+Copy the branch's connection string (it looks like the production one but
+with a different endpoint host).
+
+STEP 3 — Create an empty database on the branch
+-----------------------------------------------
+The branch starts as a COPY of production, so restore into a fresh, empty
+database on that branch instead of the branch's main database:
+
+    psql "<BRANCH_CONNECTION_STRING>" -c 'CREATE DATABASE restore_drill;'
+
+STEP 4 — Restore the dump into it
+---------------------------------
+Edit the connection string so the database name at the end (the path
+part, usually /neondb) says /restore_drill, then:
+
+    pg_restore --no-owner --no-privileges \
+      --dbname="<BRANCH_CONNECTION_STRING_WITH_restore_drill>" \
+      stemquest-YYYY-MM-DD.dump
+
+Warnings about roles/extensions are normal; errors about missing tables
+are not.
+
+Tip from the Phase 51 drill: use the DIRECT endpoint for pg_restore and
+the checks below — remove "-pooler" from the hostname. Checks through
+the pooled endpoint can hit a stale connection and claim the database is
+empty right after a restore.
+
+STEP 5 — Sanity-check the restored data
+---------------------------------------
+    psql "<...restore_drill>" -c \
+      "SELECT
+         (SELECT COUNT(*) FROM accounts_user)      AS users,
+         (SELECT COUNT(*) FROM courses_course)     AS courses,
+         (SELECT COUNT(*) FROM courses_enrollment) AS enrollments;"
+
+Compare against production's numbers from around the dump date. Close
+enough (allowing for activity since the dump) = the backup is good.
+
+STEP 6 — Clean up (drill) or cut over (disaster)
+------------------------------------------------
+DRILL: Neon console -> Branches -> delete the scratch branch. Done.
+
+DISASTER RECOVERY (only if Neon point-in-time restore can't help):
+  1. Put the app in maintenance: Render dashboard -> stemquest-api-va ->
+     Suspend (stops writes).
+  2. Restore the dump into a NEW database on the MAIN branch (steps 3-5,
+     using the production connection string, database name e.g.
+     neondb_restored).
+  3. Point DATABASE_URL at the restored database: Render dashboard ->
+     Environment -> edit DATABASE_URL to end in /neondb_restored ->
+     Save (service redeploys).
+  4. Resume the service, log in, click through a course.
+  5. Keep the old database around for a few days before dropping it.
+
+Rollback: point DATABASE_URL back at the original database name.
