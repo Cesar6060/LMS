@@ -1,3 +1,4 @@
+from django.core.validators import MaxLengthValidator
 from rest_framework import serializers
 from .models import (
     Course, Unit, Lesson, Enrollment, LessonProgress, Announcement, CourseGradingConfig,
@@ -8,12 +9,35 @@ from accounts.serializers import UserSerializer
 from .video import extract_youtube_video_id
 
 
+# A full YouTube share URL is accepted as input; validate() extracts the
+# 11-char ID that is actually stored, so the model columns (50/100) never see
+# the raw URL. Bounded so oversized junk is still rejected before extraction.
+VIDEO_ID_INPUT_MAX_LENGTH = 255
+
+
 class VideoFieldsValidationMixin:
     """Normalize/validate video_id against video_type on lessons and sections.
 
     On partial updates, fields absent from the payload fall back to the
     instance so a title-only PATCH can't bypass validation.
     """
+
+    def get_fields(self):
+        fields = super().get_fields()
+        video_id = fields.get('video_id')
+        if video_id is not None:
+            # The model-derived field caps length at 50/100, and DRF runs that
+            # MaxLengthValidator in to_internal_value() — before validate().
+            # Without this, a valid long share URL (watch?v=ID&si=...) is
+            # rejected for length before the extractor ever normalizes it.
+            video_id.max_length = VIDEO_ID_INPUT_MAX_LENGTH
+            video_id.validators = [
+                v for v in video_id.validators
+                if not isinstance(v, MaxLengthValidator)
+            ]
+            video_id.validators.append(
+                MaxLengthValidator(VIDEO_ID_INPUT_MAX_LENGTH))
+        return fields
 
     def validate(self, attrs):
         attrs = super().validate(attrs)

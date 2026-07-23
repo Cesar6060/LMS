@@ -124,3 +124,28 @@ Anything else (non-YouTube URL, malformed link, empty when type=youtube) is
   after normalization only 11-char IDs are stored, so leave lengths alone.
 - The player chain (`VideoPlayer.tsx` → `YouTubePlayer.tsx` → YT IFrame API)
   is working correctly; do not touch it beyond the prop-type narrowing.
+
+## Finish-phase review (2026-07-23)
+
+Adversarial review found one real bug, now fixed; three low-risk items deferred.
+
+- **FIXED — long share URLs rejected before extraction.** DRF runs the
+  model-derived `max_length` validator on `video_id` (50 on Lesson, 100 on
+  Section) inside `to_internal_value()`, i.e. *before* the mixin's `validate()`
+  extractor. A valid 63-char share URL (`watch?v=ID&si=...`, YouTube's own
+  Share default) 400'd on length instead of normalizing — defeating the
+  "backend is the validating source of truth" goal for direct API clients
+  (the UI pre-extracts, so it was unreachable through the app). Fix:
+  `VideoFieldsValidationMixin.get_fields()` lifts the input cap to 255 so
+  extraction runs and stores the 11-char ID; oversized junk is still rejected.
+  Regression tests: `test_lesson_update_with_long_share_url_stores_bare_id`,
+  `test_lesson_update_oversized_video_id_rejected`.
+- **DEFERRED (low risk, not API-reachable through normal flows):**
+  1. An 11-digit integer/JSON number is accepted as a bare ID (coincidental
+     shape match) — stores a broken embed but no security impact.
+  2. Repair migration `0018` only touches exact `video_type in ('vimeo',
+     'youtube')`; out-of-enum drift (e.g. `'YouTube'`) written out-of-band is
+     left untouched. Not creatable via the API (strict `ChoiceField`).
+  3. `javascript://youtube.com/watch?v=ID` parses to the ID; never persisted
+     (only the bare 11-char ID is stored), so not exploitable. A defensive
+     scheme allowlist in `video.py`/`video.ts` is a possible follow-up.
