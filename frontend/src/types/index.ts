@@ -55,12 +55,6 @@ export interface Unit {
   lessons?: Lesson[];
 }
 
-export interface RequiredQuizInfo {
-  id: number;
-  title: string;
-  passing_score: number;
-}
-
 export interface LessonAttachment {
   id: number;
   filename: string;
@@ -93,8 +87,8 @@ export interface Lesson {
   video_type: 'none' | 'youtube';
   /** @deprecated Phase 53 — video lives on sections. Kept dormant; not rendered. */
   video_id: string | null;
-  required_quiz?: number | null;
-  required_quiz_info?: RequiredQuizInfo | null;
+  /** Phase 54 — when true, the lesson's own comprehension questions gate completion. */
+  requires_quiz?: boolean;
   max_quiz_attempts?: number | null;
   question_count?: number;
   attachments?: LessonAttachment[];
@@ -121,8 +115,6 @@ export interface LessonProgress {
   completed_at: string | null;
   video_position: number;
   current_section: number;
-  required_quiz_passed?: boolean | null;
-  required_quiz_info?: RequiredQuizInfo | null;
   lesson_questions_status?: LessonQuestionsStatus | null;
   gamification?: GamificationDelta;
 }
@@ -338,12 +330,14 @@ export interface LessonQuestionsStatus {
   answered_questions: number;
   correct_answers: number;
   all_correct: boolean;
+  /** Phase 54 — true when the lesson opts in to gating on its own questions. */
+  requires_quiz: boolean;
   can_complete_lesson: boolean;
-  attempt_count: number;
-  max_attempts: number | null;
-  attempts_remaining: number | null;
-  can_attempt: boolean;
-  has_passed: boolean;
+  attempt_count?: number;
+  max_attempts?: number | null;
+  attempts_remaining?: number | null;
+  can_attempt?: boolean;
+  has_passed?: boolean;
 }
 
 export interface QuizSubmissionResult {

@@ -23,12 +23,8 @@ export interface LessonListItem {
   video_type: 'none' | 'youtube';
   content?: string;
   video_id: string | null;
-  required_quiz?: number | null;
-  required_quiz_info?: {
-    id: number;
-    title: string;
-    passing_score: number;
-  } | null;
+  /** Phase 54 — true when the lesson gates completion on its own quiz. */
+  requires_quiz?: boolean;
   question_count?: number;
   attachment_count?: number;
   section_count?: number;

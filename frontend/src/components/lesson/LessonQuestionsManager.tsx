@@ -10,6 +10,9 @@ import { cn } from '@/lib/utils';
 interface LessonQuestionsManagerProps {
   lessonId: number;
   lessonTitle: string;
+  /** Phase 54 — whether passing these questions is required to complete the lesson. */
+  requiresQuiz: boolean;
+  onRequiresQuizChange: (value: boolean) => void;
 }
 
 interface EditingQuestion {
@@ -31,7 +34,9 @@ const emptyQuestion: EditingQuestion = {
   ],
 };
 
-export function LessonQuestionsManager({ lessonId, lessonTitle }: LessonQuestionsManagerProps) {
+export function LessonQuestionsManager({
+  lessonId, lessonTitle, requiresQuiz, onRequiresQuizChange,
+}: LessonQuestionsManagerProps) {
   const [questions, setQuestions] = useState<LessonQuestion[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
@@ -189,8 +194,35 @@ export function LessonQuestionsManager({ lessonId, lessonTitle }: LessonQuestion
   return (
     <div className="space-y-4">
         <p className="text-sm text-muted-foreground">
-          Manage questions for "{lessonTitle}". Students must answer all questions correctly to complete the lesson.
+          Comprehension questions for "{lessonTitle}".
         </p>
+
+        {/* Phase 54: the per-lesson quiz gate lives here (its natural home),
+            replacing the old cross-course "Required Quiz" dropdown. */}
+        <Card>
+          <CardContent className="p-4">
+            <label className="flex items-start gap-3 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={requiresQuiz}
+                onChange={(e) => onRequiresQuizChange(e.target.checked)}
+                className="mt-1 h-5 w-5 shrink-0 rounded border-input accent-primary cursor-pointer"
+              />
+              <span>
+                <span className="block text-base font-medium">
+                  Require students to pass this lesson's quiz to complete it
+                </span>
+                <span className="block text-sm text-muted-foreground mt-1">
+                  {requiresQuiz
+                    ? questions.length > 0
+                      ? 'Students must answer every question correctly before this lesson can be marked complete.'
+                      : 'Add at least one question below — until you do, there is nothing to require and the lesson completes freely.'
+                    : 'The questions below are optional practice and do not block completion.'}
+                </span>
+              </span>
+            </label>
+          </CardContent>
+        </Card>
 
         {error && (
           <div className="bg-destructive/10 border border-destructive/20 text-destructive rounded-md px-4 py-3 text-sm">
