@@ -37,8 +37,14 @@ urlpatterns = [
 
     # Student Roster
     path('courses/<str:course_code>/students/', views.student_roster, name='student-roster'),
-    path('courses/<str:course_code>/students/invite/', views.send_course_invite, name='send-invite'),
     path('courses/<str:course_code>/students/<int:enrollment_id>/', views.remove_student, name='remove-student'),
+
+    # Course Invites (Phase 51) — instructor management, then the public
+    # token endpoints the emailed accept links hit (no auth required).
+    path('courses/<str:course_code>/invites/', views.course_invites, name='course-invites'),
+    path('courses/<str:course_code>/invites/<int:invite_id>/', views.revoke_course_invite, name='revoke-invite'),
+    path('invites/<str:token>/', views.invite_detail, name='invite-detail'),
+    path('invites/<str:token>/accept/', views.accept_invite, name='accept-invite'),
 
     # Instructor Analytics (Phase 31)
     path('courses/<str:course_code>/analytics/overview/', views.analytics_overview, name='analytics-overview'),

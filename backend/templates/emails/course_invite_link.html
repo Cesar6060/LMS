@@ -1,0 +1,30 @@
+{% extends "emails/base.html" %}
+
+{% block title %}You're Invited to {{ course_title }}{% endblock %}
+
+{% block content %}
+<h2>You're Invited! 🎮</h2>
+
+<p>Hi there!</p>
+
+<p><strong>{{ instructor_name }}</strong> has invited you to join their course:</p>
+
+<h3 style="color: #7c3aed;">{{ course_title }}</h3>
+
+<p>Click the button below to accept the invitation. You'll create your
+account (or log in if you already have one) and land directly in the
+course.</p>
+
+<p style="text-align: center;">
+    <a href="{{ invite_url }}" class="button">Accept Invitation</a>
+</p>
+
+<p class="muted">
+    If the button doesn't work, copy and paste this link into your browser:<br>
+    <a href="{{ invite_url }}">{{ invite_url }}</a>
+</p>
+
+<p class="muted">
+    This invitation link expires in 14 days and can only be used once.
+</p>
+{% endblock %}

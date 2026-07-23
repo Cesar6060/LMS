@@ -1,6 +1,9 @@
 import secrets
+from datetime import timedelta
+
 from django.db import models
 from django.conf import settings
+from django.utils import timezone
 
 
 def generate_enrollment_code():
@@ -167,6 +170,102 @@ class Enrollment(models.Model):
         from django.utils import timezone
         self.last_activity_at = timezone.now()
         self.save(update_fields=['last_activity_at'])
+
+
+def generate_invite_token():
+    return secrets.token_urlsafe(32)
+
+
+def default_invite_expiry():
+    return timezone.now() + timedelta(days=14)
+
+
+class CourseInviteQuerySet(models.QuerySet):
+    def pending(self):
+        return self.filter(
+            accepted_at__isnull=True,
+            revoked_at__isnull=True,
+            expires_at__gt=timezone.now(),
+        )
+
+
+class CourseInvite(models.Model):
+    """
+    A tokenized email invitation to join a course (Phase 51).
+
+    The token link creates the student's account (email pre-verified — they
+    proved the address by clicking), enrolls them, and logs them in. At most
+    one non-revoked invite exists per (course, email); re-inviting refreshes
+    the token and expiry on the existing row.
+    """
+    course = models.ForeignKey(
+        Course,
+        on_delete=models.CASCADE,
+        related_name='invites'
+    )
+    email = models.EmailField(help_text='Stored lowercased')
+    token = models.CharField(
+        max_length=64,
+        unique=True,
+        default=generate_invite_token
+    )
+    invited_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name='course_invites_sent'
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    expires_at = models.DateTimeField(default=default_invite_expiry)
+    accepted_at = models.DateTimeField(null=True, blank=True)
+    revoked_at = models.DateTimeField(null=True, blank=True)
+
+    objects = CourseInviteQuerySet.as_manager()
+
+    class Meta:
+        db_table = 'courses_courseinvite'
+        ordering = ['-created_at']
+        constraints = [
+            models.UniqueConstraint(
+                fields=['course', 'email'],
+                condition=models.Q(revoked_at__isnull=True),
+                name='unique_nonrevoked_invite_per_course_email',
+            ),
+        ]
+
+    def __str__(self):
+        return f"Invite {self.email} -> {self.course.code} ({self.status})"
+
+    @property
+    def is_expired(self):
+        return self.expires_at <= timezone.now()
+
+    @property
+    def is_pending(self):
+        return (
+            self.accepted_at is None
+            and self.revoked_at is None
+            and not self.is_expired
+        )
+
+    @property
+    def status(self):
+        if self.revoked_at is not None:
+            return 'revoked'
+        if self.accepted_at is not None:
+            return 'accepted'
+        if self.is_expired:
+            return 'expired'
+        return 'pending'
+
+    def refresh(self, invited_by):
+        """Re-issue this invite: new token, new expiry, cleared acceptance."""
+        self.token = generate_invite_token()
+        self.expires_at = default_invite_expiry()
+        self.accepted_at = None
+        self.invited_by = invited_by
+        self.save(update_fields=[
+            'token', 'expires_at', 'accepted_at', 'invited_by',
+        ])
 
 
 class Announcement(models.Model):

@@ -1,17 +1,30 @@
 import csv
 from django.conf import settings
 from rest_framework import viewsets, status, generics
-from rest_framework.decorators import action, api_view, permission_classes as perm_classes
+from rest_framework.decorators import (
+    action, api_view, permission_classes as perm_classes, throttle_classes,
+)
 from rest_framework.response import Response
-from rest_framework.permissions import IsAuthenticated
+from rest_framework.permissions import AllowAny, IsAuthenticated
+from rest_framework_simplejwt.tokens import RefreshToken
 from django.shortcuts import get_object_or_404
+from django.contrib.auth.password_validation import validate_password
+from django.core.exceptions import ValidationError as DjangoValidationError
+from django.core.validators import validate_email
 from django.db import models, transaction
 from django.db.models import F, Max, Count
 from django.http import HttpResponse
 from django.utils import timezone
 from datetime import timedelta
 
-from .models import Course, Unit, Lesson, Enrollment, LessonProgress, Announcement, LessonQuestion, LessonQuestionChoice, LessonQuestionAnswer, LessonQuizAttempt, LessonAttemptAnswer, LessonAttachment, LessonSection
+from allauth.account.models import EmailAddress
+from accounts.models import User
+from accounts.serializers import UserSerializer
+from core.email import send_course_invite_link_email, send_emails_async
+from core.throttling import (
+    ClientIPScopedRateThrottle, ClientIPScopedWriteRateThrottle,
+)
+from .models import Course, Unit, Lesson, Enrollment, LessonProgress, Announcement, LessonQuestion, LessonQuestionChoice, LessonQuestionAnswer, LessonQuizAttempt, LessonAttemptAnswer, LessonAttachment, LessonSection, CourseInvite
 from .serializers import (
     CourseSerializer, CourseListSerializer, CourseCreateSerializer,
     InstructorCourseSerializer, UnitSerializer, UnitCreateSerializer,
@@ -22,7 +35,7 @@ from .serializers import (
     StudentRosterSerializer, LessonQuestionSerializer, LessonQuestionStudentSerializer,
     LessonQuestionCreateSerializer, AnswerQuestionSerializer, LessonAttachmentSerializer,
     LessonSectionSerializer, LessonSectionCreateSerializer,
-    LessonSectionBulkCreateSerializer, CourseMapSerializer
+    LessonSectionBulkCreateSerializer, CourseMapSerializer, CourseInviteSerializer
 )
 from rest_framework.exceptions import PermissionDenied
 from .permissions import (
@@ -1528,71 +1541,279 @@ def remove_student(request, course_code, enrollment_id):
     return Response({'message': 'Student removed from course.'})
 
 
-@api_view(['POST'])
+# ==================== Course Invites (Phase 51) ====================
+
+def _mask_email(email):
+    """j***e@example.com — enough for the invitee to recognize themselves."""
+    local, _, domain = email.partition('@')
+    if len(local) <= 2:
+        masked = f'{local[:1]}***'
+    else:
+        masked = f'{local[0]}***{local[-1]}'
+    return f'{masked}@{domain}'
+
+
+def _activate_enrollment(user, course):
+    """Create the enrollment, or reactivate a soft-deleted one."""
+    enrollment, created = Enrollment.objects.get_or_create(
+        user=user, course=course)
+    if not created and not enrollment.is_active:
+        enrollment.is_active = True
+        enrollment.save(update_fields=['is_active'])
+    return enrollment
+
+
+def _queue_invite_email(invite, email_tasks):
+    instructor_name = (
+        invite.invited_by.get_full_name() or invite.invited_by.email)
+    email_tasks.append((
+        send_course_invite_link_email,
+        (),
+        {
+            'recipient_email': invite.email,
+            'course_title': invite.course.title,
+            'instructor_name': instructor_name,
+            'invite_url': f'{settings.FRONTEND_URL}/invite/{invite.token}',
+            'triggered_by': invite.invited_by,
+        },
+    ))
+
+
+@api_view(['GET', 'POST'])
 @perm_classes([IsAuthenticated])
-def send_course_invite(request, course_code):
-    """
-    Send course invitation email to a student.
-    """
-    from django.core.validators import validate_email
-    from django.core.exceptions import ValidationError
+@throttle_classes([ClientIPScopedWriteRateThrottle])
+def course_invites(request, course_code):
+    """List invites for a course, or bulk-invite students by email.
 
+    POST body: {"emails": ["a@x.com", ...]}. Per-email outcomes: invited,
+    resent (non-revoked invite existed — token/expiry refreshed, email
+    re-sent), already_enrolled (skipped), invalid.
+    """
     course = get_object_or_404(Course, code=course_code)
-
     require_course_instructor(
         request.user, course,
-        "Only the course instructor can send invitations."
+        "Only the course instructor can manage invitations."
     )
 
-    email = request.data.get('email', '').strip().lower()
-    if not email:
+    if request.method == 'GET':
+        invites = course.invites.select_related('invited_by').all()
+        return Response(CourseInviteSerializer(invites, many=True).data)
+
+    emails = request.data.get('emails')
+    if not isinstance(emails, list) or not emails:
         return Response(
-            {'error': 'Email address is required.'},
+            {'detail': 'Provide a non-empty list of email addresses.'},
             status=status.HTTP_400_BAD_REQUEST
         )
 
-    # Validate email format
-    try:
-        validate_email(email)
-    except ValidationError:
+    results = []
+    seen = set()
+    email_tasks = []
+    for raw in emails:
+        email = str(raw).strip().lower()
+        if not email or email in seen:
+            continue
+        seen.add(email)
+
+        try:
+            validate_email(email)
+        except DjangoValidationError:
+            results.append({'email': email, 'status': 'invalid'})
+            continue
+
+        # The shared demo account and the instructor's own address can never
+        # meaningfully accept an invite.
+        if email in (settings.DEMO_ACCOUNT_EMAIL, course.instructor.email):
+            results.append({'email': email, 'status': 'invalid'})
+            continue
+
+        existing_user = User.objects.filter(email=email).first()
+        if existing_user and Enrollment.objects.filter(
+                user=existing_user, course=course, is_active=True).exists():
+            results.append({'email': email, 'status': 'already_enrolled'})
+            continue
+
+        invite = CourseInvite.objects.filter(
+            course=course, email=email, revoked_at__isnull=True).first()
+        if invite is not None:
+            was_pending = invite.is_pending
+            invite.refresh(invited_by=request.user)
+            results.append({
+                'email': email,
+                'status': 'resent' if was_pending else 'invited',
+            })
+        else:
+            invite = CourseInvite.objects.create(
+                course=course, email=email, invited_by=request.user)
+            results.append({'email': email, 'status': 'invited'})
+
+        _queue_invite_email(invite, email_tasks)
+
+    if email_tasks:
+        send_emails_async(email_tasks)
+
+    return Response({'results': results})
+
+
+# @api_view exposes the generated view class as `.cls`; the scoped throttle
+# reads its scope from there (rate: THROTTLE_INVITE_SEND, unset = unlimited).
+course_invites.cls.throttle_scope = 'invite_send'
+
+
+@api_view(['DELETE'])
+@perm_classes([IsAuthenticated])
+def revoke_course_invite(request, course_code, invite_id):
+    """Soft-revoke a pending invite; its link stops working immediately."""
+    course = get_object_or_404(Course, code=course_code)
+    require_course_instructor(
+        request.user, course,
+        "Only the course instructor can manage invitations."
+    )
+
+    invite = get_object_or_404(CourseInvite, id=invite_id, course=course)
+    if invite.accepted_at is not None:
         return Response(
-            {'error': 'Invalid email address.'},
+            {'detail': 'This invite has already been accepted and cannot '
+                       'be revoked. Remove the student from the roster '
+                       'instead.'},
             status=status.HTTP_400_BAD_REQUEST
         )
 
-    # Check if already enrolled
-    from accounts.models import User
-    existing_user = User.objects.filter(email=email).first()
-    if existing_user:
-        if Enrollment.objects.filter(user=existing_user, course=course, is_active=True).exists():
-            return Response(
-                {'error': 'This student is already enrolled in the course.'},
-                status=status.HTTP_400_BAD_REQUEST
-            )
+    if invite.revoked_at is None:
+        invite.revoked_at = timezone.now()
+        invite.save(update_fields=['revoked_at'])
 
-    # Send invitation email using template
-    from core.email import send_course_invitation_email
+    return Response({'message': f'Invite for {invite.email} revoked.'})
 
-    instructor_name = course.instructor.get_full_name() or course.instructor.email
 
-    success = send_course_invitation_email(
-        recipient_email=email,
-        course_title=course.title,
-        instructor_name=instructor_name,
-        enrollment_code=course.enrollment_code,
-        triggered_by=request.user,
-    )
-
-    if not success:
+@api_view(['GET'])
+@perm_classes([AllowAny])
+def invite_detail(request, token):
+    """Public status lookup for the accept page. Never 500s on bad tokens."""
+    invite = CourseInvite.objects.filter(
+        token=token).select_related('course').first()
+    if invite is None:
         return Response(
-            {'error': 'Failed to send email. Please try again later.'},
-            status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            {'status': 'invalid', 'course_title': None, 'course_code': None,
+             'email_masked': None, 'account_exists': False},
+            status=status.HTTP_404_NOT_FOUND
         )
 
     return Response({
-        'message': f'Invitation sent to {email}',
-        'email': email
+        'course_title': invite.course.title,
+        'course_code': invite.course.code,
+        'email_masked': _mask_email(invite.email),
+        'status': invite.status,
+        'account_exists': User.objects.filter(email=invite.email).exists(),
     })
+
+
+INVITE_DEAD_DETAILS = {
+    'accepted': 'This invitation has already been used.',
+    'revoked': 'This invitation has been revoked by the instructor.',
+    'expired': 'This invitation has expired. Ask your instructor for a '
+               'new one.',
+}
+
+
+@api_view(['POST'])
+@perm_classes([AllowAny])
+@throttle_classes([ClientIPScopedRateThrottle])
+def accept_invite(request, token):
+    """Accept an invite: create-account path or existing-account path.
+
+    New account: body {first_name, last_name, password, agree_terms}. The
+    user is created with a verified email (they proved the address by
+    clicking the link), enrolled, and handed a JWT pair so the frontend can
+    log them straight in. Existing account: the request must be
+    authenticated as the invited email; enrolls and returns the enrollment.
+    Both paths are atomic.
+    """
+    invite = CourseInvite.objects.filter(
+        token=token).select_related('course').first()
+    if invite is None:
+        return Response(
+            {'detail': 'This invitation link is not valid.',
+             'status': 'invalid'},
+            status=status.HTTP_400_BAD_REQUEST
+        )
+    if not invite.is_pending:
+        return Response(
+            {'detail': INVITE_DEAD_DETAILS[invite.status],
+             'status': invite.status},
+            status=status.HTTP_400_BAD_REQUEST
+        )
+
+    course = invite.course
+    existing_user = User.objects.filter(email=invite.email).first()
+
+    if existing_user is not None:
+        if (not request.user.is_authenticated
+                or request.user.email.lower() != invite.email):
+            return Response(
+                {'detail': f'This invitation is for {_mask_email(invite.email)}. '
+                           'Log in with that account to join the course.',
+                 'account_exists': True},
+                status=status.HTTP_403_FORBIDDEN
+            )
+        if existing_user == course.instructor:
+            return Response(
+                {'detail': 'Instructors cannot enroll in their own courses.'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        with transaction.atomic():
+            enrollment = _activate_enrollment(existing_user, course)
+            invite.accepted_at = timezone.now()
+            invite.save(update_fields=['accepted_at'])
+        return Response(EnrollmentSerializer(enrollment).data)
+
+    # New-account path.
+    first_name = str(request.data.get('first_name', '')).strip()
+    last_name = str(request.data.get('last_name', '')).strip()
+    password = request.data.get('password') or ''
+    agree_terms = request.data.get('agree_terms') is True
+
+    errors = {}
+    if not first_name:
+        errors['first_name'] = ['First name is required.']
+    if not last_name:
+        errors['last_name'] = ['Last name is required.']
+    if not agree_terms:
+        errors['agree_terms'] = [
+            'You must agree to the Terms of Service and Privacy Policy.']
+    try:
+        validate_password(password)
+    except DjangoValidationError as exc:
+        errors['password'] = list(exc.messages)
+    if errors:
+        return Response(errors, status=status.HTTP_400_BAD_REQUEST)
+
+    with transaction.atomic():
+        user = User.objects.create_user(
+            email=invite.email,
+            password=password,
+            first_name=first_name,
+            last_name=last_name,
+            is_instructor=False,
+        )
+        EmailAddress.objects.create(
+            user=user, email=invite.email, verified=True, primary=True)
+        _activate_enrollment(user, course)
+        invite.accepted_at = timezone.now()
+        invite.save(update_fields=['accepted_at'])
+
+    refresh = RefreshToken.for_user(user)
+    return Response(
+        {
+            'access': str(refresh.access_token),
+            'refresh': str(refresh),
+            'user': UserSerializer(user, context={'request': request}).data,
+        },
+        status=status.HTTP_201_CREATED
+    )
+
+
+accept_invite.cls.throttle_scope = 'invite_accept'
 
 
 @api_view(['POST'])

@@ -220,9 +220,14 @@ REST_FRAMEWORK = {
     # subclass keys on CF-Connecting-IP instead — see core/throttling.py.
     'DEFAULT_THROTTLE_CLASSES': [
         'core.throttling.ClientIPAnonRateThrottle',
+        # Phase 51: real students mean authenticated traffic deserves a
+        # ceiling too. Keyed on user id; same env-gated pattern (THROTTLE_USER
+        # unset = unlimited, production ~120/min).
+        'core.throttling.ClientIPUserRateThrottle',
     ],
     'DEFAULT_THROTTLE_RATES': {
         'anon': config('THROTTLE_ANON', default=None),
+        'user': config('THROTTLE_USER', default=None),
         # One-click demo login (accounts.views.demo_login). Same env-gated
         # pattern: unset = unlimited locally/in tests; production sets
         # THROTTLE_DEMO_LOGIN (render.yaml uses 10/min).
@@ -232,6 +237,11 @@ REST_FRAMEWORK = {
         # rate on top of the general anon throttle. Same env-gated pattern:
         # unset = unlimited locally/in tests; render.yaml uses 5/hour.
         'password_reset': config('THROTTLE_PASSWORD_RESET', default=None),
+        # Course invites (Phase 51). Sending is instructor-triggered email
+        # (production ~30/hour); accepting is an anonymous account-creation
+        # endpoint (production ~10/hour). Unset = unlimited locally/in tests.
+        'invite_send': config('THROTTLE_INVITE_SEND', default=None),
+        'invite_accept': config('THROTTLE_INVITE_ACCEPT', default=None),
     },
 }
 

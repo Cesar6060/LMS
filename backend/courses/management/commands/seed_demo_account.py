@@ -2,10 +2,14 @@
 Management command to create/reset the public portfolio demo account.
 
 The demo account (settings.DEMO_ACCOUNT_EMAIL, default jdoe@demo.com) is a
-plain student enrolled in JAVA101 with a fixed baseline of progress: all
-Unit 1 lessons completed, first Unit 2 lesson partially read. Every visitor
+plain student enrolled in DEMO101 (the cloned demo course — see
+clone_course_for_demo) with a fixed baseline of progress: all Unit 1
+lessons completed, first Unit 2 lesson partially read. Every visitor
 shares it via the one-click demo login, so anything the account owns is
-world-editable — this command re-asserts the baseline.
+world-editable — this command re-asserts the baseline. Since Phase 51 the
+demo lives only in DEMO101, so visitors never share rosters or discussions
+with real students; any enrollment outside DEMO101 is removed on every
+run.
 
 Usage: python manage.py seed_demo_account           (create / re-assert)
        python manage.py seed_demo_account --reset   (wipe visitor changes,
@@ -36,7 +40,7 @@ from quizzes.models import QuizAttempt
 # DEMO_ACCOUNT_PASSWORD) so production can rotate the password via env var.
 DEMO_FIRST_NAME = 'Jordan'
 DEMO_LAST_NAME = 'Doe'
-COURSE_CODE = 'JAVA101'
+COURSE_CODE = 'DEMO101'
 
 
 class Command(BaseCommand):
@@ -62,7 +66,7 @@ class Command(BaseCommand):
         except Course.DoesNotExist:
             raise CommandError(
                 f'Course {COURSE_CODE} does not exist. Refusing to create it — '
-                f'run populate_java_course first.'
+                f'run clone_course_for_demo first.'
             )
 
         units = list(course.units.order_by('order'))
@@ -81,6 +85,15 @@ class Command(BaseCommand):
         if not enrollment.is_active:
             enrollment.is_active = True
             enrollment.save(update_fields=['is_active'])
+
+        # Phase 51: the demo account lives only in DEMO101. Drop any other
+        # enrollment (e.g. the pre-phase-51 JAVA101 one, or a course a
+        # visitor joined with an enrollment code) even without --reset.
+        stale = Enrollment.objects.filter(user=user).exclude(course=course).delete()[0]
+        if stale:
+            self.stdout.write(
+                f'  Removed {stale} enrollment(s) outside {COURSE_CODE}'
+            )
 
         self._apply_baseline_progress(user, units, force=options['reset'])
 

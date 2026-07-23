@@ -77,21 +77,21 @@ def send_templated_email(
         return False
 
 
-def send_course_invitation_email(
+def send_course_invite_link_email(
     recipient_email: str,
     course_title: str,
     instructor_name: str,
-    enrollment_code: str,
+    invite_url: str,
     triggered_by=None,
 ) -> bool:
-    """Send a course invitation email."""
+    """Send a tokenized course invite link (Phase 51)."""
     return send_templated_email(
         subject=f"You're invited to join {course_title}",
-        template_name='emails/course_invitation.html',
+        template_name='emails/course_invite_link.html',
         context={
             'course_title': course_title,
             'instructor_name': instructor_name,
-            'enrollment_code': enrollment_code,
+            'invite_url': invite_url,
         },
         recipient_list=[recipient_email],
         triggered_by=triggered_by,
