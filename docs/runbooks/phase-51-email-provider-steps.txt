@@ -1,80 +1,129 @@
-PHASE 51 — TRANSACTIONAL EMAIL ON YOUR OWN DOMAIN (RESEND)
-===========================================================
+PHASE 51 — STEMQUESTS.COM CUTOVER: APP DOMAIN + TRANSACTIONAL EMAIL
+====================================================================
 
 What this does
 --------------
-Replaces the Phase 47 personal-Gmail SMTP with Resend, a transactional
-email provider, sending from your own domain (e.g. noreply@stemquest.app).
-Invite links, password resets, and announcement emails then arrive from
-your domain with proper SPF/DKIM authentication instead of a personal
-Gmail address. Code-wise nothing changes — it is only env vars on the
-Render service (dashboard is the source of truth since Phase 48).
+The domain stemquests.com (registered 2026-07-23 via Cloudflare Registrar)
+becomes both the app's address and the email sending domain:
 
-Prerequisites: you own a domain and can edit its DNS records
-(Cloudflare DNS assumed below).
+  App:    https://stemquests.com          (was stemquest.cesarvillarreal11
+                                           .workers.dev)
+  Email:  STEM Quest <noreply@stemquests.com> via Resend
+                                          (was personal Gmail SMTP — Phase
+                                           47 setup, now failing; this
+                                           retires it)
 
-STEP 1 — Create the Resend account and add your domain
+Do PART A (app domain) before or together with PART B (email): invite
+links are built from FRONTEND_URL, and an email from @stemquests.com that
+links to stemquests.com is the most spam-filter-proof combination.
+
+Code-wise nothing changes — env vars only (Render dashboard is the
+source of truth since Phase 48).
+
+====================================================================
+PART A — PUT THE APP ON https://stemquests.com
+====================================================================
+
+STEP A1 — Attach the domain to the Worker
+-----------------------------------------
+Cloudflare dashboard -> Workers & Pages -> the stemquest worker ->
+Settings -> Domains & Routes -> Add -> Custom domain -> stemquests.com
+
+Cloudflare creates the DNS record and TLS certificate automatically.
+Wait until it shows Active, then open https://stemquests.com — the login
+page should load. The old workers.dev URL keeps working; leave it on
+during the transition.
+
+STEP A2 — Update the backend env (Render dashboard -> stemquest-api-va
+-> Environment)
+----------------------------------------------------------------------
+  FRONTEND_URL          https://stemquests.com
+  CORS_ALLOWED_ORIGINS  add https://stemquests.com to the existing
+                        comma-separated list (KEEP the workers.dev
+                        origin too until you retire it)
+  CSRF_TRUSTED_ORIGINS  add https://stemquests.com the same way
+
+Save -> service restarts. Log in at https://stemquests.com and click
+around: API calls succeeding = CORS is right.
+
+STEP A3 — Repoint monitoring
+----------------------------
+UptimeRobot: edit the frontend monitor to https://stemquests.com
+(the API monitor on stemquest-api-va.onrender.com is unchanged).
+
+====================================================================
+PART B — EMAIL VIA RESEND ON stemquests.com
+====================================================================
+
+STEP B1 — Create the Resend account and add the domain
 ------------------------------------------------------
 1. Sign up at https://resend.com (free tier: 3,000 emails/month, 100/day
    — far above what invites + resets need).
-2. Resend dashboard -> Domains -> Add Domain -> enter your domain,
-   e.g. stemquest.app (or a subdomain like mail.stemquest.app).
-3. Resend shows DNS records to add. Keep this tab open.
+2. Resend dashboard -> Domains -> Add Domain -> stemquests.com
+3. Resend shows the exact DNS records to add. Keep this tab open.
 
-STEP 2 — Add the DNS records (SPF + DKIM)
------------------------------------------
-In Cloudflare -> your domain -> DNS -> Records, add exactly what Resend
-listed. Typically:
+STEP B2 — Add the DNS records (SPF + DKIM)
+------------------------------------------
+Cloudflare -> stemquests.com -> DNS -> Records. Add exactly what Resend
+listed; it will be this shape:
 
-  - TXT   send.<domain>      "v=spf1 include:amazonses.com ~all"   (SPF)
-  - MX    send.<domain>      feedback-smtp.us-east-1.amazonses.com (10)
-  - TXT   resend._domainkey  p=<long DKIM key>                     (DKIM)
+  TXT  send.stemquests.com            "v=spf1 include:amazonses.com ~all"
+  MX   send.stemquests.com            feedback-smtp.us-east-1.amazonses.com
+                                      (priority 10)
+  TXT  resend._domainkey.stemquests.com   p=<long DKIM key from Resend>
 
-Set them as "DNS only" (grey cloud), not proxied.
+Set them as "DNS only" (grey cloud), NOT proxied.
 
-Back in Resend, click Verify. Propagation is usually minutes; retry if
-it fails at first. Status must show Verified before continuing.
+Back in Resend, click Verify. Usually verifies in minutes; retry if it
+fails at first. Status must show Verified before continuing.
 
-STEP 3 — Create the SMTP credential
------------------------------------
+STEP B3 — Create the SMTP credential
+------------------------------------
 Resend dashboard -> API Keys -> Create API Key
   - Name: stemquest-render-smtp
   - Permission: Sending access only
 Copy the key (shown once). Store it in your password manager.
 
-STEP 4 — Flip the Render env vars
----------------------------------
+STEP B4 — Flip the Render env vars
+----------------------------------
 Render dashboard -> stemquest-api-va -> Environment. Change ONLY these
 (leave EMAIL_BACKEND, EMAIL_PORT, EMAIL_USE_TLS as they are):
 
   EMAIL_HOST           smtp.resend.com
   EMAIL_HOST_USER      resend
-  EMAIL_HOST_PASSWORD  <the API key from step 3>
-  DEFAULT_FROM_EMAIL   STEM Quest <noreply@your-domain>
+  EMAIL_HOST_PASSWORD  <the API key from step B3>
+  DEFAULT_FROM_EMAIL   STEM Quest <noreply@stemquests.com>
 
-The from-address domain MUST be the domain you verified in step 2.
 Save -> the service restarts with the new settings.
 
-STEP 5 — Send a test
---------------------
-1. Log into the live site as the instructor account.
+STEP B5 — Send a test
+---------------------
+1. Log into https://stemquests.com as the instructor account.
 2. Roster page of a course -> Invite students -> your own personal email.
-3. The invite should arrive within a minute, From: STEM Quest
-   <noreply@your-domain>. In Gmail use "Show original" and check
+   (Requires PR #48 merged; before the merge, trigger a password reset
+   instead — it uses the same SMTP config.)
+3. The email should arrive within a minute, From: STEM Quest
+   <noreply@stemquests.com>. In Gmail use "Show original" and check
    SPF: PASS and DKIM: PASS.
-4. Click the link and walk the accept flow end to end (this doubles as
-   the Phase 51 manual verification).
+4. Click the invite link and walk the accept flow end to end (this
+   doubles as the Phase 51 manual verification).
 
 If nothing arrives: Resend dashboard -> Emails shows every send attempt
 and its error; also check the Render service logs for SMTP errors.
 
 Rollback
 --------
-Set the four env vars back to their previous Gmail values (Render keeps
-the old values in the env-var edit history) and save. The Phase 47
-runbook (phase-47-email-rollout.txt) documents the Gmail setup.
+PART B: set the four env vars back to their previous Gmail values
+(Render keeps history in the env-var editor); Phase 47 runbook
+(phase-47-email-rollout.txt) documents the Gmail setup. Note the Gmail
+path was already failing on 2026-07-23 — rollback is a last resort.
+PART A: remove the custom domain from the Worker and set FRONTEND_URL
+back to the workers.dev URL. The workers.dev URL never stopped working.
 
 Cleanup once verified
 ---------------------
 - Revoke the old Gmail app password (Google account -> Security -> App
   passwords) so the personal-Gmail path is fully retired.
+- After a week or two of clean operation, drop the workers.dev origin
+  from CORS_ALLOWED_ORIGINS / CSRF_TRUSTED_ORIGINS if you want the old
+  URL to stop serving the app.
