@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { Link } from 'react-router';
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
@@ -18,11 +18,7 @@ export function StudentGradeCard({ courseCode }: StudentGradeCardProps) {
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState('');
 
-  useEffect(() => {
-    loadGrades();
-  }, [courseCode]);
-
-  const loadGrades = async () => {
+  const loadGrades = useCallback(async () => {
     try {
       setIsLoading(true);
       const data = await courseService.getMyGradeSummary(courseCode);
@@ -33,7 +29,11 @@ export function StudentGradeCard({ courseCode }: StudentGradeCardProps) {
     } finally {
       setIsLoading(false);
     }
-  };
+  }, [courseCode]);
+
+  useEffect(() => {
+    loadGrades();
+  }, [loadGrades]);
 
   const getLetterGradeColor = (letter: string | null) => {
     if (!letter) return 'text-muted-foreground';

@@ -1,6 +1,6 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useParams, Link } from 'react-router';
-import { useAuth } from '@/contexts/AuthContext';
+import { useAuth } from '@/contexts/useAuth';
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { courseService, type CourseDetail, type AnnouncementListItem } from '@/services/courses';
@@ -130,13 +130,7 @@ export function CourseDetailPage() {
   const nextLesson = getNextLesson();
   const unitProgress = getUnitProgress();
 
-  useEffect(() => {
-    if (code) {
-      loadCourse();
-    }
-  }, [code]);
-
-  const loadCourse = async () => {
+  const loadCourse = useCallback(async () => {
     try {
       setIsLoading(true);
       const data = await courseService.getCourse(code!);
@@ -170,7 +164,13 @@ export function CourseDetailPage() {
     } finally {
       setIsLoading(false);
     }
-  };
+  }, [code, user]);
+
+  useEffect(() => {
+    if (code) {
+      loadCourse();
+    }
+  }, [code, loadCourse]);
 
   if (isLoading) {
     return (

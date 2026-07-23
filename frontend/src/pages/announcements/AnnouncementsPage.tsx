@@ -1,6 +1,6 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useParams, Link, useNavigate } from 'react-router';
-import { useAuth } from '@/contexts/AuthContext';
+import { useAuth } from '@/contexts/useAuth';
 import { Card, CardContent } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
@@ -49,13 +49,7 @@ export function AnnouncementsPage() {
 
   const isCourseOwner = user?.id === course?.instructor.id;
 
-  useEffect(() => {
-    if (code) {
-      loadData();
-    }
-  }, [code]);
-
-  const loadData = async () => {
+  const loadData = useCallback(async () => {
     try {
       setIsLoading(true);
       const [courseData, announcementsData] = await Promise.all([
@@ -74,7 +68,13 @@ export function AnnouncementsPage() {
     } finally {
       setIsLoading(false);
     }
-  };
+  }, [code]);
+
+  useEffect(() => {
+    if (code) {
+      loadData();
+    }
+  }, [code, loadData]);
 
   const openCreateModal = () => {
     setEditingId(null);

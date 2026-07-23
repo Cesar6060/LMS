@@ -1,34 +1,39 @@
+import { lazy, Suspense } from 'react';
 import { Routes, Route, Navigate, useLocation, useParams, useSearchParams } from 'react-router';
 import * as Sentry from '@sentry/react';
-import { useAuth } from '@/contexts/AuthContext';
+import { useAuth } from '@/contexts/useAuth';
 import { AvatarProvider } from '@/contexts/AvatarContext';
 import { AccessDenied } from '@/components/AccessDenied';
 import { Layout } from '@/components/layout/Layout';
-import { LoginPage } from '@/pages/auth/LoginPage';
-import { ForgotPasswordPage } from '@/pages/auth/ForgotPasswordPage';
-import { ResetPasswordPage } from '@/pages/auth/ResetPasswordPage';
-import { VerifyEmailPage } from '@/pages/auth/VerifyEmailPage';
-import { DashboardPage } from '@/pages/DashboardPage';
-import { CoursesPage } from '@/pages/courses/CoursesPage';
-import { CourseDetailPage } from '@/pages/courses/CourseDetailPage';
-import { CoursePlayerPage } from '@/pages/courses/CoursePlayerPage';
-import { CourseMapPage } from '@/pages/courses/CourseMapPage';
-import { CreateCoursePage } from '@/pages/instructor/CreateCoursePage';
-import { ManageCoursePage } from '@/pages/instructor/ManageCoursePage';
-import { LessonEditorPage } from '@/pages/instructor/LessonEditorPage';
-import { GradebookPage } from '@/pages/instructor/GradebookPage';
-import { StudentRosterPage } from '@/pages/instructor/StudentRosterPage';
-import { AnnouncementsPage } from '@/pages/announcements/AnnouncementsPage';
-import { AnnouncementDetailPage } from '@/pages/announcements/AnnouncementDetailPage';
-import { DiscussionsPage } from '@/pages/discussions/DiscussionsPage';
-import { ThreadDetailPage } from '@/pages/discussions/ThreadDetailPage';
-import { QuizDetailPage } from '@/pages/quizzes/QuizDetailPage';
-import { QuizEditorPage } from '@/pages/instructor/QuizEditorPage';
-import { AnalyticsPage } from '@/pages/instructor/AnalyticsPage';
-import { MyGradesPage } from '@/pages/student/MyGradesPage';
-import { SettingsPage } from '@/pages/SettingsPage';
-import { NotFoundPage } from '@/pages/NotFoundPage';
-import { Loader2 } from 'lucide-react';
+import { PageLoader } from '@/components/PageLoader';
+
+// Pages are lazy-loaded so each route ships as its own chunk; contexts,
+// layout, and route guards stay eager. Pages use named exports, hence the
+// .then() remapping to the default export lazy() expects.
+const LoginPage = lazy(() => import('@/pages/auth/LoginPage').then((m) => ({ default: m.LoginPage })));
+const ForgotPasswordPage = lazy(() => import('@/pages/auth/ForgotPasswordPage').then((m) => ({ default: m.ForgotPasswordPage })));
+const ResetPasswordPage = lazy(() => import('@/pages/auth/ResetPasswordPage').then((m) => ({ default: m.ResetPasswordPage })));
+const VerifyEmailPage = lazy(() => import('@/pages/auth/VerifyEmailPage').then((m) => ({ default: m.VerifyEmailPage })));
+const DashboardPage = lazy(() => import('@/pages/DashboardPage').then((m) => ({ default: m.DashboardPage })));
+const CoursesPage = lazy(() => import('@/pages/courses/CoursesPage').then((m) => ({ default: m.CoursesPage })));
+const CourseDetailPage = lazy(() => import('@/pages/courses/CourseDetailPage').then((m) => ({ default: m.CourseDetailPage })));
+const CoursePlayerPage = lazy(() => import('@/pages/courses/CoursePlayerPage').then((m) => ({ default: m.CoursePlayerPage })));
+const CourseMapPage = lazy(() => import('@/pages/courses/CourseMapPage').then((m) => ({ default: m.CourseMapPage })));
+const CreateCoursePage = lazy(() => import('@/pages/instructor/CreateCoursePage').then((m) => ({ default: m.CreateCoursePage })));
+const ManageCoursePage = lazy(() => import('@/pages/instructor/ManageCoursePage').then((m) => ({ default: m.ManageCoursePage })));
+const LessonEditorPage = lazy(() => import('@/pages/instructor/LessonEditorPage').then((m) => ({ default: m.LessonEditorPage })));
+const GradebookPage = lazy(() => import('@/pages/instructor/GradebookPage').then((m) => ({ default: m.GradebookPage })));
+const StudentRosterPage = lazy(() => import('@/pages/instructor/StudentRosterPage').then((m) => ({ default: m.StudentRosterPage })));
+const AnnouncementsPage = lazy(() => import('@/pages/announcements/AnnouncementsPage').then((m) => ({ default: m.AnnouncementsPage })));
+const AnnouncementDetailPage = lazy(() => import('@/pages/announcements/AnnouncementDetailPage').then((m) => ({ default: m.AnnouncementDetailPage })));
+const DiscussionsPage = lazy(() => import('@/pages/discussions/DiscussionsPage').then((m) => ({ default: m.DiscussionsPage })));
+const ThreadDetailPage = lazy(() => import('@/pages/discussions/ThreadDetailPage').then((m) => ({ default: m.ThreadDetailPage })));
+const QuizDetailPage = lazy(() => import('@/pages/quizzes/QuizDetailPage').then((m) => ({ default: m.QuizDetailPage })));
+const QuizEditorPage = lazy(() => import('@/pages/instructor/QuizEditorPage').then((m) => ({ default: m.QuizEditorPage })));
+const AnalyticsPage = lazy(() => import('@/pages/instructor/AnalyticsPage').then((m) => ({ default: m.AnalyticsPage })));
+const MyGradesPage = lazy(() => import('@/pages/student/MyGradesPage').then((m) => ({ default: m.MyGradesPage })));
+const SettingsPage = lazy(() => import('@/pages/SettingsPage').then((m) => ({ default: m.SettingsPage })));
+const NotFoundPage = lazy(() => import('@/pages/NotFoundPage').then((m) => ({ default: m.NotFoundPage })));
 
 // Route-aware Sentry instrumentation: transactions get parameterized route
 // names (/courses/:code) instead of raw URLs. No-op when Sentry is not
@@ -41,11 +46,7 @@ function ProtectedRoute({ children }: { children: React.ReactNode }) {
   const location = useLocation();
 
   if (isLoading) {
-    return (
-      <div className="min-h-screen flex items-center justify-center">
-        <Loader2 className="h-8 w-8 animate-spin text-primary" />
-      </div>
-    );
+    return <PageLoader />;
   }
 
   if (!isAuthenticated) {
@@ -60,11 +61,7 @@ function PublicRoute({ children }: { children: React.ReactNode }) {
   const { isAuthenticated, isLoading } = useAuth();
 
   if (isLoading) {
-    return (
-      <div className="min-h-screen flex items-center justify-center">
-        <Loader2 className="h-8 w-8 animate-spin text-primary" />
-      </div>
-    );
+    return <PageLoader />;
   }
 
   if (isAuthenticated) {
@@ -80,11 +77,7 @@ function InstructorRoute({ children }: { children: React.ReactNode }) {
   const location = useLocation();
 
   if (isLoading) {
-    return (
-      <div className="min-h-screen flex items-center justify-center">
-        <Loader2 className="h-8 w-8 animate-spin text-primary" />
-      </div>
-    );
+    return <PageLoader />;
   }
 
   if (!isAuthenticated) {
@@ -106,11 +99,7 @@ function VerifyEmailRoute() {
   const [searchParams] = useSearchParams();
 
   if (isLoading) {
-    return (
-      <div className="min-h-screen flex items-center justify-center">
-        <Loader2 className="h-8 w-8 animate-spin text-primary" />
-      </div>
-    );
+    return <PageLoader />;
   }
 
   if (isAuthenticated && !searchParams.get('key')) {
@@ -131,6 +120,7 @@ function App() {
   return (
     <AvatarProvider>
     <Layout>
+      <Suspense fallback={<PageLoader />}>
         <SentryRoutes>
           {/* Public routes */}
           <Route
@@ -346,6 +336,7 @@ function App() {
           {/* 404 */}
           <Route path="*" element={<NotFoundPage />} />
         </SentryRoutes>
+      </Suspense>
     </Layout>
     </AvatarProvider>
   );

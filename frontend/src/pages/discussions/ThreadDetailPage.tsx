@@ -1,6 +1,6 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useParams, Link, useNavigate } from 'react-router';
-import { useAuth } from '@/contexts/AuthContext';
+import { useAuth } from '@/contexts/useAuth';
 import { Card, CardContent } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
@@ -63,13 +63,7 @@ export function ThreadDetailPage() {
   const isCourseOwner = user?.id != null && user.id === instructorId;
   const isThreadAuthor = user?.id != null && user.id === thread?.author.id;
 
-  useEffect(() => {
-    if (threadId) {
-      loadData();
-    }
-  }, [threadId]);
-
-  const loadData = async () => {
+  const loadData = useCallback(async () => {
     try {
       setIsLoading(true);
       const [threadData, courseData] = await Promise.all([
@@ -88,7 +82,13 @@ export function ThreadDetailPage() {
     } finally {
       setIsLoading(false);
     }
-  };
+  }, [threadId, code]);
+
+  useEffect(() => {
+    if (threadId) {
+      loadData();
+    }
+  }, [threadId, loadData]);
 
   const refreshThread = async () => {
     const data = await discussionService.getThread(Number(threadId));

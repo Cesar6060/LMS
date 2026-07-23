@@ -1,13 +1,5 @@
-import { createContext, useContext, useEffect, ReactNode } from 'react';
-
-interface ThemeContextType {
-  theme: 'dark';
-  setTheme: (theme: 'dark') => void;
-  resolvedTheme: 'dark';
-  resetTheme: () => void;
-}
-
-const ThemeContext = createContext<ThemeContextType | undefined>(undefined);
+import { useEffect, ReactNode } from 'react';
+import { ThemeContext } from './useTheme';
 
 export function ThemeProvider({ children }: { children: ReactNode }) {
   // Force dark mode for gaming theme
@@ -24,12 +16,4 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
       {children}
     </ThemeContext.Provider>
   );
-}
-
-export function useTheme() {
-  const context = useContext(ThemeContext);
-  if (context === undefined) {
-    throw new Error('useTheme must be used within a ThemeProvider');
-  }
-  return context;
 }

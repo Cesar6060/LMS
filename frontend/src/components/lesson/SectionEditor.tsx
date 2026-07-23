@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { Card, CardContent } from '@/components/ui/Card';
@@ -72,11 +72,7 @@ export function SectionEditor({ lessonId, lessonTitle }: SectionEditorProps) {
   const [isBulkSaving, setIsBulkSaving] = useState(false);
   const [pasteError, setPasteError] = useState('');
 
-  useEffect(() => {
-    loadSections();
-  }, [lessonId]);
-
-  const loadSections = async () => {
+  const loadSections = useCallback(async () => {
     try {
       setIsLoading(true);
       setError('');
@@ -88,7 +84,11 @@ export function SectionEditor({ lessonId, lessonTitle }: SectionEditorProps) {
     } finally {
       setIsLoading(false);
     }
-  };
+  }, [lessonId]);
+
+  useEffect(() => {
+    loadSections();
+  }, [loadSections]);
 
   const openAddSection = () => {
     const nextOrder = sections.length > 0 ? Math.max(...sections.map(s => s.order)) + 1 : 0;

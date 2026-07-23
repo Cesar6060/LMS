@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useParams } from 'react-router';
 import { Card, CardContent } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
@@ -50,13 +50,7 @@ export function StudentRosterPage() {
   const [removeStudent, setRemoveStudent] = useState<RosterStudent | null>(null);
   const [isRemoving, setIsRemoving] = useState(false);
 
-  useEffect(() => {
-    if (code) {
-      loadRoster();
-    }
-  }, [code]);
-
-  const loadRoster = async () => {
+  const loadRoster = useCallback(async () => {
     try {
       setIsLoading(true);
       const data = await courseService.getStudentRoster(code!);
@@ -71,7 +65,13 @@ export function StudentRosterPage() {
     } finally {
       setIsLoading(false);
     }
-  };
+  }, [code]);
+
+  useEffect(() => {
+    if (code) {
+      loadRoster();
+    }
+  }, [code, loadRoster]);
 
   const handleSort = (field: SortField) => {
     if (sortField === field) {

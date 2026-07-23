@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { Card, CardContent } from '@/components/ui/Card';
@@ -41,11 +41,7 @@ export function LessonQuestionsManager({ lessonId, lessonTitle }: LessonQuestion
   const [showQuestionEditor, setShowQuestionEditor] = useState(false);
   const [editingQuestion, setEditingQuestion] = useState<EditingQuestion | null>(null);
 
-  useEffect(() => {
-    loadData();
-  }, [lessonId]);
-
-  const loadData = async () => {
+  const loadData = useCallback(async () => {
     setIsLoading(true);
     setError('');
     try {
@@ -57,7 +53,11 @@ export function LessonQuestionsManager({ lessonId, lessonTitle }: LessonQuestion
     } finally {
       setIsLoading(false);
     }
-  };
+  }, [lessonId]);
+
+  useEffect(() => {
+    loadData();
+  }, [loadData]);
 
   const loadQuestions = async () => {
     try {

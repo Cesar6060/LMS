@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { Button } from '@/components/ui/Button';
 import { courseService } from '@/services/courses';
 import { Loader2, X, Scale } from 'lucide-react';
@@ -22,13 +22,7 @@ export function GradingConfigModal({ courseCode, isOpen, onClose }: GradingConfi
 
   const participationWeight = 100 - quizzesWeight;
 
-  useEffect(() => {
-    if (isOpen) {
-      loadConfig();
-    }
-  }, [isOpen, courseCode]);
-
-  const loadConfig = async () => {
+  const loadConfig = useCallback(async () => {
     try {
       setIsLoading(true);
       setError('');
@@ -40,7 +34,13 @@ export function GradingConfigModal({ courseCode, isOpen, onClose }: GradingConfi
     } finally {
       setIsLoading(false);
     }
-  };
+  }, [courseCode]);
+
+  useEffect(() => {
+    if (isOpen) {
+      loadConfig();
+    }
+  }, [isOpen, loadConfig]);
 
   const handleSave = async () => {
     setIsSaving(true);

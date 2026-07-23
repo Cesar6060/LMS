@@ -1,0 +1,70 @@
+PHASE 50 — MOVE DJANGO ADMIN OFF /admin/ (ADMIN_URL ENV FLIP)
+==============================================================
+
+What this does
+--------------
+The backend already reads an ADMIN_URL env var (backend/config/settings.py,
+wired into urls.py since phase 42/43). By default it serves the Django admin
+at /admin/. Setting ADMIN_URL to a random slug moves the admin login to that
+slug and makes /admin/ return 404. No code change, no deploy — just an env
+var flip on the Render service.
+
+Service: stemquest-api-va (srv-d9go1em1a83c73f50r2g)
+URL:     https://stemquest-api-va.onrender.com
+
+STEP 1 — Generate a random slug
+-------------------------------
+On your Mac, run:
+
+    openssl rand -hex 8
+
+This prints 16 hex characters, for example: 3f9c2a71d4e8b605
+
+Your admin path will be that value plus "-console/", for example:
+
+    3f9c2a71d4e8b605-console/
+
+Do NOT use the example above — generate your own.
+
+STEP 2 — Record the slug in your password manager
+-------------------------------------------------
+Save the full admin URL in your password manager entry for STEM Quest,
+next to the admin credentials:
+
+    https://stemquest-api-va.onrender.com/<your-slug>-console/
+
+Do NOT commit the slug to the repo, paste it into a spec, a handoff, or
+a chat log. The whole point is that it is not written down anywhere public.
+
+STEP 3 — Set the env var on Render
+----------------------------------
+1. Open https://dashboard.render.com and go to the stemquest-api-va service.
+2. Open the "Environment" tab.
+3. Add a new environment variable:
+
+       Key:   ADMIN_URL
+       Value: <your-slug>-console/
+
+   (Trailing slash optional — the backend adds it if missing.)
+4. Save. Render automatically restarts the service when env vars change.
+   Wait for the service to show "Live" again (about a minute).
+
+STEP 4 — Verify
+---------------
+In a terminal (or browser):
+
+    curl -s -o /dev/null -w "%{http_code}\n" https://stemquest-api-va.onrender.com/admin/
+        -> expect 404
+
+    curl -s -o /dev/null -w "%{http_code}\n" https://stemquest-api-va.onrender.com/<your-slug>-console/login/
+        -> expect 200 (admin login page)
+
+Or just open https://stemquest-api-va.onrender.com/<your-slug>-console/ in a
+browser — you should see the Django admin login. Opening /admin/ should show
+a 404 page.
+
+ROLLBACK
+--------
+Delete the ADMIN_URL env var from the service's Environment tab and save.
+Render restarts the service and the admin is back at /admin/. Nothing else
+to undo.

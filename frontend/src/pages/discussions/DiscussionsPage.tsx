@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useParams, Link } from 'react-router';
 import { Card, CardContent } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
@@ -44,13 +44,7 @@ export function DiscussionsPage() {
   const [formData, setFormData] = useState({ title: '', content: '' });
   const [isSaving, setIsSaving] = useState(false);
 
-  useEffect(() => {
-    if (code) {
-      loadData();
-    }
-  }, [code]);
-
-  const loadData = async () => {
+  const loadData = useCallback(async () => {
     try {
       setIsLoading(true);
       const [courseData, threadsData] = await Promise.all([
@@ -69,7 +63,13 @@ export function DiscussionsPage() {
     } finally {
       setIsLoading(false);
     }
-  };
+  }, [code]);
+
+  useEffect(() => {
+    if (code) {
+      loadData();
+    }
+  }, [code, loadData]);
 
   const handleCreate = async () => {
     if (!formData.title.trim() || !formData.content.trim()) {

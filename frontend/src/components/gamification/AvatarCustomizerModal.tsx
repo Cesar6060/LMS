@@ -12,7 +12,7 @@ import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { Mascot } from '@/components/gamification/Mascot';
 import { useAvatarContext } from '@/contexts/AvatarContext';
-import { useToast } from '@/contexts/ToastContext';
+import { useToast } from '@/contexts/useToast';
 import { cn } from '@/lib/utils';
 import type { AvatarEquipped, AvatarItem, AvatarSlot } from '@/types';
 import { Loader2, Lock, RotateCcw } from 'lucide-react';
