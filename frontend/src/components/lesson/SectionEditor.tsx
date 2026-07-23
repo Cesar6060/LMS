@@ -22,9 +22,13 @@ import {
   FileText, Video, Save, ClipboardPaste, X
 } from 'lucide-react';
 
+export type SaveStatus = 'idle' | 'saving' | 'saved' | 'error';
+
 interface SectionEditorProps {
   lessonId: number;
   lessonTitle: string;
+  /** Report save activity up to the page-level status indicator. */
+  onSaveStatus?: (status: SaveStatus, message?: string) => void;
 }
 
 interface EditingSection {
@@ -36,7 +40,11 @@ interface EditingSection {
   order: number;
 }
 
-export function SectionEditor({ lessonId, lessonTitle }: SectionEditorProps) {
+export function SectionEditor({ lessonId, lessonTitle, onSaveStatus }: SectionEditorProps) {
+  const report = useCallback(
+    (status: SaveStatus, message?: string) => onSaveStatus?.(status, message),
+    [onSaveStatus]
+  );
   const [sections, setSections] = useState<LessonSection[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState('');
@@ -117,6 +125,7 @@ export function SectionEditor({ lessonId, lessonTitle }: SectionEditorProps) {
 
     setIsSaving(true);
     setSaveError('');
+    report('saving');
     try {
       const data = {
         title: editingSection.title,
@@ -135,10 +144,13 @@ export function SectionEditor({ lessonId, lessonTitle }: SectionEditorProps) {
       await loadSections();
       setShowEditModal(false);
       setEditingSection(null);
+      report('saved');
     } catch (err: unknown) {
       console.error('Failed to save section:', err);
       const error = err as { response?: { data?: { error?: string } }; message?: string };
-      setSaveError(error.response?.data?.error || error.message || 'Failed to save section');
+      const message = error.response?.data?.error || error.message || 'Failed to save section';
+      setSaveError(message);
+      report('error', message);
     } finally {
       setIsSaving(false);
     }
@@ -147,11 +159,14 @@ export function SectionEditor({ lessonId, lessonTitle }: SectionEditorProps) {
   const handleDeleteSection = async (sectionId: number) => {
     if (!confirm('Are you sure you want to delete this section?')) return;
 
+    report('saving');
     try {
       await courseService.deleteLessonSection(lessonId, sectionId);
       await loadSections();
+      report('saved');
     } catch (err) {
       console.error('Failed to delete section:', err);
+      report('error', 'Failed to delete section');
     }
   };
 
@@ -164,11 +179,14 @@ export function SectionEditor({ lessonId, lessonTitle }: SectionEditorProps) {
 
     const sectionIds = newSections.map(s => s.id);
 
+    report('saving');
     try {
       const reordered = await courseService.reorderLessonSections(lessonId, sectionIds);
       setSections(reordered);
+      report('saved');
     } catch (err) {
       console.error('Failed to reorder sections:', err);
+      report('error', 'Failed to reorder sections');
     }
   };
 
@@ -201,6 +219,7 @@ export function SectionEditor({ lessonId, lessonTitle }: SectionEditorProps) {
 
     setIsBulkSaving(true);
     setPasteError('');
+    report('saving');
     try {
       await courseService.bulkCreateLessonSections(
         lessonId,
@@ -213,15 +232,17 @@ export function SectionEditor({ lessonId, lessonTitle }: SectionEditorProps) {
       );
       await loadSections();
       setShowPasteModal(false);
+      report('saved');
     } catch (err: unknown) {
       console.error('Failed to bulk-create sections:', err);
       const error = err as { response?: { data?: { error?: string; detail?: string } }; message?: string };
-      setPasteError(
+      const message =
         error.response?.data?.detail ||
         error.response?.data?.error ||
         error.message ||
-        'Failed to add sections'
-      );
+        'Failed to add sections';
+      setPasteError(message);
+      report('error', message);
     } finally {
       setIsBulkSaving(false);
     }
@@ -231,8 +252,9 @@ export function SectionEditor({ lessonId, lessonTitle }: SectionEditorProps) {
     <>
       <div className="space-y-4">
         <div className="flex items-center justify-between">
-          <p className="text-sm text-muted-foreground">
-            Break "{lessonTitle}" into navigable sections (slides).
+          <p className="text-base text-muted-foreground">
+            Sections are the content of "{lessonTitle}". Each section is one page
+            students step through — add text and an optional video to each.
           </p>
           <div className="flex items-center gap-2">
             <Button size="sm" variant="outline" onClick={openPasteModal}>
@@ -258,17 +280,20 @@ export function SectionEditor({ lessonId, lessonTitle }: SectionEditorProps) {
                 <Loader2 className="h-8 w-8 animate-spin text-primary" />
               </div>
             ) : sections.length === 0 ? (
-              <div className="text-center py-12 text-muted-foreground">
-                <FileText className="h-12 w-12 mx-auto mb-4 opacity-50" />
-                <p className="mb-4">No sections yet. Add your first section to organize lesson content.</p>
-                <div className="flex items-center justify-center gap-2">
-                  <Button variant="outline" onClick={openPasteModal}>
+              <div className="text-center py-16 border-2 border-dashed rounded-lg">
+                <FileText className="h-14 w-14 mx-auto mb-4 opacity-40" />
+                <h3 className="text-lg font-semibold mb-1">This lesson has no content yet</h3>
+                <p className="mb-6 text-muted-foreground">
+                  Add your first section to start building the lesson.
+                </p>
+                <div className="flex items-center justify-center gap-3">
+                  <Button variant="outline" size="lg" onClick={openPasteModal}>
                     <ClipboardPaste className="h-4 w-4 mr-2" />
                     Paste to add sections
                   </Button>
-                  <Button onClick={openAddSection}>
+                  <Button size="lg" onClick={openAddSection}>
                     <Plus className="h-4 w-4 mr-2" />
-                    Add Section
+                    Add your first section
                   </Button>
                 </div>
               </div>

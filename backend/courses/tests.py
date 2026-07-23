@@ -3137,3 +3137,128 @@ class TestRepairVideoIdsMigration:
         self._run_repair()
         lesson.refresh_from_db()
         assert (lesson.video_type, lesson.video_id) == ('youtube', 'dQw4w9WgXcQ')
+
+
+@pytest.mark.django_db
+class TestConsolidateContentIntoSectionsMigration:
+    """Exercises the 0019 data-migration function against current models.
+
+    Phase 53: lesson-level content/video is consolidated into sections. The
+    migration copies content into a first section only when the lesson has no
+    sections, then blanks the (now dormant) lesson-level fields on every lesson.
+    """
+
+    def _run_consolidate(self):
+        from django.apps import apps as global_apps
+        migration = import_module(
+            'courses.migrations.0019_consolidate_lesson_content_into_sections')
+        migration.consolidate_content_into_sections(global_apps, None)
+
+    def test_no_section_lesson_with_content_and_video_becomes_a_section(self, unit):
+        lesson = Lesson.objects.create(
+            unit=unit, title='L', order=1,
+            content='# Hello\n\nBody text.',
+            video_type='youtube', video_id='dQw4w9WgXcQ')
+
+        self._run_consolidate()
+
+        lesson.refresh_from_db()
+        sections = list(lesson.sections.all())
+        assert len(sections) == 1
+        s = sections[0]
+        assert s.order == 0
+        assert s.title == ''
+        assert s.content == '# Hello\n\nBody text.'
+        assert (s.video_type, s.video_id) == ('youtube', 'dQw4w9WgXcQ')
+        # Lesson-level fields are now blanked/dormant.
+        assert (lesson.content, lesson.video_type, lesson.video_id) == ('', 'none', '')
+
+    def test_no_section_lesson_with_only_video_carries_video(self, unit):
+        lesson = Lesson.objects.create(
+            unit=unit, title='L', order=1, content='',
+            video_type='youtube', video_id='dQw4w9WgXcQ')
+
+        self._run_consolidate()
+
+        lesson.refresh_from_db()
+        sections = list(lesson.sections.all())
+        assert len(sections) == 1
+        assert sections[0].content == ''
+        assert (sections[0].video_type, sections[0].video_id) == ('youtube', 'dQw4w9WgXcQ')
+        assert (lesson.content, lesson.video_type, lesson.video_id) == ('', 'none', '')
+
+    def test_lesson_with_existing_sections_keeps_sections_and_discards_hidden_content(self, unit):
+        lesson = Lesson.objects.create(
+            unit=unit, title='L', order=1,
+            content='hidden leftover blob',
+            video_type='youtube', video_id='dQw4w9WgXcQ')
+        LessonSection.objects.create(
+            lesson=lesson, title='Real 0', content='real body', order=0)
+        LessonSection.objects.create(
+            lesson=lesson, title='Real 1', content='more', order=1)
+
+        self._run_consolidate()
+
+        lesson.refresh_from_db()
+        sections = list(lesson.sections.order_by('order'))
+        # No new section created; existing ones untouched.
+        assert [s.title for s in sections] == ['Real 0', 'Real 1']
+        assert [s.content for s in sections] == ['real body', 'more']
+        # The hidden lesson-level content is discarded.
+        assert (lesson.content, lesson.video_type, lesson.video_id) == ('', 'none', '')
+
+    def test_empty_lesson_is_untouched(self, unit):
+        lesson = Lesson.objects.create(
+            unit=unit, title='Empty', order=1,
+            content='', video_type='none', video_id='')
+
+        self._run_consolidate()
+
+        lesson.refresh_from_db()
+        assert lesson.sections.count() == 0
+        assert (lesson.content, lesson.video_type, lesson.video_id) == ('', 'none', '')
+
+
+@pytest.mark.django_db
+class TestRequiredQuizCourseScope:
+    """Phase 53 hardening: required_quiz must belong to the lesson's own course.
+
+    Guards against the API-only IDOR where an instructor gates a lesson on a
+    quiz from a different course (the React UI only lists same-course quizzes).
+    """
+
+    def _make_quiz(self, unit, title):
+        from quizzes.models import Quiz
+        return Quiz.objects.create(unit=unit, title=title)
+
+    def test_cannot_set_required_quiz_from_another_course(
+        self, api_client, instructor, lesson
+    ):
+        other_course = Course.objects.create(
+            code='OTHER1', title='Other', description='x', instructor=instructor)
+        other_unit = Unit.objects.create(course=other_course, title='U', order=1)
+        foreign_quiz = self._make_quiz(other_unit, 'Foreign')
+
+        api_client.force_authenticate(user=instructor)
+        resp = api_client.patch(
+            f'/api/courses/lessons/{lesson.id}/',
+            {'required_quiz': foreign_quiz.id}, format='json')
+
+        assert resp.status_code == status.HTTP_400_BAD_REQUEST
+        assert 'required_quiz' in resp.data
+        lesson.refresh_from_db()
+        assert lesson.required_quiz_id is None
+
+    def test_can_set_required_quiz_from_same_course(
+        self, api_client, instructor, unit, lesson
+    ):
+        same_quiz = self._make_quiz(unit, 'Same')
+
+        api_client.force_authenticate(user=instructor)
+        resp = api_client.patch(
+            f'/api/courses/lessons/{lesson.id}/',
+            {'required_quiz': same_quiz.id}, format='json')
+
+        assert resp.status_code == status.HTTP_200_OK
+        lesson.refresh_from_db()
+        assert lesson.required_quiz_id == same_quiz.id

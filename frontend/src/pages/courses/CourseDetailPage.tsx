@@ -551,7 +551,7 @@ export function CourseDetailPage() {
                             className="flex items-center justify-between py-3 hover:bg-muted/50 -mx-6 px-6 transition-colors"
                           >
                             <div className="flex items-center gap-3">
-                              {lesson.video_type !== 'none' ? (
+                              {lesson.has_video ? (
                                 <Play className="h-4 w-4 text-muted-foreground" />
                               ) : (
                                 <FileText className="h-4 w-4 text-muted-foreground" />

@@ -40,6 +40,15 @@ interface LessonWithProgress {
   is_completed?: boolean;
 }
 
+// Phase 53: sections are the sole content model. A lesson with no sections has
+// no content page — unless it also has no quiz, in which case a single
+// empty-state page is shown so navigation still works. This single source of
+// truth must be used by BOTH render and the resume/navigation helpers, or
+// quiz-only lessons desync (the quiz page becomes unreachable).
+function contentPageCountFor(sectionCount: number, hasQuiz: boolean): number {
+  return sectionCount > 0 ? sectionCount : (hasQuiz ? 0 : 1);
+}
+
 interface UnitWithProgress {
   id: number;
   title: string;
@@ -181,9 +190,10 @@ export function CoursePlayerPage() {
       lastSavedPositionRef.current = progressData?.video_position || 0;
       lastSavedSectionRef.current = progressData?.current_section || 0;
 
-      // Calculate total pages for resume logic (legacy content counts as page 1)
-      const contentPageCount = lessonData.sections?.length || 1;
-      const hasQuizSection = quizStatusData && quizStatusData.total_questions > 0;
+      // Calculate total pages for resume logic (phase 53: sections are content).
+      const hasQuizSection = !!(quizStatusData && quizStatusData.total_questions > 0);
+      const contentPageCount = contentPageCountFor(
+        lessonData.sections?.length || 0, hasQuizSection);
       const maxSectionIndex = contentPageCount + (hasQuizSection ? 1 : 0) - 1;
 
       // Resume at saved section
@@ -235,9 +245,10 @@ export function CoursePlayerPage() {
   const handleSectionChange = useCallback(async (newIndex: number) => {
     if (!currentLesson || isSavingRef.current) return;
 
-    // Calculate total pages (legacy content counts as page 1, + quiz if present)
-    const contentPageCount = currentLesson.sections?.length || 1;
-    const hasQuizSection = questionsStatus && questionsStatus.total_questions > 0;
+    // Calculate total pages (phase 53: sections are content, + quiz if present)
+    const hasQuizSection = !!(questionsStatus && questionsStatus.total_questions > 0);
+    const contentPageCount = contentPageCountFor(
+      currentLesson.sections?.length || 0, hasQuizSection);
     const maxIndex = contentPageCount + (hasQuizSection ? 1 : 0) - 1;
 
     if (newIndex < 0 || newIndex > maxIndex) return;
@@ -329,8 +340,9 @@ export function CoursePlayerPage() {
     if (!currentLesson || progress?.completed) return;
 
     // Page count including an appended comprehension-quiz page.
-    const contentPageCount = currentLesson.sections?.length || 1;
-    const hasQuizSection = questionsStatus && questionsStatus.total_questions > 0;
+    const hasQuizSection = !!(questionsStatus && questionsStatus.total_questions > 0);
+    const contentPageCount = contentPageCountFor(
+      currentLesson.sections?.length || 0, hasQuizSection);
     const totalPages = contentPageCount + (hasQuizSection ? 1 : 0);
 
     // Not on the final page yet → advance one page (never skip a later quiz).
@@ -403,9 +415,8 @@ export function CoursePlayerPage() {
   const hasContentSections = contentSections.length > 0;
   const hasQuiz = questionsStatus && questionsStatus.total_questions > 0;
 
-  // Legacy content (no sections) still counts as a single page, so a blob+quiz
-  // lesson is 2 pages (content, then quiz) rather than a quiz-only page.
-  const contentPageCount = hasContentSections ? contentSections.length : 1;
+  // Phase 53: sections are the sole content model (see contentPageCountFor).
+  const contentPageCount = contentPageCountFor(contentSections.length, !!hasQuiz);
 
   // Total pages = content pages + quiz page (if a comprehension quiz exists)
   const totalSections = contentPageCount + (hasQuiz ? 1 : 0);
@@ -494,41 +505,15 @@ export function CoursePlayerPage() {
     }
 
     if (!currentSection) {
-      // Fallback: render lesson content directly (legacy lessons without sections)
+      // Phase 53: sections are the sole content model — lesson-level
+      // content/video is no longer rendered. A lesson with no sections shows an
+      // empty state (quiz-only lessons render the quiz page instead).
       return (
-        <>
-          {/* Video - currently only YouTube is supported */}
-          {currentLesson?.video_type === 'youtube' && currentLesson.video_id && (
-            <div className="mb-8 mx-auto w-full max-w-[calc((100vh-15rem)*1.7778)]">
-              <VideoPlayer
-                videoType="youtube"
-                videoId={currentLesson.video_id}
-                initialPosition={progress?.video_position || 0}
-                onProgress={handleVideoProgress}
-                onEnded={handleVideoEnded}
-              />
-            </div>
-          )}
-
-          {/* Content */}
-          {currentLesson?.content && (
-            <Card>
-              <CardContent className="prose prose-neutral dark:prose-invert max-w-none py-6">
-                <ReactMarkdown remarkPlugins={[remarkGfm]}>
-                  {currentLesson.content}
-                </ReactMarkdown>
-              </CardContent>
-            </Card>
-          )}
-
-          {!currentLesson?.content && currentLesson?.video_type === 'none' && (
-            <Card>
-              <CardContent className="py-12 text-center text-muted-foreground">
-                No content available for this lesson.
-              </CardContent>
-            </Card>
-          )}
-        </>
+        <Card>
+          <CardContent className="py-12 text-center text-muted-foreground">
+            No content available for this lesson yet.
+          </CardContent>
+        </Card>
       );
     }
 

@@ -1,42 +1,35 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router';
-import ReactMarkdown from 'react-markdown';
-import remarkGfm from 'remark-gfm';
 import { useAuth } from '@/contexts/useAuth';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { Card, CardContent } from '@/components/ui/Card';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/Tabs';
 import { AccessDenied } from '@/components/AccessDenied';
-import { SectionEditor } from '@/components/lesson/SectionEditor';
+import { SectionEditor, type SaveStatus } from '@/components/lesson/SectionEditor';
 import { AttachmentUploader } from '@/components/lesson/AttachmentUploader';
 import { LessonQuestionsManager } from '@/components/lesson/LessonQuestionsManager';
 import { courseService } from '@/services/courses';
 import { quizzesService } from '@/services/quizzes';
 import { isForbidden } from '@/services/api';
-import { extractYouTubeVideoId } from '@/lib/video';
-import { YouTubeVideoPreview } from '@/components/lesson/YouTubeVideoPreview';
 import type { Lesson, Quiz } from '@/types';
 import { PageContainer } from '@/components/layout/PageContainer';
 import { BackLink } from '@/components/layout/BackLink';
 import {
-  Loader2, ChevronLeft, Save, FileText, Layers, HelpCircle, Paperclip, BookOpen,
+  Loader2, ChevronLeft, FileText, Layers, HelpCircle, Paperclip, BookOpen,
+  Check, AlertCircle,
 } from 'lucide-react';
 
-interface LessonForm {
+// Phase 53: lesson body lives in sections. The editor page only owns lesson
+// "details" (title, quiz gating). Everything auto-saves.
+interface LessonDetailsForm {
   title: string;
-  content: string;
-  video_type: 'none' | 'youtube';
-  video_id: string;
   required_quiz: number | null;
 }
 
-function formFromLesson(lesson: Lesson): LessonForm {
+function detailsFromLesson(lesson: Lesson): LessonDetailsForm {
   return {
     title: lesson.title,
-    content: lesson.content || '',
-    video_type: lesson.video_type,
-    video_id: lesson.video_id || '',
     required_quiz: lesson.required_quiz ?? null,
   };
 }
@@ -48,15 +41,17 @@ export function LessonEditorPage() {
 
   const [lesson, setLesson] = useState<Lesson | null>(null);
   const [quizzes, setQuizzes] = useState<Quiz[]>([]);
-  const [form, setForm] = useState<LessonForm | null>(null);
-  const [savedForm, setSavedForm] = useState<LessonForm | null>(null);
+  const [form, setForm] = useState<LessonDetailsForm | null>(null);
+  const [savedForm, setSavedForm] = useState<LessonDetailsForm | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [forbidden, setForbidden] = useState(false);
   const [notFound, setNotFound] = useState(false);
-  const [isSaving, setIsSaving] = useState(false);
-  const [saveError, setSaveError] = useState('');
 
-  const isDirty =
+  // Unified save status across Details auto-save and the section editor.
+  const [saveStatus, setSaveStatus] = useState<SaveStatus>('idle');
+  const [saveMessage, setSaveMessage] = useState('');
+
+  const detailsDirty =
     form !== null && savedForm !== null && JSON.stringify(form) !== JSON.stringify(savedForm);
 
   useEffect(() => {
@@ -82,7 +77,7 @@ export function LessonEditorPage() {
 
         setLesson(lessonData);
         setQuizzes(quizzesData);
-        const initial = formFromLesson(lessonData);
+        const initial = detailsFromLesson(lessonData);
         setForm(initial);
         setSavedForm(initial);
       } catch (err) {
@@ -99,66 +94,72 @@ export function LessonEditorPage() {
     load();
   }, [code, lessonId, user]);
 
-  // Warn on reload/close with unsaved changes
+  const updateForm = (patch: Partial<LessonDetailsForm>) => {
+    setForm(prev => (prev ? { ...prev, ...patch } : prev));
+  };
+
+  // Auto-save lesson details (title / quiz) with a debounce.
+  const saveDetails = useCallback(async () => {
+    if (!form || !lesson) return;
+    const snapshot = form;
+    setSaveStatus('saving');
+    setSaveMessage('');
+    try {
+      const updated = await courseService.updateLesson(lesson.id, {
+        title: snapshot.title,
+        required_quiz: snapshot.required_quiz,
+      });
+      setLesson(updated);
+      setSavedForm(snapshot);
+      setSaveStatus('saved');
+    } catch (err: unknown) {
+      console.error('Failed to save lesson details:', err);
+      const apiError = err as {
+        response?: { data?: { detail?: string; title?: string[] } };
+        message?: string;
+      };
+      const message =
+        apiError.response?.data?.detail ||
+        apiError.response?.data?.title?.[0] ||
+        apiError.message ||
+        'Failed to save lesson details';
+      setSaveMessage(message);
+      setSaveStatus('error');
+    }
+  }, [form, lesson]);
+
+  const saveTimer = useRef<number | null>(null);
   useEffect(() => {
-    if (!isDirty) return;
+    if (!detailsDirty) return;
+    if (saveTimer.current) window.clearTimeout(saveTimer.current);
+    saveTimer.current = window.setTimeout(() => { void saveDetails(); }, 800);
+    return () => {
+      if (saveTimer.current) window.clearTimeout(saveTimer.current);
+    };
+  }, [detailsDirty, saveDetails]);
+
+  // Section editor reports its own save activity into the shared indicator.
+  const handleSectionStatus = useCallback((status: SaveStatus, message?: string) => {
+    setSaveStatus(status);
+    setSaveMessage(status === 'error' ? (message || "Couldn't save") : '');
+  }, []);
+
+  const hasPendingWork = detailsDirty || saveStatus === 'saving' || saveStatus === 'error';
+
+  // Warn on reload/close while a save is pending or failed.
+  useEffect(() => {
+    if (!hasPendingWork) return;
     const handler = (e: BeforeUnloadEvent) => {
       e.preventDefault();
       e.returnValue = '';
     };
     window.addEventListener('beforeunload', handler);
     return () => window.removeEventListener('beforeunload', handler);
-  }, [isDirty]);
-
-  const confirmLeave = useCallback(() => {
-    return !isDirty || confirm('You have unsaved changes. Leave without saving?');
-  }, [isDirty]);
+  }, [hasPendingWork]);
 
   const handleBack = () => {
-    if (confirmLeave()) {
+    if (!hasPendingWork || confirm('Some changes may not be saved yet. Leave anyway?')) {
       navigate(`/instructor/courses/${code}/manage`);
-    }
-  };
-
-  const updateForm = (patch: Partial<LessonForm>) => {
-    setForm(prev => (prev ? { ...prev, ...patch } : prev));
-  };
-
-  const handleSave = async () => {
-    if (!form || !lesson) return;
-    let videoId = '';
-    if (form.video_type === 'youtube') {
-      const extracted = extractYouTubeVideoId(form.video_id);
-      if (!extracted) {
-        setSaveError(
-          'Could not extract a YouTube video ID from the video field. ' +
-          'Fix the link or set Video Type to "No Video" before saving.'
-        );
-        return;
-      }
-      videoId = extracted;
-    }
-
-    setIsSaving(true);
-    setSaveError('');
-    try {
-      const updated = await courseService.updateLesson(lesson.id, {
-        title: form.title,
-        content: form.content,
-        video_type: form.video_type,
-        video_id: videoId,
-        required_quiz: form.required_quiz,
-      });
-      setLesson(updated);
-      const next = formFromLesson(updated);
-      setForm(next);
-      setSavedForm(next);
-    } catch (err: unknown) {
-      console.error('Failed to save lesson:', err);
-      const apiError = err as { response?: { data?: { detail?: string } }; message?: string };
-      setSaveError(apiError.response?.data?.detail || apiError.message || 'Failed to save lesson');
-    } finally {
-      setIsSaving(false);
     }
   };
 
@@ -200,36 +201,41 @@ export function LessonEditorPage() {
           <span className="text-muted-foreground">/</span>
           <h1 className="text-2xl font-bold truncate">{lesson.title}</h1>
         </div>
-        <div className="flex items-center gap-3">
-          {isDirty && (
-            <span className="text-sm text-muted-foreground">Unsaved changes</span>
+        {/* Auto-save status */}
+        <div className="min-w-[11rem] flex justify-end">
+          {saveStatus === 'saving' && (
+            <span className="flex items-center gap-2 text-sm text-muted-foreground">
+              <Loader2 className="h-4 w-4 animate-spin" />
+              Saving…
+            </span>
           )}
-          <Button onClick={handleSave} disabled={isSaving || !isDirty}>
-            {isSaving ? (
-              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-            ) : (
-              <Save className="mr-2 h-4 w-4" />
-            )}
-            Save
-          </Button>
+          {saveStatus === 'saved' && (
+            <span className="flex items-center gap-2 text-sm text-green-600 dark:text-green-500">
+              <Check className="h-4 w-4" />
+              All changes saved
+            </span>
+          )}
+          {saveStatus === 'error' && (
+            <span className="flex items-center gap-2 text-sm text-destructive">
+              <AlertCircle className="h-4 w-4" />
+              {saveMessage || "Couldn't save"}
+            </span>
+          )}
+          {saveStatus === 'idle' && (
+            <span className="text-sm text-muted-foreground">Changes save automatically</span>
+          )}
         </div>
       </div>
-
-      {saveError && (
-        <div className="bg-destructive/10 border border-destructive/20 text-destructive rounded-md px-4 py-3 text-sm mb-4">
-          {saveError}
-        </div>
-      )}
 
       <Tabs defaultValue="content">
         <TabsList>
           <TabsTrigger value="content">
-            <FileText className="h-4 w-4" />
+            <Layers className="h-4 w-4" />
             Content
           </TabsTrigger>
-          <TabsTrigger value="sections">
-            <Layers className="h-4 w-4" />
-            Sections
+          <TabsTrigger value="details">
+            <FileText className="h-4 w-4" />
+            Details
           </TabsTrigger>
           <TabsTrigger value="questions">
             <HelpCircle className="h-4 w-4" />
@@ -241,7 +247,15 @@ export function LessonEditorPage() {
           </TabsTrigger>
         </TabsList>
 
-        <TabsContent value="content" className="space-y-6">
+        <TabsContent value="content">
+          <SectionEditor
+            lessonId={lesson.id}
+            lessonTitle={lesson.title}
+            onSaveStatus={handleSectionStatus}
+          />
+        </TabsContent>
+
+        <TabsContent value="details" className="space-y-6">
           {/* Title */}
           <div className="space-y-2 max-w-2xl">
             <label htmlFor="lesson-title" className="text-sm font-medium">
@@ -254,47 +268,6 @@ export function LessonEditorPage() {
               onChange={(e) => updateForm({ title: e.target.value })}
               required
             />
-          </div>
-
-          {/* Video settings */}
-          <div className="grid gap-4 md:grid-cols-2 max-w-2xl">
-            <div className="space-y-2">
-              <label htmlFor="video-type" className="text-sm font-medium">
-                Video Type
-              </label>
-              <select
-                id="video-type"
-                value={form.video_type}
-                onChange={(e) =>
-                  updateForm({
-                    video_type: e.target.value as 'none' | 'youtube',
-                    video_id: '',
-                  })
-                }
-                className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
-              >
-                <option value="none">No Video</option>
-                <option value="youtube">YouTube</option>
-              </select>
-            </div>
-            {form.video_type === 'youtube' && (
-              <div className="space-y-2">
-                <label htmlFor="video-id" className="text-sm font-medium">
-                  YouTube URL or Video ID
-                </label>
-                <Input
-                  id="video-id"
-                  type="text"
-                  placeholder="e.g., https://www.youtube.com/watch?v=dQw4w9WgXcQ"
-                  value={form.video_id}
-                  onChange={(e) => updateForm({ video_id: e.target.value })}
-                />
-                <p className="text-xs text-muted-foreground">
-                  Paste the full URL or just the video ID.
-                </p>
-                <YouTubeVideoPreview input={form.video_id} />
-              </div>
-            )}
           </div>
 
           {/* Quiz gating */}
@@ -323,41 +296,6 @@ export function LessonEditorPage() {
               </p>
             </div>
           </div>
-
-          {/* Markdown editor with live preview */}
-          <div className="space-y-2">
-            <label htmlFor="lesson-content" className="text-sm font-medium">
-              Content (Markdown)
-            </label>
-            <div className="grid gap-4 lg:grid-cols-2">
-              <textarea
-                id="lesson-content"
-                placeholder="Write your lesson content using Markdown..."
-                value={form.content}
-                onChange={(e) => updateForm({ content: e.target.value })}
-                rows={24}
-                className="flex w-full rounded-md border border-input bg-background px-3 py-2 text-sm font-mono ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 resize-y"
-              />
-              <Card className="overflow-y-auto max-h-[600px]">
-                <CardContent className="prose prose-neutral dark:prose-invert max-w-none py-4">
-                  {form.content ? (
-                    <ReactMarkdown remarkPlugins={[remarkGfm]}>{form.content}</ReactMarkdown>
-                  ) : (
-                    <p className="text-muted-foreground not-prose text-sm">
-                      Preview appears here as you type.
-                    </p>
-                  )}
-                </CardContent>
-              </Card>
-            </div>
-            <p className="text-xs text-muted-foreground">
-              Supports GitHub Flavored Markdown (headers, lists, code blocks, links, etc.)
-            </p>
-          </div>
-        </TabsContent>
-
-        <TabsContent value="sections">
-          <SectionEditor lessonId={lesson.id} lessonTitle={lesson.title} />
         </TabsContent>
 
         <TabsContent value="questions">

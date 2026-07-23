@@ -58,6 +58,36 @@ class VideoFieldsValidationMixin:
         return attrs
 
 
+class LessonQuizScopeMixin:
+    """Constrain `required_quiz` to a quiz in the lesson's own course.
+
+    `required_quiz` is a bare PrimaryKeyRelatedField over all quizzes, so without
+    this an instructor could (via the API) gate a lesson on a quiz from another
+    course. On update the course comes from the lesson instance; on create it
+    comes from the unit id in the URL (UnitLessonsView).
+    """
+
+    def _resolve_lesson_course(self):
+        if self.instance is not None:
+            return self.instance.unit.course
+        view = self.context.get('view')
+        unit_id = getattr(view, 'kwargs', {}).get('unit_id') if view else None
+        if unit_id:
+            unit = Unit.objects.filter(pk=unit_id).select_related('course').first()
+            return unit.course if unit else None
+        return None
+
+    def validate_required_quiz(self, value):
+        if value is None:
+            return value
+        course = self._resolve_lesson_course()
+        if course is not None and value.unit.course_id != course.id:
+            raise serializers.ValidationError(
+                'The required quiz must belong to the same course as the lesson.'
+            )
+        return value
+
+
 class LessonAttachmentSerializer(serializers.ModelSerializer):
     """Serializer for lesson attachments."""
     url = serializers.SerializerMethodField()
@@ -107,13 +137,14 @@ class RequiredQuizSerializer(serializers.Serializer):
     passing_score = serializers.IntegerField()
 
 
-class LessonSerializer(VideoFieldsValidationMixin, serializers.ModelSerializer):
+class LessonSerializer(LessonQuizScopeMixin, VideoFieldsValidationMixin, serializers.ModelSerializer):
     """Serializer for Lesson model."""
     required_quiz_info = serializers.SerializerMethodField()
     question_count = serializers.SerializerMethodField()
     attachments = LessonAttachmentSerializer(many=True, read_only=True)
     sections = LessonSectionSerializer(many=True, read_only=True)
     section_count = serializers.SerializerMethodField()
+    has_video = serializers.SerializerMethodField()
 
     class Meta:
         model = Lesson
@@ -121,7 +152,7 @@ class LessonSerializer(VideoFieldsValidationMixin, serializers.ModelSerializer):
             'id', 'unit', 'title', 'content', 'order',
             'video_type', 'video_id', 'required_quiz', 'required_quiz_info',
             'max_quiz_attempts', 'question_count', 'attachments',
-            'sections', 'section_count',
+            'sections', 'section_count', 'has_video',
             'created_at', 'updated_at'
         ]
         read_only_fields = ['id', 'created_at', 'updated_at']
@@ -131,6 +162,10 @@ class LessonSerializer(VideoFieldsValidationMixin, serializers.ModelSerializer):
 
     def get_section_count(self, obj):
         return obj.sections.count()
+
+    def get_has_video(self, obj):
+        # Phase 53: video lives in sections. True if any section has a YouTube video.
+        return obj.sections.filter(video_type='youtube').exclude(video_id='').exists()
 
     def get_required_quiz_info(self, obj):
         if obj.required_quiz:
@@ -142,7 +177,7 @@ class LessonSerializer(VideoFieldsValidationMixin, serializers.ModelSerializer):
         return None
 
 
-class LessonCreateSerializer(VideoFieldsValidationMixin, serializers.ModelSerializer):
+class LessonCreateSerializer(LessonQuizScopeMixin, VideoFieldsValidationMixin, serializers.ModelSerializer):
     """Serializer for creating lessons (unit set in view)."""
 
     class Meta:
@@ -157,13 +192,14 @@ class LessonListSerializer(serializers.ModelSerializer):
     question_count = serializers.SerializerMethodField()
     attachment_count = serializers.SerializerMethodField()
     section_count = serializers.SerializerMethodField()
+    has_video = serializers.SerializerMethodField()
 
     class Meta:
         model = Lesson
         fields = [
             'id', 'title', 'order', 'video_type', 'video_id', 'content',
             'required_quiz', 'required_quiz_info', 'max_quiz_attempts', 'question_count',
-            'attachment_count', 'section_count'
+            'attachment_count', 'section_count', 'has_video'
         ]
 
     def get_attachment_count(self, obj):
@@ -171,6 +207,11 @@ class LessonListSerializer(serializers.ModelSerializer):
 
     def get_section_count(self, obj):
         return obj.sections.count()
+
+    def get_has_video(self, obj):
+        # Phase 53: video lives in sections, not on the lesson. True if any
+        # section has a playable YouTube video.
+        return obj.sections.filter(video_type='youtube').exclude(video_id='').exists()
 
     def get_required_quiz_info(self, obj):
         if obj.required_quiz:

@@ -32,6 +32,8 @@ export interface LessonListItem {
   question_count?: number;
   attachment_count?: number;
   section_count?: number;
+  /** Phase 53 — true if any section has a playable YouTube video. */
+  has_video?: boolean;
 }
 
 export interface UnitWithLessons {
