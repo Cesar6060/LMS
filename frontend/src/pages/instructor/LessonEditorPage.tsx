@@ -14,7 +14,8 @@ import { LessonQuestionsManager } from '@/components/lesson/LessonQuestionsManag
 import { courseService } from '@/services/courses';
 import { quizzesService } from '@/services/quizzes';
 import { isForbidden } from '@/services/api';
-import { extractYouTubeVideoId, extractVimeoVideoId } from '@/lib/video';
+import { extractYouTubeVideoId } from '@/lib/video';
+import { YouTubeVideoPreview } from '@/components/lesson/YouTubeVideoPreview';
 import type { Lesson, Quiz } from '@/types';
 import { PageContainer } from '@/components/layout/PageContainer';
 import { BackLink } from '@/components/layout/BackLink';
@@ -25,7 +26,7 @@ import {
 interface LessonForm {
   title: string;
   content: string;
-  video_type: 'none' | 'youtube' | 'vimeo';
+  video_type: 'none' | 'youtube';
   video_id: string;
   required_quiz: number | null;
 }
@@ -125,16 +126,22 @@ export function LessonEditorPage() {
 
   const handleSave = async () => {
     if (!form || !lesson) return;
+    let videoId = '';
+    if (form.video_type === 'youtube') {
+      const extracted = extractYouTubeVideoId(form.video_id);
+      if (!extracted) {
+        setSaveError(
+          'Could not extract a YouTube video ID from the video field. ' +
+          'Fix the link or set Video Type to "No Video" before saving.'
+        );
+        return;
+      }
+      videoId = extracted;
+    }
+
     setIsSaving(true);
     setSaveError('');
     try {
-      let videoId = '';
-      if (form.video_type === 'youtube') {
-        videoId = extractYouTubeVideoId(form.video_id);
-      } else if (form.video_type === 'vimeo') {
-        videoId = extractVimeoVideoId(form.video_id);
-      }
-
       const updated = await courseService.updateLesson(lesson.id, {
         title: form.title,
         content: form.content,
@@ -260,7 +267,7 @@ export function LessonEditorPage() {
                 value={form.video_type}
                 onChange={(e) =>
                   updateForm({
-                    video_type: e.target.value as 'none' | 'youtube' | 'vimeo',
+                    video_type: e.target.value as 'none' | 'youtube',
                     video_id: '',
                   })
                 }
@@ -268,28 +275,24 @@ export function LessonEditorPage() {
               >
                 <option value="none">No Video</option>
                 <option value="youtube">YouTube</option>
-                <option value="vimeo">Vimeo</option>
               </select>
             </div>
-            {form.video_type !== 'none' && (
+            {form.video_type === 'youtube' && (
               <div className="space-y-2">
                 <label htmlFor="video-id" className="text-sm font-medium">
-                  {form.video_type === 'youtube' ? 'YouTube' : 'Vimeo'} URL or Video ID
+                  YouTube URL or Video ID
                 </label>
                 <Input
                   id="video-id"
                   type="text"
-                  placeholder={
-                    form.video_type === 'youtube'
-                      ? 'e.g., https://www.youtube.com/watch?v=dQw4w9WgXcQ'
-                      : 'e.g., https://vimeo.com/123456789'
-                  }
+                  placeholder="e.g., https://www.youtube.com/watch?v=dQw4w9WgXcQ"
                   value={form.video_id}
                   onChange={(e) => updateForm({ video_id: e.target.value })}
                 />
                 <p className="text-xs text-muted-foreground">
                   Paste the full URL or just the video ID.
                 </p>
+                <YouTubeVideoPreview input={form.video_id} />
               </div>
             )}
           </div>

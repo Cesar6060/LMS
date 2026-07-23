@@ -12,6 +12,8 @@ import {
 } from '@/components/ui/Dialog';
 import { courseService } from '@/services/courses';
 import { splitSections } from '@/lib/splitSections';
+import { extractYouTubeVideoId } from '@/lib/video';
+import { YouTubeVideoPreview } from '@/components/lesson/YouTubeVideoPreview';
 import type { LessonSection } from '@/types';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
@@ -29,28 +31,9 @@ interface EditingSection {
   id?: number;
   title: string;
   content: string;
-  video_type: 'none' | 'youtube' | 'vimeo';
+  video_type: 'none' | 'youtube';
   video_id: string;
   order: number;
-}
-
-/**
- * Extract YouTube video ID from various URL formats or return the ID if already extracted.
- */
-function extractYouTubeVideoId(input: string): string {
-  if (!input) return '';
-  const trimmed = input.trim();
-  const patterns = [
-    /(?:youtube\.com\/watch\?v=|youtu\.be\/|youtube\.com\/embed\/)([a-zA-Z0-9_-]{11})/,
-    /^([a-zA-Z0-9_-]{11})$/,
-  ];
-  for (const pattern of patterns) {
-    const match = trimmed.match(pattern);
-    if (match && match[1]) {
-      return match[1];
-    }
-  }
-  return trimmed;
 }
 
 export function SectionEditor({ lessonId, lessonTitle }: SectionEditorProps) {
@@ -119,6 +102,19 @@ export function SectionEditor({ lessonId, lessonTitle }: SectionEditorProps) {
   const handleSaveSection = async () => {
     if (!editingSection) return;
 
+    let videoId = '';
+    if (editingSection.video_type === 'youtube') {
+      const extracted = extractYouTubeVideoId(editingSection.video_id);
+      if (!extracted) {
+        setSaveError(
+          'Could not extract a YouTube video ID from the video field. ' +
+          'Fix the link or set Video Type to "No Video" before saving.'
+        );
+        return;
+      }
+      videoId = extracted;
+    }
+
     setIsSaving(true);
     setSaveError('');
     try {
@@ -126,9 +122,7 @@ export function SectionEditor({ lessonId, lessonTitle }: SectionEditorProps) {
         title: editingSection.title,
         content: editingSection.content,
         video_type: editingSection.video_type,
-        video_id: editingSection.video_type === 'youtube'
-          ? extractYouTubeVideoId(editingSection.video_id)
-          : '',
+        video_id: videoId,
         order: editingSection.order,
       };
 
@@ -403,7 +397,7 @@ export function SectionEditor({ lessonId, lessonTitle }: SectionEditorProps) {
                 onChange={(e) =>
                   setEditingSection(prev =>
                     prev
-                      ? { ...prev, video_type: e.target.value as 'none' | 'youtube' | 'vimeo' }
+                      ? { ...prev, video_type: e.target.value as 'none' | 'youtube' }
                       : null
                   )
                 }
@@ -430,6 +424,7 @@ export function SectionEditor({ lessonId, lessonTitle }: SectionEditorProps) {
                     )
                   }
                 />
+                <YouTubeVideoPreview input={editingSection?.video_id || ''} />
               </div>
             )}
 

@@ -2900,3 +2900,209 @@ class TestPhase51Throttles:
             assert throttled.status_code == status.HTTP_429_TOO_MANY_REQUESTS
         finally:
             cache.clear()
+
+
+# ---------------------------------------------------------------------------
+# Phase 52: YouTube video-ID extraction, validation, and repair migration
+# ---------------------------------------------------------------------------
+
+from importlib import import_module
+
+from courses.video import extract_youtube_video_id
+
+
+class TestYouTubeVideoIdExtraction:
+    """Pure unit tests for the extractor contract (no DB)."""
+
+    @pytest.mark.parametrize('value', [
+        'https://www.youtube.com/watch?v=dQw4w9WgXcQ',
+        'https://youtube.com/watch?v=dQw4w9WgXcQ',
+        'https://m.youtube.com/watch?v=dQw4w9WgXcQ',
+        'https://www.youtube.com/watch?feature=share&v=dQw4w9WgXcQ',
+        'https://youtu.be/dQw4w9WgXcQ',
+        'https://youtu.be/dQw4w9WgXcQ?si=AbCdEf123&t=42',
+        'https://www.youtube.com/shorts/dQw4w9WgXcQ',
+        'https://www.youtube.com/shorts/dQw4w9WgXcQ?feature=share',
+        'https://www.youtube.com/live/dQw4w9WgXcQ',
+        'https://www.youtube.com/live/dQw4w9WgXcQ?si=xyz',
+        'https://www.youtube.com/embed/dQw4w9WgXcQ',
+        'dQw4w9WgXcQ',
+        '  https://youtu.be/dQw4w9WgXcQ  ',
+    ])
+    def test_accepts_all_contract_forms(self, value):
+        assert extract_youtube_video_id(value) == 'dQw4w9WgXcQ'
+
+    @pytest.mark.parametrize('value', [
+        'https://google.com/foo',
+        'https://www.youtube.com/watch?v=short',
+        '',
+        'dQw4w9WgXcQx2',  # 12+ chars of garbage
+        'https://vimeo.com/123456789',
+        'https://www.youtube.com/watch',
+        'not a url at all',
+        None,
+    ])
+    def test_rejects_non_extractable_values(self, value):
+        assert extract_youtube_video_id(value) is None
+
+
+@pytest.mark.django_db
+class TestLessonVideoValidation:
+    def test_lesson_update_with_shorts_url_stores_bare_id(
+            self, api_client, instructor, lesson):
+        api_client.force_authenticate(user=instructor)
+        response = api_client.patch(
+            f'/api/courses/lessons/{lesson.id}/',
+            {'video_type': 'youtube',
+             'video_id': 'https://www.youtube.com/shorts/dQw4w9WgXcQ'},
+            format='json',
+        )
+        assert response.status_code == status.HTTP_200_OK
+        lesson.refresh_from_db()
+        assert lesson.video_id == 'dQw4w9WgXcQ'
+        assert lesson.video_type == 'youtube'
+
+    def test_lesson_update_unparseable_returns_field_error(
+            self, api_client, instructor, lesson):
+        api_client.force_authenticate(user=instructor)
+        response = api_client.patch(
+            f'/api/courses/lessons/{lesson.id}/',
+            {'video_type': 'youtube', 'video_id': 'https://example.com'},
+            format='json',
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert 'video_id' in response.data
+        lesson.refresh_from_db()
+        assert lesson.video_id == ''
+
+    def test_lesson_vimeo_choice_rejected(self, api_client, instructor, lesson):
+        api_client.force_authenticate(user=instructor)
+        response = api_client.patch(
+            f'/api/courses/lessons/{lesson.id}/',
+            {'video_type': 'vimeo', 'video_id': '123456789'},
+            format='json',
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert 'video_type' in response.data
+
+    def test_lesson_video_type_none_forces_empty_video_id(
+            self, api_client, instructor, lesson):
+        lesson.video_type = 'youtube'
+        lesson.video_id = 'dQw4w9WgXcQ'
+        lesson.save()
+        api_client.force_authenticate(user=instructor)
+        response = api_client.patch(
+            f'/api/courses/lessons/{lesson.id}/',
+            {'video_type': 'none', 'video_id': 'dQw4w9WgXcQ'},
+            format='json',
+        )
+        assert response.status_code == status.HTTP_200_OK
+        lesson.refresh_from_db()
+        assert lesson.video_type == 'none'
+        assert lesson.video_id == ''
+
+
+@pytest.mark.django_db
+class TestSectionVideoValidation:
+    def test_section_create_with_youtu_be_si_url_stores_bare_id(
+            self, api_client, instructor, lesson):
+        api_client.force_authenticate(user=instructor)
+        response = api_client.post(
+            f'/api/courses/lessons/{lesson.id}/sections/',
+            {'title': 'Video section', 'content': '',
+             'video_type': 'youtube',
+             'video_id': 'https://youtu.be/dQw4w9WgXcQ?si=TrAcKiNg42'},
+            format='json',
+        )
+        assert response.status_code == status.HTTP_201_CREATED
+        assert response.data['video_id'] == 'dQw4w9WgXcQ'
+
+    def test_section_bulk_create_normalizes_video_ids(
+            self, api_client, instructor, lesson):
+        api_client.force_authenticate(user=instructor)
+        response = api_client.post(
+            f'/api/courses/lessons/{lesson.id}/sections/bulk/',
+            {'sections': [
+                {'title': 'Plain', 'content': 'a'},
+                {'title': 'With video', 'content': 'b',
+                 'video_type': 'youtube',
+                 'video_id': 'https://youtu.be/dQw4w9WgXcQ?si=TrAcKiNg42'},
+            ]},
+            format='json',
+        )
+        assert response.status_code == status.HTTP_201_CREATED
+        assert response.data[1]['video_id'] == 'dQw4w9WgXcQ'
+
+    def test_section_unparseable_video_id_rejected(
+            self, api_client, instructor, lesson):
+        api_client.force_authenticate(user=instructor)
+        response = api_client.post(
+            f'/api/courses/lessons/{lesson.id}/sections/',
+            {'title': 'Bad video', 'content': '',
+             'video_type': 'youtube', 'video_id': 'https://example.com'},
+            format='json',
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert 'video_id' in response.data
+        assert lesson.sections.count() == 0
+
+    def test_section_vimeo_choice_rejected(self, api_client, instructor, lesson):
+        api_client.force_authenticate(user=instructor)
+        response = api_client.post(
+            f'/api/courses/lessons/{lesson.id}/sections/',
+            {'title': 'Vimeo section', 'content': '',
+             'video_type': 'vimeo', 'video_id': '123456789'},
+            format='json',
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert 'video_type' in response.data
+
+
+@pytest.mark.django_db
+class TestRepairVideoIdsMigration:
+    """Exercises the 0018 data-migration function against current models.
+
+    Choices are not DB-enforced, so corrupt rows can be created directly the
+    same way they existed before the migration ran.
+    """
+
+    def _run_repair(self):
+        from django.apps import apps as global_apps
+        migration = import_module('courses.migrations.0018_repair_video_ids')
+        migration.repair_video_ids(global_apps, None)
+
+    def test_url_shaped_video_id_gets_normalized(self, lesson):
+        Lesson.objects.filter(pk=lesson.pk).update(
+            video_type='youtube',
+            video_id='https://www.youtube.com/watch?v=dQw4w9WgXcQ')
+        self._run_repair()
+        lesson.refresh_from_db()
+        assert lesson.video_type == 'youtube'
+        assert lesson.video_id == 'dQw4w9WgXcQ'
+
+    def test_garbage_video_id_gets_nulled(self, lesson):
+        Lesson.objects.filter(pk=lesson.pk).update(
+            video_type='youtube', video_id='https://example.com/nope')
+        section = LessonSection.objects.create(
+            lesson=lesson, title='Bad', order=0)
+        LessonSection.objects.filter(pk=section.pk).update(
+            video_type='youtube', video_id='total garbage')
+        self._run_repair()
+        lesson.refresh_from_db()
+        section.refresh_from_db()
+        assert (lesson.video_type, lesson.video_id) == ('none', '')
+        assert (section.video_type, section.video_id) == ('none', '')
+
+    def test_vimeo_rows_cleared(self, lesson):
+        Lesson.objects.filter(pk=lesson.pk).update(
+            video_type='vimeo', video_id='123456789')
+        self._run_repair()
+        lesson.refresh_from_db()
+        assert (lesson.video_type, lesson.video_id) == ('none', '')
+
+    def test_valid_rows_untouched(self, lesson):
+        Lesson.objects.filter(pk=lesson.pk).update(
+            video_type='youtube', video_id='dQw4w9WgXcQ')
+        self._run_repair()
+        lesson.refresh_from_db()
+        assert (lesson.video_type, lesson.video_id) == ('youtube', 'dQw4w9WgXcQ')

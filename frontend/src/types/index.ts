@@ -75,7 +75,7 @@ export interface LessonSection {
   id: number;
   title: string;
   content: string;
-  video_type: 'none' | 'youtube' | 'vimeo';
+  video_type: 'none' | 'youtube';
   video_id: string;
   order: number;
   created_at: string;
@@ -88,7 +88,7 @@ export interface Lesson {
   title: string;
   content: string | null;
   order: number;
-  video_type: 'none' | 'youtube' | 'vimeo';
+  video_type: 'none' | 'youtube';
   video_id: string | null;
   required_quiz?: number | null;
   required_quiz_info?: RequiredQuizInfo | null;
