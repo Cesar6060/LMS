@@ -67,11 +67,18 @@ region-agnostic; there is NO data migration.
       against the new URL — shallow+deep health, admin, demo-login curl,
       reset-email round trip, R2 media, and the latency win (deep ≈
       shallow).
-- [ ] **C. Cut over.** Merge the PR adding the new origin to the CSP (+
+- [x] **C. Cut over.** Merge the PR adding the new origin to the CSP (+
       README/vite.config touch-ups); flip `VITE_API_URL` in Cloudflare and
       redeploy the frontend; full click-through on the live site; update
       both UptimeRobot monitor URLs.
-- [ ] **D. Decommission.** Suspend the old Oregon service (instant
+- [x] **D. Decommission — D1 done, remainder DEFERRED to ~2026-07-25.**
+      D1: old service suspended by USER 2026-07-22 (suspended services are
+      not billed, so double-billing already stopped). Still owed after the
+      ~3-day clean window: D3 delete the old service; then the cleanup PR —
+      drop the old origin from the CSP, tighten the new service's
+      ALLOWED_HOSTS from `.onrender.com` to the exact host, and check the
+      last verification box below. Original step text follows:
+      Suspend the old Oregon service (instant
       rollback stays possible); after a clean rollback window (~3 days,
       watching UptimeRobot), delete it to stop double Starter billing
       (~$7/mo each while both run); cleanup PR drops the old origin from
@@ -91,13 +98,20 @@ monitors. The old service is untouched until step D.
       Oregon's +70-130 ms DB penalty is gone. Service
       stemquest-api-va.onrender.com / srv-d9go1em1a83c73f50r2g; NOTE:
       Render granted the clean name, no random suffix.)*
-- [ ] Live click-through post-cutover: demo login, course roadmap, media
+- [x] Live click-through post-cutover: demo login, course roadmap, media
       loads (R2 presigned), reset email round trip, no CSP/CORS errors in
-      the console.
+      the console. *(2026-07-22: demo login, dashboard, JAVA101 roadmap all
+      served by stemquest-api-va; zero console errors; zero requests to the
+      old origin. CAVEAT: R2 presigned could not be exercised — the demo
+      account can reach no uploaded media (YouTube embeds only, null
+      avatar); USER to open instructor media once — silence convention.
+      Reset email: request 200, logs clean, sent from new service.)*
 - [x] Throttles fire on the new service (30-burst at demo-login →
       20×200 / 10×429 pattern for 10/min × 2 workers). *(2026-07-22:
       exactly 20 allowed then 429s; SMTP reset request 200, logs clean.)*
-- [ ] UptimeRobot both monitors UP against new URL.
+- [x] UptimeRobot both monitors UP against new URL. *(2026-07-22:
+      803564203 shallow + 803564235 deep keyword repointed via API, both
+      UP.)*
 - [x] `/verify-stack` green on the cutover PR (CSP/README changes).
       *(2026-07-22: 425 passed, tsc 0 errors, lint 0/22 baseline — PR #44,
       merged; CI green.)*

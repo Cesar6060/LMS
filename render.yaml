@@ -11,7 +11,10 @@
 # outbound SMTP and would re-break Phase 47's email).
 #
 # THE RENDER DASHBOARD IS THE SINGLE SOURCE OF TRUTH for every env var on
-# stemquest-api (srv-d9fdm3jh523c73f0rlkg) — values AND secrets alike.
+# stemquest-api-va (srv-d9go1em1a83c73f50r2g) — values AND secrets alike.
+# (Phase 49 replaced the original Oregon service stemquest-api /
+# srv-d9fdm3jh523c73f0rlkg with this Virginia one; the old service is
+# suspended pending deletion.)
 # Change config there, not here. This file records the service shape so the
 # repo still answers "how is prod deployed?" — see the env-var inventory at
 # the bottom for "what does prod need set?".
@@ -25,17 +28,16 @@
 
 services:
   - type: web
-    name: stemquest-api
+    name: stemquest-api-va
     env: python
     # Starter (paid) since Phase 47: Render's free tier blocks ALL outbound
     # SMTP ports (25/465/587), which broke Gmail SMTP entirely.
     plan: starter
-    # KNOWN DRIFT: the service actually runs in Oregon while Neon Postgres is
-    # in aws-us-east-1, so every DB round trip pays ~70-130 ms cross-country
-    # (measured Phase 48). Render can't migrate regions in place — fixing it
-    # means recreating the service. Phase 49 candidate; see
-    # docs/specs/phase-48-retire-render-yaml.md.
-    region: oregon
+    # Virginia since Phase 49 — co-located with Neon (aws-us-east-1). The
+    # original service ran in Oregon and paid ~70-130 ms per DB round trip;
+    # after the move, deep health equals shallow. See
+    # docs/specs/phase-49-region-move-virginia.md.
+    region: virginia
     rootDir: backend
     branch: main
 
