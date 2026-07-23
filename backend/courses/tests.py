@@ -2962,6 +2962,37 @@ class TestLessonVideoValidation:
         assert lesson.video_id == 'dQw4w9WgXcQ'
         assert lesson.video_type == 'youtube'
 
+    def test_lesson_update_with_long_share_url_stores_bare_id(
+            self, api_client, instructor, lesson):
+        # Regression: a valid share URL longer than the 50-char column must be
+        # extracted, not rejected for length. DRF runs the model-derived
+        # max_length validator before validate(), so without an input-length
+        # override this 63-char URL 400s on max_length instead of normalizing.
+        url = 'https://www.youtube.com/watch?v=dQw4w9WgXcQ&si=aB3dEfGhIjKlMnOp'
+        assert len(url) > 50
+        api_client.force_authenticate(user=instructor)
+        response = api_client.patch(
+            f'/api/courses/lessons/{lesson.id}/',
+            {'video_type': 'youtube', 'video_id': url},
+            format='json',
+        )
+        assert response.status_code == status.HTTP_200_OK
+        lesson.refresh_from_db()
+        assert lesson.video_id == 'dQw4w9WgXcQ'
+
+    def test_lesson_update_oversized_video_id_rejected(
+            self, api_client, instructor, lesson):
+        # The input-length override is bounded (255) so oversized junk is still
+        # rejected before extraction runs.
+        api_client.force_authenticate(user=instructor)
+        response = api_client.patch(
+            f'/api/courses/lessons/{lesson.id}/',
+            {'video_type': 'youtube', 'video_id': 'x' * 5000},
+            format='json',
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert 'video_id' in response.data
+
     def test_lesson_update_unparseable_returns_field_error(
             self, api_client, instructor, lesson):
         api_client.force_authenticate(user=instructor)
