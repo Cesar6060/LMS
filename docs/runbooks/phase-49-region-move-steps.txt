@@ -16,7 +16,16 @@ Names used below:
 
 A. PREPARE (no changes made)
 ----------------------------
-[ ] A1. Gather the secret VALUES you will re-type into the new service.
+[ ] A1. Know where each secret VALUE will come from — no export needed.
+        The OLD service's Environment tab stays readable until D3, so
+        the copy happens live during B3: old env tab in one browser
+        tab, new service's env form in the other. Do NOT save values to
+        a file or paste them into chat (project rule: secrets live only
+        in provider dashboards). The render CLI cannot read env vars at
+        all (no such subcommand) — the dashboard is the only source.
+        Suggested split: the agent drives the browser for the service
+        form + all non-secret literals (they're listed in B3); the USER
+        pastes the secrets below by hand when the agent pauses.
         Names come from the inventory at the bottom of render.yaml:
         - DATABASE_URL ............ Neon console -> connection string
                                     (same string the OLD service uses)
