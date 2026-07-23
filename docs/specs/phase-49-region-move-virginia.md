@@ -115,4 +115,11 @@ monitors. The old service is untouched until step D.
 - [x] `/verify-stack` green on the cutover PR (CSP/README changes).
       *(2026-07-22: 425 passed, tsc 0 errors, lint 0/22 baseline — PR #44,
       merged; CI green.)*
-- [ ] Old service deleted; billing shows a single Starter instance.
+- [x] Old service deleted; billing shows a single Starter instance.
+      *(2026-07-22: USER deleted stemquest-api after suspending it; render
+      CLI confirms only stemquest-api-va (starter, virginia) remains.
+      Window waived by user decision — R2/email tail checks ride the
+      silence convention. SIDE EFFECT: the repo's LMS Blueprint re-adopted
+      stemquest-api-va once render.yaml's name matched — service-shape
+      sync is live again; env vars stay dashboard-only. render.yaml header
+      updated accordingly in the cleanup PR.)*

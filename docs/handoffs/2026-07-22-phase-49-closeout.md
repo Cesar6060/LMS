@@ -1,4 +1,4 @@
-# Handoff: Phase 49 closed — API live in Virginia; delete old service ~07-25
+# Handoff: Phase 49 FULLY closed — API in Virginia, old service deleted
 
 ## Current state
 
@@ -16,35 +16,32 @@ lint 0 errors / 22 warnings. No migrations in this phase.
 
 ## In progress / not done
 
-- ONE spec box open (docs/specs/phase-49-region-move-virginia.md:118):
-  delete the old service after a clean window, ~2026-07-25.
-- R2 presigned URLs never exercised on the new service — demo account
-  reaches no uploaded media (YouTube embeds, null avatar). USER opens
-  any instructor page with an uploaded image once; silence convention.
-- Reset-email inbox arrival not explicitly confirmed (request 200, logs
-  clean); silence convention.
+- Nothing in-flight. All spec boxes checked; phase 49 is closed.
+- Silent tail checks (USER, silence = passed): open one instructor page
+  with an uploaded image (first R2 exercise on the new service); note if
+  the 07-22 reset email reached the inbox.
 
 ## Next steps
 
-1. ~2026-07-25, if monitors stayed green: USER deletes old service
-   stemquest-api (srv-d9fdm3jh523c73f0rlkg) in the Render dashboard;
-   confirm billing shows a single Starter instance.
-2. Then a small cleanup PR: remove https://stemquest-api.onrender.com
-   from frontend/public/_headers connect-src; tighten new service's
-   ALLOWED_HOSTS env var from `.onrender.com` to
-   stemquest-api-va.onrender.com (dashboard edit → auto redeploy);
-   check the last spec box.
-3. Optional hardening backlog: set ADMIN_URL off default /admin/ (never
-   actually applied — phase 43 intent lost to the dead Blueprint sync).
+1. Merge the final cleanup PR if not yet merged (CSP old-origin removal,
+   render.yaml header, spec close) — deploys are no-ops.
+2. /start-phase 50 is now the right next command. Candidates noted along
+   the way: PLAN.md is badly stale vs phases 41-49 (retire or refresh);
+   ADMIN_URL still on default /admin/ (phase 43 intent, never applied).
+3. IMPORTANT context for future infra work: the LMS Blueprint
+   (exs-d9fdhi6rnols73bo0rg0) RE-ADOPTED stemquest-api-va when
+   render.yaml's name matched (discovered at phase 49 close). Service-
+   shape fields in render.yaml now APPLY on push to main; env vars remain
+   dashboard-only (no envVars block — keep it that way). plan:/region:
+   edits in render.yaml are live changes now.
 
 ## Decisions made
 
-- Suspend-then-delete instead of immediate delete: suspension already
-  stops billing, keeps instant-resume rollback while R2/email tail
-  checks ride the window.
-- Old CSP origin stays until the old service is deleted (rollback =
-  pure VITE_API_URL flip; runbook ROLLBACK section valid until D3).
-- Phase closed with D3 explicitly deferred rather than held open.
+- User waived the 3-day window and deleted the old service same-day;
+  ALLOWED_HOSTS tightened to the exact host (redeploy verified).
+- render.yaml header rewritten AGAIN at close: shape-sync is live (see
+  next steps #3), env vars stay dashboard-only — the file must neither
+  overclaim (phase 41-48 bug) nor underclaim (post-adoption reality).
 
 ## Gotchas discovered
 
