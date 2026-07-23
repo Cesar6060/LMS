@@ -1,10 +1,16 @@
-# Handoff: Phase 51 student onboarding — implemented, PR #48 open
+# Handoff: Phase 51 — merged + production cutover done; email swap remains
 
 ## Current state
 
 Phase 51 implementation is COMPLETE on branch `feat/phase-51-student-onboarding`
 (6 commits off main after PR #47), pushed to `lms`, **PR #48 open**:
-https://github.com/Cesar6060/LMS/pull/48 — NOT merged (user decision).
+https://github.com/Cesar6060/LMS/pull/48 — MERGED 2026-07-23 06:30 UTC.
+CUTOVER EXECUTED same day (user-approved, see spec "Production cutover
+log"): Neon migrated; DEMO101 cloned + demo reseeded on prod;
+stemquests.com live (Worker custom domain, Render env flipped, CORS
+verified); backups fully live (bucket, token, 5 secrets, green run, dump
+in R2); UptimeRobot covers stemquests.com. NOTE: three late commits
+missed the merge and were recovered into the follow-up evidence PR.
 
 DOMAIN: user registered **stemquests.com** (2026-07-23, Cloudflare
 Registrar, same account as the Worker). `frontend/wrangler.jsonc` now

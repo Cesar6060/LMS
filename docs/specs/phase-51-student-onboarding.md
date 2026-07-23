@@ -220,3 +220,37 @@ phase-50 ADMIN_URL flip finally applied.
   Custom Domain route, so the merge deploy attaches DNS + TLS
   automatically. Remaining USER env flips (FRONTEND_URL, CORS, CSRF, then
   Resend SMTP): docs/runbooks/phase-51-email-provider-steps.txt.
+
+## Production cutover log (2026-07-23, executed by agent with user approval)
+
+- Migration 0016 applied to Neon (`migrate` output: courses.0016 OK; it was
+  the only pending migration).
+- PR #48 merged by USER (06:30 UTC). Post-merge: backend deep health ok,
+  new invite endpoint live (`/api/courses/invites/<token>/` returns the
+  phase-51 JSON shape).
+- `clone_course_for_demo` + `seed_demo_account --reset` run against Neon:
+  DEMO101 created (5 units, 20 lessons, 74 sections, 85 lesson questions,
+  5 quizzes/25 questions), demo enrolled only in DEMO101 (legacy JAVA101
+  enrollment removed). Live check: demo-login course list = DEMO101 only.
+- stemquests.com attached as Worker custom domain via dashboard (the
+  wrangler `routes` commit missed the merge — recovered in this PR; the
+  dashboard attach and the routes block describe the same domain, so the
+  next deploy is a no-op for it). Live: https://stemquests.com serves the
+  app; /terms, /privacy, /invite/:token all 200.
+- Render env updated + redeployed: FRONTEND_URL=https://stemquests.com;
+  CORS_ALLOWED_ORIGINS/CSRF_TRUSTED_ORIGINS = workers.dev + stemquests.com;
+  THROTTLE_USER=120/min, THROTTLE_INVITE_SEND=30/hour,
+  THROTTLE_INVITE_ACCEPT=10/hour. Verified: CORS preflight from
+  https://stemquests.com returns access-control-allow-origin for it.
+- Backups fully live: R2 bucket `stemquest-db-backups` (private) +
+  bucket-scoped API token created; 5 repo secrets set; workflow_dispatch
+  run #29987415218 SUCCESS (21s); object daily/stemquest-2026-07-23.dump
+  (231.74 KB) visible in R2.
+- UptimeRobot: USER-created stemquests.com monitor is UP; workers.dev
+  monitor kept during transition.
+
+Still open (USER): Resend signup + runbook Part B (EMAIL_* env still
+points at the failing Gmail — invite emails will NOT send until then),
+frontend Sentry DSN build var, ADMIN_URL flip, UptimeRobot Gmail filter
+fix, manual E2E invite test (blocked on Resend), legal-page DRAFT
+sign-off.
