@@ -1,26 +1,24 @@
 # ============================================================================
-# DOCUMENTATION ONLY — this file does NOT configure the live service.
+# SERVICE SHAPE IS LIVE-SYNCED — env vars are NOT. Edit with care.
 # ============================================================================
 #
-# The Blueprint env-var sync broke at the repo migration to Cesar6060/LMS
-# (~Phase 41) and was never repaired: values declared here stopped reaching
-# the service, and every env var had to be hand-entered in the Render
-# dashboard during the Phase 46/47 rollouts. Phase 48 decision: retire this
-# file as a config source instead of reconnecting the Blueprint (a sync of
-# the stale file would have re-applied `plan: free`, which blocks all
-# outbound SMTP and would re-break Phase 47's email).
+# History: the Blueprint env-var sync broke at the repo migration (~Phase
+# 41); Phase 48 retired this file to documentation and made the dashboard
+# the source of truth. Phase 49 then replaced the Oregon service with
+# stemquest-api-va (srv-d9go1em1a83c73f50r2g, Virginia) — and when this
+# file's `name:` was updated to match, the repo's LMS Blueprint
+# (exs-d9fdhi6rnols73bo0rg0) re-adopted the new service. Sync is ALIVE
+# again for the service-shape fields below.
 #
-# THE RENDER DASHBOARD IS THE SINGLE SOURCE OF TRUTH for every env var on
-# stemquest-api-va (srv-d9go1em1a83c73f50r2g) — values AND secrets alike.
-# (Phase 49 replaced the original Oregon service stemquest-api /
-# srv-d9fdm3jh523c73f0rlkg with this Virginia one; the old service is
-# suspended pending deletion.)
-# Change config there, not here. This file records the service shape so the
-# repo still answers "how is prod deployed?" — see the env-var inventory at
-# the bottom for "what does prod need set?".
-#
-# Deploys do not involve this file either: the service is connected directly
-# to Cesar6060/LMS and auto-deploys `backend/` on every push to `main`.
+# What that means:
+# - The `services:` block below APPLIES on push to main. Changing `plan:`
+#   or `region:` here has real effects (e.g. `plan: free` would downgrade
+#   the instance and re-break outbound SMTP — Render free tier blocks all
+#   SMTP egress, the Phase 47 lesson).
+# - ENV VARS remain dashboard-only (Phase 48 decision stands): keep the
+#   `envVars:` block OUT of this file so the Blueprint never fights the
+#   hand-entered dashboard values. The names-only inventory at the bottom
+#   documents what prod needs set.
 #
 # No `databases:` key on purpose — Postgres lives on Neon (aws-us-east-1),
 # outside Render. Migrations are run from a developer machine with
