@@ -24,15 +24,20 @@ source of truth since Phase 48).
 PART A — PUT THE APP ON https://stemquests.com
 ====================================================================
 
-STEP A1 — Attach the domain to the Worker
------------------------------------------
-Cloudflare dashboard -> Workers & Pages -> the stemquest worker ->
-Settings -> Domains & Routes -> Add -> Custom domain -> stemquests.com
+STEP A1 — Attach the domain to the Worker (automatic on merge)
+--------------------------------------------------------------
+frontend/wrangler.jsonc now declares stemquests.com as a Custom Domain
+(`routes` block, committed on the phase-51 branch). The next Workers
+Build after merging PR #48 runs `npx wrangler deploy`, which creates the
+DNS record and TLS certificate automatically — no dashboard clicking.
 
-Cloudflare creates the DNS record and TLS certificate automatically.
-Wait until it shows Active, then open https://stemquests.com — the login
-page should load. The old workers.dev URL keeps working; leave it on
-during the transition.
+After the merge deploy finishes, open https://stemquests.com — the login
+page should load. If the deploy errors on the route, attach it manually
+instead: Cloudflare dashboard -> Workers & Pages -> stemquest ->
+Settings -> Domains & Routes -> Add -> Custom domain -> stemquests.com.
+
+The old workers.dev URL keeps working; leave it on during the
+transition.
 
 STEP A2 — Update the backend env (Render dashboard -> stemquest-api-va
 -> Environment)
