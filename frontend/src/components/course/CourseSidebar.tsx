@@ -2,20 +2,14 @@ import { useState, useEffect } from 'react';
 import { ChevronDown, ChevronRight, CheckCircle, Circle, PlayCircle, FileText, FileQuestion } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
-interface RequiredQuizInfo {
-  id: number;
-  title: string;
-  passing_score: number;
-}
-
 interface Lesson {
   id: number;
   title: string;
   video_type: 'none' | 'youtube';
   video_id: string | null;
   order: number;
-  required_quiz?: number | null;
-  required_quiz_info?: RequiredQuizInfo | null;
+  /** Phase 54 — true when the lesson gates completion on its own quiz. */
+  requires_quiz?: boolean;
   /** Phase 53 — true if any section has a playable YouTube video. */
   has_video?: boolean;
 }
@@ -235,8 +229,8 @@ export function CourseSidebar({
                         </span>
 
                         {/* Quiz requirement indicator */}
-                        {lesson.required_quiz_info && !lesson.is_completed && (
-                          <span title={`Quiz required: ${lesson.required_quiz_info.title}`}>
+                        {lesson.requires_quiz && !lesson.is_completed && (
+                          <span title="Quiz required to complete this lesson">
                             <FileQuestion className="h-5 w-5 text-amber-500 flex-shrink-0" />
                           </span>
                         )}

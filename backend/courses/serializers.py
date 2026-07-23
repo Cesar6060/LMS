@@ -58,36 +58,6 @@ class VideoFieldsValidationMixin:
         return attrs
 
 
-class LessonQuizScopeMixin:
-    """Constrain `required_quiz` to a quiz in the lesson's own course.
-
-    `required_quiz` is a bare PrimaryKeyRelatedField over all quizzes, so without
-    this an instructor could (via the API) gate a lesson on a quiz from another
-    course. On update the course comes from the lesson instance; on create it
-    comes from the unit id in the URL (UnitLessonsView).
-    """
-
-    def _resolve_lesson_course(self):
-        if self.instance is not None:
-            return self.instance.unit.course
-        view = self.context.get('view')
-        unit_id = getattr(view, 'kwargs', {}).get('unit_id') if view else None
-        if unit_id:
-            unit = Unit.objects.filter(pk=unit_id).select_related('course').first()
-            return unit.course if unit else None
-        return None
-
-    def validate_required_quiz(self, value):
-        if value is None:
-            return value
-        course = self._resolve_lesson_course()
-        if course is not None and value.unit.course_id != course.id:
-            raise serializers.ValidationError(
-                'The required quiz must belong to the same course as the lesson.'
-            )
-        return value
-
-
 class LessonAttachmentSerializer(serializers.ModelSerializer):
     """Serializer for lesson attachments."""
     url = serializers.SerializerMethodField()
@@ -130,16 +100,8 @@ class LessonSectionBulkCreateSerializer(serializers.Serializer):
     sections = LessonSectionCreateSerializer(many=True, min_length=1, max_length=50)
 
 
-class RequiredQuizSerializer(serializers.Serializer):
-    """Lightweight serializer for required quiz info."""
-    id = serializers.IntegerField()
-    title = serializers.CharField()
-    passing_score = serializers.IntegerField()
-
-
-class LessonSerializer(LessonQuizScopeMixin, VideoFieldsValidationMixin, serializers.ModelSerializer):
+class LessonSerializer(VideoFieldsValidationMixin, serializers.ModelSerializer):
     """Serializer for Lesson model."""
-    required_quiz_info = serializers.SerializerMethodField()
     question_count = serializers.SerializerMethodField()
     attachments = LessonAttachmentSerializer(many=True, read_only=True)
     sections = LessonSectionSerializer(many=True, read_only=True)
@@ -148,9 +110,12 @@ class LessonSerializer(LessonQuizScopeMixin, VideoFieldsValidationMixin, seriali
 
     class Meta:
         model = Lesson
+        # Phase 54: `required_quiz` (System A) retired — not writable/readable.
+        # `requires_quiz` is the single per-lesson gate over the lesson's own
+        # comprehension questions.
         fields = [
             'id', 'unit', 'title', 'content', 'order',
-            'video_type', 'video_id', 'required_quiz', 'required_quiz_info',
+            'video_type', 'video_id', 'requires_quiz',
             'max_quiz_attempts', 'question_count', 'attachments',
             'sections', 'section_count', 'has_video',
             'created_at', 'updated_at'
@@ -167,28 +132,18 @@ class LessonSerializer(LessonQuizScopeMixin, VideoFieldsValidationMixin, seriali
         # Phase 53: video lives in sections. True if any section has a YouTube video.
         return obj.sections.filter(video_type='youtube').exclude(video_id='').exists()
 
-    def get_required_quiz_info(self, obj):
-        if obj.required_quiz:
-            return {
-                'id': obj.required_quiz.id,
-                'title': obj.required_quiz.title,
-                'passing_score': obj.required_quiz.passing_score,
-            }
-        return None
 
-
-class LessonCreateSerializer(LessonQuizScopeMixin, VideoFieldsValidationMixin, serializers.ModelSerializer):
+class LessonCreateSerializer(VideoFieldsValidationMixin, serializers.ModelSerializer):
     """Serializer for creating lessons (unit set in view)."""
 
     class Meta:
         model = Lesson
-        fields = ['id', 'title', 'content', 'order', 'video_type', 'video_id', 'required_quiz', 'max_quiz_attempts']
+        fields = ['id', 'title', 'content', 'order', 'video_type', 'video_id', 'requires_quiz', 'max_quiz_attempts']
         read_only_fields = ['id']
 
 
 class LessonListSerializer(serializers.ModelSerializer):
     """Serializer for lesson lists (includes content and video_id for editing)."""
-    required_quiz_info = serializers.SerializerMethodField()
     question_count = serializers.SerializerMethodField()
     attachment_count = serializers.SerializerMethodField()
     section_count = serializers.SerializerMethodField()
@@ -198,7 +153,7 @@ class LessonListSerializer(serializers.ModelSerializer):
         model = Lesson
         fields = [
             'id', 'title', 'order', 'video_type', 'video_id', 'content',
-            'required_quiz', 'required_quiz_info', 'max_quiz_attempts', 'question_count',
+            'requires_quiz', 'max_quiz_attempts', 'question_count',
             'attachment_count', 'section_count', 'has_video'
         ]
 
@@ -212,15 +167,6 @@ class LessonListSerializer(serializers.ModelSerializer):
         # Phase 53: video lives in sections, not on the lesson. True if any
         # section has a playable YouTube video.
         return obj.sections.filter(video_type='youtube').exclude(video_id='').exists()
-
-    def get_required_quiz_info(self, obj):
-        if obj.required_quiz:
-            return {
-                'id': obj.required_quiz.id,
-                'title': obj.required_quiz.title,
-                'passing_score': obj.required_quiz.passing_score,
-            }
-        return None
 
     def get_question_count(self, obj):
         return obj.questions.count()
@@ -395,52 +341,30 @@ class EnrollmentCreateSerializer(serializers.Serializer):
 
 class LessonProgressSerializer(serializers.ModelSerializer):
     """Serializer for lesson progress."""
-    required_quiz_passed = serializers.SerializerMethodField()
-    required_quiz_info = serializers.SerializerMethodField()
     lesson_questions_status = serializers.SerializerMethodField()
 
     class Meta:
         model = LessonProgress
         fields = [
             'id', 'lesson', 'completed', 'completed_at', 'video_position',
-            'current_section', 'required_quiz_passed', 'required_quiz_info',
-            'lesson_questions_status', 'updated_at'
+            'current_section', 'lesson_questions_status', 'updated_at'
         ]
         read_only_fields = ['id', 'completed_at', 'updated_at']
 
-    def get_required_quiz_passed(self, obj):
-        """Check if user has passed the required quiz for this lesson."""
-        lesson = obj.lesson
-        if not lesson.required_quiz:
-            return None  # No quiz required
-
-        from quizzes.models import QuizAttempt
-        return QuizAttempt.objects.filter(
-            quiz=lesson.required_quiz,
-            student=obj.user,
-            passed=True
-        ).exists()
-
-    def get_required_quiz_info(self, obj):
-        """Get required quiz info if exists."""
-        lesson = obj.lesson
-        if lesson.required_quiz:
-            return {
-                'id': lesson.required_quiz.id,
-                'title': lesson.required_quiz.title,
-                'passing_score': lesson.required_quiz.passing_score,
-            }
-        return None
-
     def get_lesson_questions_status(self, obj):
-        """Get status of lesson comprehension questions."""
+        """Status of the lesson's own comprehension questions (System B).
+
+        Phase 54: the gate is `requires_quiz`. `can_complete_lesson` must agree
+        with the real completion gate in `LessonProgressUpdateSerializer.
+        validate_completed` — i.e. a passing `LessonQuizAttempt` when gated —
+        so the UI never shows "ready" while the save would 400.
+        """
         lesson = obj.lesson
         total_questions = lesson.questions.count()
 
         if total_questions == 0:
             return None  # No questions for this lesson
 
-        # Get user's answers
         answers = LessonQuestionAnswer.objects.filter(
             user=obj.user,
             question__lesson=lesson
@@ -449,12 +373,21 @@ class LessonProgressSerializer(serializers.ModelSerializer):
         correct_count = answers.filter(is_correct=True).count()
         all_correct = correct_count == total_questions
 
+        has_passed = LessonQuizAttempt.objects.filter(
+            user=obj.user, lesson=lesson, passed=True
+        ).exists()
+
+        gated = lesson.requires_quiz
+        can_complete = has_passed if gated else True
+
         return {
             'total_questions': total_questions,
             'answered_questions': answered_count,
             'correct_answers': correct_count,
             'all_correct': all_correct,
-            'can_complete_lesson': all_correct
+            'requires_quiz': gated,
+            'has_passed': has_passed,
+            'can_complete_lesson': can_complete,
         }
 
 
@@ -466,15 +399,15 @@ class LessonProgressUpdateSerializer(serializers.ModelSerializer):
         fields = ['completed', 'video_position', 'current_section']
 
     def validate_completed(self, value):
-        """Check if required quiz and lesson questions are passed before allowing completion."""
+        """Phase 54: a lesson gates completion only when `requires_quiz` is set
+        AND it has comprehension questions; the gate is a passing
+        `LessonQuizAttempt`. The retired cross-course `required_quiz` FK is no
+        longer enforced."""
         if value:  # Only check when marking as complete
             lesson = self.instance.lesson
             user = self.instance.user
 
-            # Check lesson comprehension questions first
-            total_questions = lesson.questions.count()
-            if total_questions > 0:
-                # Check if user has a passed quiz attempt
+            if lesson.requires_quiz and lesson.questions.exists():
                 has_passed = LessonQuizAttempt.objects.filter(
                     user=user,
                     lesson=lesson,
@@ -483,21 +416,7 @@ class LessonProgressUpdateSerializer(serializers.ModelSerializer):
 
                 if not has_passed:
                     raise serializers.ValidationError(
-                        "You must pass the comprehension quiz before completing this lesson."
-                    )
-
-            # Also check standalone required quiz if set
-            if lesson.required_quiz:
-                from quizzes.models import QuizAttempt
-                has_passed = QuizAttempt.objects.filter(
-                    quiz=lesson.required_quiz,
-                    student=user,
-                    passed=True
-                ).exists()
-
-                if not has_passed:
-                    raise serializers.ValidationError(
-                        f"You must pass the quiz '{lesson.required_quiz.title}' before completing this lesson."
+                        "You must pass this lesson's quiz before completing it."
                     )
         return value
 

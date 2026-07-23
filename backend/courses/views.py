@@ -2223,6 +2223,7 @@ def lesson_questions_status(request, lesson_id):
             'answered_questions': 0,
             'correct_answers': 0,
             'all_correct': True,
+            'requires_quiz': False,
             'can_complete_lesson': True,
         })
 
@@ -2246,12 +2247,19 @@ def lesson_questions_status(request, lesson_id):
     attempt_count = attempts.count()
     has_passed = attempts.filter(passed=True).exists()
 
+    # Phase 54: `can_complete_lesson` must agree with the real completion gate
+    # (validate_completed): when `requires_quiz` is set, only a passing attempt
+    # unlocks completion; otherwise the questions are optional and don't gate.
+    gated = lesson.requires_quiz
+    can_complete = has_passed if gated else True
+
     return Response({
         'total_questions': total_questions,
         'answered_questions': answered_count,
         'correct_answers': correct_count,
         'all_correct': all_correct,
-        'can_complete_lesson': has_passed or all_correct,
+        'requires_quiz': gated,
+        'can_complete_lesson': can_complete,
         'attempt_count': attempt_count,
         'max_attempts': None,
         'attempts_remaining': None,

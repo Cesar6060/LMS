@@ -240,7 +240,7 @@ export function SectionEditor({ lessonId, lessonTitle, onSaveStatus }: SectionEd
         error.response?.data?.detail ||
         error.response?.data?.error ||
         error.message ||
-        'Failed to add sections';
+        'Failed to add pages';
       setPasteError(message);
       report('error', message);
     } finally {
@@ -253,17 +253,17 @@ export function SectionEditor({ lessonId, lessonTitle, onSaveStatus }: SectionEd
       <div className="space-y-4">
         <div className="flex items-center justify-between">
           <p className="text-base text-muted-foreground">
-            Sections are the content of "{lessonTitle}". Each section is one page
-            students step through — add text and an optional video to each.
+            Pages are the content of "{lessonTitle}". Each page holds text and an
+            optional video; students step through them in order.
           </p>
           <div className="flex items-center gap-2">
             <Button size="sm" variant="outline" onClick={openPasteModal}>
               <ClipboardPaste className="h-4 w-4 mr-2" />
-              Paste to add sections
+              Paste to add pages
             </Button>
             <Button size="sm" onClick={openAddSection}>
               <Plus className="h-4 w-4 mr-2" />
-              Add Section
+              Add Page
             </Button>
           </div>
         </div>
@@ -284,16 +284,16 @@ export function SectionEditor({ lessonId, lessonTitle, onSaveStatus }: SectionEd
                 <FileText className="h-14 w-14 mx-auto mb-4 opacity-40" />
                 <h3 className="text-lg font-semibold mb-1">This lesson has no content yet</h3>
                 <p className="mb-6 text-muted-foreground">
-                  Add your first section to start building the lesson.
+                  Add your first page to start building the lesson.
                 </p>
                 <div className="flex items-center justify-center gap-3">
                   <Button variant="outline" size="lg" onClick={openPasteModal}>
                     <ClipboardPaste className="h-4 w-4 mr-2" />
-                    Paste to add sections
+                    Paste to add pages
                   </Button>
                   <Button size="lg" onClick={openAddSection}>
                     <Plus className="h-4 w-4 mr-2" />
-                    Add your first section
+                    Add your first page
                   </Button>
                 </div>
               </div>
@@ -331,7 +331,7 @@ export function SectionEditor({ lessonId, lessonTitle, onSaveStatus }: SectionEd
                         <div className="flex-1 min-w-0">
                           <div className="flex items-center gap-2 mb-1">
                             <span className="text-sm font-medium text-muted-foreground">
-                              Section {index + 1}
+                              Page {index + 1}
                             </span>
                             {section.video_type !== 'none' && (
                               <Video className="h-4 w-4 text-muted-foreground" />
@@ -379,12 +379,12 @@ export function SectionEditor({ lessonId, lessonTitle, onSaveStatus }: SectionEd
         <DialogContent className="max-w-2xl max-h-[85vh] overflow-hidden flex flex-col">
           <DialogHeader>
             <DialogTitle>
-              {editingSection?.id ? 'Edit Section' : 'Add Section'}
+              {editingSection?.id ? 'Edit Page' : 'Add Page'}
             </DialogTitle>
             <DialogDescription>
               {editingSection?.id
-                ? 'Update the section content.'
-                : 'Create a new section for this lesson.'}
+                ? 'Update the page content.'
+                : 'Create a new page for this lesson.'}
             </DialogDescription>
           </DialogHeader>
 
@@ -397,7 +397,7 @@ export function SectionEditor({ lessonId, lessonTitle, onSaveStatus }: SectionEd
           <div className="flex-1 overflow-y-auto py-4 space-y-4">
             <div className="space-y-2">
               <label htmlFor="section-title" className="text-sm font-medium">
-                Section Title (optional)
+                Page Title (optional)
               </label>
               <Input
                 id="section-title"
@@ -460,7 +460,7 @@ export function SectionEditor({ lessonId, lessonTitle, onSaveStatus }: SectionEd
               <div className="grid gap-4 lg:grid-cols-2">
                 <textarea
                   id="section-content"
-                  placeholder="Write section content using Markdown..."
+                  placeholder="Write page content using Markdown..."
                   value={editingSection?.content || ''}
                   onChange={(e) =>
                     setEditingSection(prev =>
@@ -511,10 +511,10 @@ export function SectionEditor({ lessonId, lessonTitle, onSaveStatus }: SectionEd
       <Dialog open={showPasteModal} onOpenChange={setShowPasteModal}>
         <DialogContent className="max-w-4xl max-h-[85vh] overflow-hidden flex flex-col">
           <DialogHeader>
-            <DialogTitle>Paste to add sections</DialogTitle>
+            <DialogTitle>Paste to add pages</DialogTitle>
             <DialogDescription>
-              Paste one markdown document and split it into sections. Separate
-              sections with a line containing only <code>---</code>. Each section
+              Paste one markdown document and split it into pages. Separate
+              pages with a line containing only <code>---</code>. Each page
               is auto-titled from its first heading.
             </DialogDescription>
           </DialogHeader>
@@ -532,7 +532,7 @@ export function SectionEditor({ lessonId, lessonTitle, onSaveStatus }: SectionEd
               </label>
               <textarea
                 id="paste-text"
-                placeholder={'## Section one\n\nSome content...\n\n---\n\n## Section two\n\nMore content...'}
+                placeholder={'## Page one\n\nSome content...\n\n---\n\n## Page two\n\nMore content...'}
                 value={pasteText}
                 onChange={(e) => setPasteText(e.target.value)}
                 rows={10}
@@ -557,19 +557,19 @@ export function SectionEditor({ lessonId, lessonTitle, onSaveStatus }: SectionEd
               <div className="space-y-3">
                 {previewCards.length === 0 ? (
                   <p className="text-sm text-muted-foreground text-center py-6">
-                    Nothing to add — the pasted text produced no sections.
+                    Nothing to add — the pasted text produced no pages.
                   </p>
                 ) : (
                   <>
                     <p className="text-sm font-medium">
-                      {previewCards.length} section{previewCards.length === 1 ? '' : 's'} to add
+                      {previewCards.length} page{previewCards.length === 1 ? '' : 's'} to add
                     </p>
                     {previewCards.map((card, index) => (
                       <Card key={index} className="overflow-hidden">
                         <CardContent className="p-4 space-y-3">
                           <div className="flex items-center gap-2">
                             <span className="text-sm font-medium text-muted-foreground whitespace-nowrap">
-                              Section {index + 1}
+                              Page {index + 1}
                             </span>
                             <Input
                               type="text"
@@ -582,7 +582,7 @@ export function SectionEditor({ lessonId, lessonTitle, onSaveStatus }: SectionEd
                               size="sm"
                               className="h-8 w-8 p-0 text-destructive hover:text-destructive shrink-0"
                               onClick={() => removePreviewCard(index)}
-                              title="Remove this section"
+                              title="Remove this page"
                             >
                               <X className="h-4 w-4" />
                             </Button>

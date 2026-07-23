@@ -191,7 +191,8 @@ export function CoursePlayerPage() {
       lastSavedSectionRef.current = progressData?.current_section || 0;
 
       // Calculate total pages for resume logic (phase 53: sections are content).
-      const hasQuizSection = !!(quizStatusData && quizStatusData.total_questions > 0);
+      // Phase 54: the quiz page only exists when the lesson opts into gating.
+      const hasQuizSection = !!(quizStatusData && quizStatusData.total_questions > 0 && quizStatusData.requires_quiz);
       const contentPageCount = contentPageCountFor(
         lessonData.sections?.length || 0, hasQuizSection);
       const maxSectionIndex = contentPageCount + (hasQuizSection ? 1 : 0) - 1;
@@ -246,7 +247,7 @@ export function CoursePlayerPage() {
     if (!currentLesson || isSavingRef.current) return;
 
     // Calculate total pages (phase 53: sections are content, + quiz if present)
-    const hasQuizSection = !!(questionsStatus && questionsStatus.total_questions > 0);
+    const hasQuizSection = !!(questionsStatus && questionsStatus.total_questions > 0 && questionsStatus.requires_quiz);
     const contentPageCount = contentPageCountFor(
       currentLesson.sections?.length || 0, hasQuizSection);
     const maxIndex = contentPageCount + (hasQuizSection ? 1 : 0) - 1;
@@ -340,7 +341,7 @@ export function CoursePlayerPage() {
     if (!currentLesson || progress?.completed) return;
 
     // Page count including an appended comprehension-quiz page.
-    const hasQuizSection = !!(questionsStatus && questionsStatus.total_questions > 0);
+    const hasQuizSection = !!(questionsStatus && questionsStatus.total_questions > 0 && questionsStatus.requires_quiz);
     const contentPageCount = contentPageCountFor(
       currentLesson.sections?.length || 0, hasQuizSection);
     const totalPages = contentPageCount + (hasQuizSection ? 1 : 0);
@@ -413,7 +414,10 @@ export function CoursePlayerPage() {
   // Get current section data
   const contentSections = currentLesson?.sections || [];
   const hasContentSections = contentSections.length > 0;
-  const hasQuiz = questionsStatus && questionsStatus.total_questions > 0;
+  // Phase 54: a lesson only shows/gates on its comprehension quiz when it opts
+  // in via `requires_quiz`. Otherwise the questions are optional practice and
+  // are not part of the student's completion flow.
+  const hasQuiz = !!(questionsStatus && questionsStatus.total_questions > 0 && questionsStatus.requires_quiz);
 
   // Phase 53: sections are the sole content model (see contentPageCountFor).
   const contentPageCount = contentPageCountFor(contentSections.length, !!hasQuiz);
@@ -552,7 +556,7 @@ export function CoursePlayerPage() {
         {!currentSection.content && currentSection.video_type === 'none' && (
           <Card>
             <CardContent className="py-12 text-center text-muted-foreground">
-              No content available for this section.
+              No content available for this page.
             </CardContent>
           </Card>
         )}
@@ -651,38 +655,8 @@ export function CoursePlayerPage() {
                       </p>
                     )}
 
-                    {/* Quiz requirement badge */}
-                    {progress?.required_quiz_info && !progress?.completed && (
-                      <div className={`inline-flex items-center gap-2 px-3 py-1.5 rounded-lg mb-3 ${
-                        progress?.required_quiz_passed
-                          ? 'bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400'
-                          : 'bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-400'
-                      }`}>
-                        {progress?.required_quiz_passed ? (
-                          <>
-                            <CheckCircle className="h-4 w-4" />
-                            <span className="text-sm font-medium">Quiz passed - Ready to complete</span>
-                          </>
-                        ) : (
-                          <>
-                            <FileQuestion className="h-4 w-4" />
-                            <span className="text-sm font-medium">
-                              Complete quiz "{progress.required_quiz_info.title}" to finish this lesson
-                            </span>
-                            <Button asChild size="sm" className="ml-1">
-                              <Link
-                                to={`/courses/${code}/quizzes/${progress.required_quiz_info.id}?from=learn&lesson=${currentLesson.id}`}
-                              >
-                                Take Quiz
-                              </Link>
-                            </Button>
-                          </>
-                        )}
-                      </div>
-                    )}
-
                     {/* Lesson questions requirement badge - only show when NOT on quiz section */}
-                    {questionsStatus && questionsStatus.total_questions > 0 && !progress?.completed && !isOnQuizSection && (
+                    {hasQuiz && !progress?.completed && !isOnQuizSection && (
                       <div className={`inline-flex items-center gap-2 px-3 py-1.5 rounded-lg mb-3 ${
                         questionsStatus.can_complete_lesson
                           ? 'bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400'
@@ -710,8 +684,9 @@ export function CoursePlayerPage() {
                       </div>
                     )}
 
-                    {/* Only show Mark Complete button if there's no quiz requirement and on last section */}
-                    {(!hasSections || isLastSection) && !progress?.required_quiz_info && (!questionsStatus || questionsStatus.total_questions === 0) && (
+                    {/* Only show Mark Complete button if this lesson isn't gated by
+                        its quiz and we're on the last page */}
+                    {(!hasSections || isLastSection) && !hasQuiz && (
                       <div className="flex items-center gap-3">
                         <Button
                           variant={progress?.completed ? 'default' : 'outline'}
@@ -732,7 +707,7 @@ export function CoursePlayerPage() {
                     )}
 
                     {/* Show completion status when there IS a quiz requirement */}
-                    {(progress?.required_quiz_info || (questionsStatus && questionsStatus.total_questions > 0)) && progress?.completed && (
+                    {hasQuiz && progress?.completed && (
                       <div className="flex items-center gap-2 text-green-600 dark:text-green-400">
                         <CheckCircle className="h-5 w-5" />
                         <span className="font-medium">Lesson Completed</span>
@@ -785,7 +760,7 @@ export function CoursePlayerPage() {
                                   ? 'bg-primary/50'
                                   : 'bg-muted-foreground/30 hover:bg-muted-foreground/50'
                             }`}
-                            title={`Section ${i + 1}`}
+                            title={`Page ${i + 1}`}
                           />
                         ))}
                         {/* Quiz section indicator */}

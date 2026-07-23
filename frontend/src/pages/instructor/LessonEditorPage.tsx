@@ -2,7 +2,6 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router';
 import { useAuth } from '@/contexts/useAuth';
 import { Button } from '@/components/ui/Button';
-import { Input } from '@/components/ui/Input';
 import { Card, CardContent } from '@/components/ui/Card';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/Tabs';
 import { AccessDenied } from '@/components/AccessDenied';
@@ -10,27 +9,25 @@ import { SectionEditor, type SaveStatus } from '@/components/lesson/SectionEdito
 import { AttachmentUploader } from '@/components/lesson/AttachmentUploader';
 import { LessonQuestionsManager } from '@/components/lesson/LessonQuestionsManager';
 import { courseService } from '@/services/courses';
-import { quizzesService } from '@/services/quizzes';
 import { isForbidden } from '@/services/api';
-import type { Lesson, Quiz } from '@/types';
+import type { Lesson } from '@/types';
 import { PageContainer } from '@/components/layout/PageContainer';
 import { BackLink } from '@/components/layout/BackLink';
 import {
-  Loader2, ChevronLeft, FileText, Layers, HelpCircle, Paperclip, BookOpen,
+  Loader2, ChevronLeft, Layers, HelpCircle, Paperclip, BookOpen,
   Check, AlertCircle,
 } from 'lucide-react';
 
-// Phase 53: lesson body lives in sections. The editor page only owns lesson
-// "details" (title, quiz gating). Everything auto-saves.
+// Phase 54: the Details tab is gone. The lesson body lives in sections
+// ("Content"); the only remaining lesson-level field is the title, edited inline
+// in the header. Quiz gating now lives in the Questions tab. Everything auto-saves.
 interface LessonDetailsForm {
   title: string;
-  required_quiz: number | null;
 }
 
 function detailsFromLesson(lesson: Lesson): LessonDetailsForm {
   return {
     title: lesson.title,
-    required_quiz: lesson.required_quiz ?? null,
   };
 }
 
@@ -40,7 +37,6 @@ export function LessonEditorPage() {
   const navigate = useNavigate();
 
   const [lesson, setLesson] = useState<Lesson | null>(null);
-  const [quizzes, setQuizzes] = useState<Quiz[]>([]);
   const [form, setForm] = useState<LessonDetailsForm | null>(null);
   const [savedForm, setSavedForm] = useState<LessonDetailsForm | null>(null);
   const [isLoading, setIsLoading] = useState(true);
@@ -59,10 +55,9 @@ export function LessonEditorPage() {
       if (!code || !lessonId) return;
       try {
         setIsLoading(true);
-        const [courseData, lessonData, quizzesData] = await Promise.all([
+        const [courseData, lessonData] = await Promise.all([
           courseService.getCourse(code),
           courseService.getLesson(Number(lessonId)),
-          quizzesService.getCourseQuizzes(code),
         ]);
 
         if (user && courseData.instructor.id !== user.id) {
@@ -76,7 +71,6 @@ export function LessonEditorPage() {
         }
 
         setLesson(lessonData);
-        setQuizzes(quizzesData);
         const initial = detailsFromLesson(lessonData);
         setForm(initial);
         setSavedForm(initial);
@@ -107,7 +101,6 @@ export function LessonEditorPage() {
     try {
       const updated = await courseService.updateLesson(lesson.id, {
         title: snapshot.title,
-        required_quiz: snapshot.required_quiz,
       });
       setLesson(updated);
       setSavedForm(snapshot);
@@ -143,6 +136,25 @@ export function LessonEditorPage() {
     setSaveStatus(status);
     setSaveMessage(status === 'error' ? (message || "Couldn't save") : '');
   }, []);
+
+  // Phase 54: the "require this lesson's quiz" toggle (Questions tab) saves
+  // immediately and reports into the same status indicator.
+  const handleRequiresQuizChange = useCallback(async (value: boolean) => {
+    if (!lesson) return;
+    setSaveStatus('saving');
+    setSaveMessage('');
+    setLesson(prev => (prev ? { ...prev, requires_quiz: value } : prev)); // optimistic
+    try {
+      const updated = await courseService.updateLesson(lesson.id, { requires_quiz: value });
+      setLesson(updated);
+      setSaveStatus('saved');
+    } catch (err) {
+      console.error('Failed to update quiz requirement:', err);
+      setLesson(prev => (prev ? { ...prev, requires_quiz: !value } : prev)); // revert
+      setSaveStatus('error');
+      setSaveMessage("Couldn't save quiz requirement");
+    }
+  }, [lesson]);
 
   const hasPendingWork = detailsDirty || saveStatus === 'saving' || saveStatus === 'error';
 
@@ -193,13 +205,20 @@ export function LessonEditorPage() {
     <PageContainer maxWidth="max-w-6xl">
       {/* Header */}
       <div className="flex flex-wrap items-center justify-between gap-4 mb-6">
-        <div className="flex items-center gap-2 min-w-0">
+        <div className="flex items-center gap-2 min-w-0 flex-1">
           <Button variant="ghost" size="sm" onClick={handleBack}>
             <ChevronLeft className="h-4 w-4 mr-1" />
             Back to Manage Course
           </Button>
           <span className="text-muted-foreground">/</span>
-          <h1 className="text-2xl font-bold truncate">{lesson.title}</h1>
+          {/* Phase 54: lesson title is edited inline here (the Details tab is gone). */}
+          <input
+            aria-label="Lesson title"
+            value={form.title}
+            onChange={(e) => updateForm({ title: e.target.value })}
+            placeholder="Untitled lesson"
+            className="min-w-0 flex-1 bg-transparent text-2xl font-bold truncate rounded-md px-2 py-1 -mx-1 border border-transparent hover:border-input focus:border-input focus:bg-background focus:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          />
         </div>
         {/* Auto-save status */}
         <div className="min-w-[11rem] flex justify-end">
@@ -233,10 +252,6 @@ export function LessonEditorPage() {
             <Layers className="h-4 w-4" />
             Content
           </TabsTrigger>
-          <TabsTrigger value="details">
-            <FileText className="h-4 w-4" />
-            Details
-          </TabsTrigger>
           <TabsTrigger value="questions">
             <HelpCircle className="h-4 w-4" />
             Questions
@@ -255,51 +270,13 @@ export function LessonEditorPage() {
           />
         </TabsContent>
 
-        <TabsContent value="details" className="space-y-6">
-          {/* Title */}
-          <div className="space-y-2 max-w-2xl">
-            <label htmlFor="lesson-title" className="text-sm font-medium">
-              Lesson Title
-            </label>
-            <Input
-              id="lesson-title"
-              type="text"
-              value={form.title}
-              onChange={(e) => updateForm({ title: e.target.value })}
-              required
-            />
-          </div>
-
-          {/* Quiz gating */}
-          <div className="grid gap-4 max-w-2xl">
-            <div className="space-y-2">
-              <label htmlFor="required-quiz" className="text-sm font-medium">
-                Required Quiz
-              </label>
-              <select
-                id="required-quiz"
-                value={form.required_quiz ?? ''}
-                onChange={(e) =>
-                  updateForm({ required_quiz: e.target.value ? Number(e.target.value) : null })
-                }
-                className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
-              >
-                <option value="">None</option>
-                {quizzes.map(quiz => (
-                  <option key={quiz.id} value={quiz.id}>
-                    {quiz.title} ({quiz.unit_title})
-                  </option>
-                ))}
-              </select>
-              <p className="text-xs text-muted-foreground">
-                Students must pass this quiz to complete the lesson.
-              </p>
-            </div>
-          </div>
-        </TabsContent>
-
         <TabsContent value="questions">
-          <LessonQuestionsManager lessonId={lesson.id} lessonTitle={lesson.title} />
+          <LessonQuestionsManager
+            lessonId={lesson.id}
+            lessonTitle={lesson.title}
+            requiresQuiz={!!lesson.requires_quiz}
+            onRequiresQuizChange={handleRequiresQuizChange}
+          />
         </TabsContent>
 
         <TabsContent value="attachments">

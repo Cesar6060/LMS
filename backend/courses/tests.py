@@ -1364,7 +1364,12 @@ class TestLessonReorder:
 
 
 def _add_comprehension_quiz(lesson, count=2):
-    """Attach `count` comprehension questions (one correct choice each)."""
+    """Attach `count` comprehension questions (one correct choice each).
+
+    Phase 54: also flips `requires_quiz` on so the questions actually gate
+    completion (the default is off — questions are optional practice unless the
+    lesson opts in). These helpers back tests of the *gated* flow.
+    """
     questions = []
     for i in range(1, count + 1):
         question = LessonQuestion.objects.create(
@@ -1377,6 +1382,9 @@ def _add_comprehension_quiz(lesson, count=2):
             question=question, text='Wrong', is_correct=False, order=2
         )
         questions.append(question)
+    if not lesson.requires_quiz:
+        lesson.requires_quiz = True
+        lesson.save(update_fields=['requires_quiz'])
     return questions
 
 
@@ -1552,13 +1560,129 @@ class TestLessonCompletionGating:
     def test_complete_allowed_when_no_quiz(
         self, api_client, student, lesson, enrollment
     ):
-        """A lesson with no questions and no required_quiz completes directly."""
+        """A lesson with no questions completes directly."""
         api_client.force_authenticate(user=student)
         response = api_client.patch(
             f'/api/courses/lessons/{lesson.id}/progress/', {'completed': True}
         )
         assert response.status_code == status.HTTP_200_OK
         assert response.data['completed'] is True
+
+    def test_questions_do_not_gate_when_requires_quiz_off(
+        self, api_client, student, lesson, enrollment
+    ):
+        """Phase 54: questions are optional practice unless `requires_quiz` is on.
+        With the toggle off, the lesson completes without any passing attempt."""
+        _add_comprehension_quiz(lesson, count=2)
+        lesson.requires_quiz = False  # opt out of gating
+        lesson.save(update_fields=['requires_quiz'])
+
+        api_client.force_authenticate(user=student)
+        response = api_client.patch(
+            f'/api/courses/lessons/{lesson.id}/progress/', {'completed': True}
+        )
+        assert response.status_code == status.HTTP_200_OK
+        assert response.data['completed'] is True
+
+    def test_requires_quiz_on_with_no_questions_does_not_softlock(
+        self, api_client, student, lesson, enrollment
+    ):
+        """`requires_quiz=True` but zero questions must not block completion —
+        there is nothing to pass."""
+        lesson.requires_quiz = True
+        lesson.save(update_fields=['requires_quiz'])
+
+        api_client.force_authenticate(user=student)
+        response = api_client.patch(
+            f'/api/courses/lessons/{lesson.id}/progress/', {'completed': True}
+        )
+        assert response.status_code == status.HTTP_200_OK
+        assert response.data['completed'] is True
+
+    def test_toggling_requires_quiz_off_unblocks_completion(
+        self, api_client, student, instructor, lesson, enrollment
+    ):
+        """A student blocked by the gate can complete once the instructor turns
+        the requirement off."""
+        _add_comprehension_quiz(lesson, count=2)  # requires_quiz on
+        api_client.force_authenticate(user=student)
+        blocked = api_client.patch(
+            f'/api/courses/lessons/{lesson.id}/progress/', {'completed': True}
+        )
+        assert blocked.status_code == status.HTTP_400_BAD_REQUEST
+
+        lesson.requires_quiz = False
+        lesson.save(update_fields=['requires_quiz'])
+
+        allowed = api_client.patch(
+            f'/api/courses/lessons/{lesson.id}/progress/', {'completed': True}
+        )
+        assert allowed.status_code == status.HTTP_200_OK
+        assert allowed.data['completed'] is True
+
+    def test_status_can_complete_agrees_with_gate(
+        self, api_client, student, lesson, enrollment
+    ):
+        """The lesson-questions-status endpoint's `can_complete_lesson` must match
+        the real gate: false until a passing attempt exists when gated."""
+        questions = _add_comprehension_quiz(lesson, count=2)  # requires_quiz on
+        api_client.force_authenticate(user=student)
+
+        status_resp = api_client.get(
+            f'/api/courses/lessons/{lesson.id}/questions-status/'
+        )
+        assert status_resp.status_code == status.HTTP_200_OK
+        assert status_resp.data['requires_quiz'] is True
+        assert status_resp.data['can_complete_lesson'] is False
+
+        LessonQuizAttempt.objects.create(
+            user=student, lesson=lesson, attempt_number=1,
+            score=len(questions), total_questions=len(questions), passed=True,
+        )
+        status_resp2 = api_client.get(
+            f'/api/courses/lessons/{lesson.id}/questions-status/'
+        )
+        assert status_resp2.data['can_complete_lesson'] is True
+
+
+@pytest.mark.django_db
+class TestRequiresQuizMigration:
+    """Phase 54: `0020` seeds `requires_quiz` from existing questions and clears
+    the retired `required_quiz` FK."""
+
+    def test_seed_and_clear(self, instructor, course, unit):
+        import importlib
+        from django.apps import apps as global_apps
+        migration = importlib.import_module(
+            'courses.migrations.0020_lesson_requires_quiz'
+        )
+        seed_requires_quiz_and_clear_required_quiz = (
+            migration.seed_requires_quiz_and_clear_required_quiz
+        )
+        from quizzes.models import Quiz
+
+        quiz = Quiz.objects.create(unit=unit, title='Legacy Gate')
+
+        # Lesson with questions → should become requires_quiz=True.
+        with_q = Lesson.objects.create(unit=unit, title='Has Q', order=0)
+        LessonQuestion.objects.create(lesson=with_q, text='Q?', order=1)
+
+        # Lesson with no questions → stays False.
+        no_q = Lesson.objects.create(unit=unit, title='No Q', order=1)
+
+        # Lesson carrying a retired required_quiz FK → cleared.
+        with_fk = Lesson.objects.create(
+            unit=unit, title='Has FK', order=2, required_quiz=quiz
+        )
+
+        seed_requires_quiz_and_clear_required_quiz(global_apps, None)
+
+        with_q.refresh_from_db()
+        no_q.refresh_from_db()
+        with_fk.refresh_from_db()
+        assert with_q.requires_quiz is True
+        assert no_q.requires_quiz is False
+        assert with_fk.required_quiz_id is None
 
 
 # ---------------------------------------------------------------------------
@@ -3220,45 +3344,36 @@ class TestConsolidateContentIntoSectionsMigration:
 
 
 @pytest.mark.django_db
-class TestRequiredQuizCourseScope:
-    """Phase 53 hardening: required_quiz must belong to the lesson's own course.
+class TestRequiredQuizRetired:
+    """Phase 54: the cross-course `required_quiz` gate (System A) is retired.
 
-    Guards against the API-only IDOR where an instructor gates a lesson on a
-    quiz from a different course (the React UI only lists same-course quizzes).
+    The FK is no longer a writable serializer field, so any attempt to set it via
+    the API is silently ignored (the column stays dormant). This supersedes the
+    Phase-53 IDOR-scoping tests — with no writable field there is no IDOR surface.
     """
 
-    def _make_quiz(self, unit, title):
-        from quizzes.models import Quiz
-        return Quiz.objects.create(unit=unit, title=title)
-
-    def test_cannot_set_required_quiz_from_another_course(
-        self, api_client, instructor, lesson
+    def test_setting_required_quiz_via_api_is_ignored(
+        self, api_client, instructor, unit, lesson
     ):
-        other_course = Course.objects.create(
-            code='OTHER1', title='Other', description='x', instructor=instructor)
-        other_unit = Unit.objects.create(course=other_course, title='U', order=1)
-        foreign_quiz = self._make_quiz(other_unit, 'Foreign')
+        from quizzes.models import Quiz
+        quiz = Quiz.objects.create(unit=unit, title='Some Quiz')
 
         api_client.force_authenticate(user=instructor)
         resp = api_client.patch(
             f'/api/courses/lessons/{lesson.id}/',
-            {'required_quiz': foreign_quiz.id}, format='json')
+            {'required_quiz': quiz.id}, format='json')
 
-        assert resp.status_code == status.HTTP_400_BAD_REQUEST
-        assert 'required_quiz' in resp.data
+        # Accepted (unknown write field ignored), but the FK is not set.
+        assert resp.status_code == status.HTTP_200_OK
         lesson.refresh_from_db()
         assert lesson.required_quiz_id is None
 
-    def test_can_set_required_quiz_from_same_course(
-        self, api_client, instructor, unit, lesson
-    ):
-        same_quiz = self._make_quiz(unit, 'Same')
-
+    def test_requires_quiz_is_writable(self, api_client, instructor, lesson):
         api_client.force_authenticate(user=instructor)
         resp = api_client.patch(
             f'/api/courses/lessons/{lesson.id}/',
-            {'required_quiz': same_quiz.id}, format='json')
+            {'requires_quiz': True}, format='json')
 
         assert resp.status_code == status.HTTP_200_OK
         lesson.refresh_from_db()
-        assert lesson.required_quiz_id == same_quiz.id
+        assert lesson.requires_quiz is True

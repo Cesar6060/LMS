@@ -113,7 +113,13 @@ class Lesson(models.Model):
         blank=True,
         on_delete=models.SET_NULL,
         related_name='required_for_lessons',
-        help_text='Quiz that must be passed to complete this lesson'
+        help_text='DORMANT (Phase 54): retired cross-course quiz gate. Kept as a '
+                  'dormant column; no longer written or enforced.'
+    )
+    requires_quiz = models.BooleanField(
+        default=False,
+        help_text="When true, students must pass this lesson's own comprehension "
+                  "questions (the Questions tab) to complete the lesson."
     )
     max_quiz_attempts = models.PositiveIntegerField(
         default=0,
