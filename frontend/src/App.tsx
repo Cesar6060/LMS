@@ -11,6 +11,9 @@ import { PageLoader } from '@/components/PageLoader';
 // layout, and route guards stay eager. Pages use named exports, hence the
 // .then() remapping to the default export lazy() expects.
 const LoginPage = lazy(() => import('@/pages/auth/LoginPage').then((m) => ({ default: m.LoginPage })));
+const AcceptInvitePage = lazy(() => import('@/pages/auth/AcceptInvitePage').then((m) => ({ default: m.AcceptInvitePage })));
+const TermsPage = lazy(() => import('@/pages/legal/TermsPage').then((m) => ({ default: m.TermsPage })));
+const PrivacyPage = lazy(() => import('@/pages/legal/PrivacyPage').then((m) => ({ default: m.PrivacyPage })));
 const ForgotPasswordPage = lazy(() => import('@/pages/auth/ForgotPasswordPage').then((m) => ({ default: m.ForgotPasswordPage })));
 const ResetPasswordPage = lazy(() => import('@/pages/auth/ResetPasswordPage').then((m) => ({ default: m.ResetPasswordPage })));
 const VerifyEmailPage = lazy(() => import('@/pages/auth/VerifyEmailPage').then((m) => ({ default: m.VerifyEmailPage })));
@@ -155,6 +158,13 @@ function App() {
             path="/verify-email"
             element={<VerifyEmailRoute />}
           />
+          {/* Invite accept page: reachable both logged-out (create account /
+              log in first) and logged-in (existing account auto-accepts), so
+              it deliberately has no guard. */}
+          <Route path="/invite/:token" element={<AcceptInvitePage />} />
+          {/* Legal pages — public, linked from Login and AcceptInvite. */}
+          <Route path="/terms" element={<TermsPage />} />
+          <Route path="/privacy" element={<PrivacyPage />} />
 
           {/* Protected routes */}
           <Route

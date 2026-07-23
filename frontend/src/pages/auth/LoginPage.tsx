@@ -141,6 +141,15 @@ export function LoginPage() {
               {isDemoLoading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
               Try the demo
             </Button>
+            <p className="text-center text-sm text-muted-foreground">
+              <Link to="/terms" className="underline hover:text-primary">
+                Terms of Service
+              </Link>{' '}
+              ·{' '}
+              <Link to="/privacy" className="underline hover:text-primary">
+                Privacy Policy
+              </Link>
+            </p>
           </CardFooter>
         </form>
       </Card>

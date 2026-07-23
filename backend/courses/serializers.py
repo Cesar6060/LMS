@@ -2,7 +2,7 @@ from rest_framework import serializers
 from .models import (
     Course, Unit, Lesson, Enrollment, LessonProgress, Announcement, CourseGradingConfig,
     LessonQuestion, LessonQuestionChoice, LessonQuestionAnswer, LessonQuizAttempt,
-    LessonAttachment, LessonSection, InstructorReminder
+    LessonAttachment, LessonSection, InstructorReminder, CourseInvite
 )
 from accounts.serializers import UserSerializer
 
@@ -733,3 +733,11 @@ class CourseMapSerializer(serializers.Serializer):
     # Composite "<node_type>-<id>" key (lesson and quiz ids can collide).
     current_node_id = serializers.CharField(allow_null=True)
     units = CourseMapUnitSerializer(many=True)
+
+
+class CourseInviteSerializer(serializers.ModelSerializer):
+    status = serializers.ReadOnlyField()
+
+    class Meta:
+        model = CourseInvite
+        fields = ['id', 'email', 'status', 'created_at', 'expires_at']

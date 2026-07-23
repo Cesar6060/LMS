@@ -723,45 +723,6 @@ class TestStudentRoster:
         response = api_client.delete(f'/api/courses/courses/{course.code}/students/{enrollment.id}/')
         assert response.status_code == status.HTTP_403_FORBIDDEN
 
-    def test_send_invite_success(self, api_client, instructor, course):
-        """Instructor can send course invitation email."""
-        api_client.force_authenticate(user=instructor)
-        response = api_client.post(
-            f'/api/courses/courses/{course.code}/students/invite/',
-            {'email': 'newstudent@example.com'}
-        )
-        assert response.status_code == status.HTTP_200_OK
-        assert 'newstudent@example.com' in response.data['message']
-
-    def test_send_invite_invalid_email(self, api_client, instructor, course):
-        """Sending invite with invalid email fails."""
-        api_client.force_authenticate(user=instructor)
-        response = api_client.post(
-            f'/api/courses/courses/{course.code}/students/invite/',
-            {'email': 'not-an-email'}
-        )
-        assert response.status_code == status.HTTP_400_BAD_REQUEST
-        assert 'Invalid email' in response.data['error']
-
-    def test_send_invite_already_enrolled(self, api_client, instructor, course, student, enrollment):
-        """Cannot send invite to already enrolled student."""
-        api_client.force_authenticate(user=instructor)
-        response = api_client.post(
-            f'/api/courses/courses/{course.code}/students/invite/',
-            {'email': student.email}
-        )
-        assert response.status_code == status.HTTP_400_BAD_REQUEST
-        assert 'already enrolled' in response.data['error']
-
-    def test_send_invite_student_forbidden(self, api_client, student, course):
-        """Students cannot send invitations."""
-        api_client.force_authenticate(user=student)
-        response = api_client.post(
-            f'/api/courses/courses/{course.code}/students/invite/',
-            {'email': 'someone@example.com'}
-        )
-        assert response.status_code == status.HTTP_403_FORBIDDEN
-
     def test_update_activity(self, api_client, student, course, enrollment):
         """Student can update their activity timestamp."""
         api_client.force_authenticate(user=student)
@@ -2350,13 +2311,22 @@ class TestOutboundEmail:
     """Phase 47: mail.outbox coverage for the invite/announcement senders and
     the demo outbound-email guard in core.email.send_templated_email."""
 
-    def test_invite_sends_email(self, api_client, instructor, course):
+    def test_invite_sends_email_with_token_link(
+            self, api_client, instructor, course, monkeypatch):
         from django.core import mail
+        import courses.views as courses_views
+
+        # Invite emails go through send_emails_async's daemon thread, which
+        # races the outbox assertions — run the queued tasks inline.
+        monkeypatch.setattr(
+            courses_views, 'send_emails_async',
+            lambda tasks: [f(*a, **k) for f, a, k in tasks])
 
         api_client.force_authenticate(user=instructor)
         response = api_client.post(
-            f'/api/courses/courses/{course.code}/students/invite/',
-            {'email': 'newstudent@example.com'}
+            f'/api/courses/courses/{course.code}/invites/',
+            {'emails': ['newstudent@example.com']},
+            format='json',
         )
 
         assert response.status_code == status.HTTP_200_OK
@@ -2364,7 +2334,9 @@ class TestOutboundEmail:
         message = mail.outbox[0]
         assert message.to == ['newstudent@example.com']
         assert course.title in message.subject
-        assert course.enrollment_code in message.body
+        from courses.models import CourseInvite
+        invite = CourseInvite.objects.get(email='newstudent@example.com')
+        assert f'/invite/{invite.token}' in message.body
 
     def test_announcement_emails_only_opted_in_students(
             self, api_client, instructor, course, student, enrollment,
@@ -2414,10 +2386,10 @@ class TestOutboundEmail:
 
         sent = send_templated_email(
             subject='Should never send',
-            template_name='emails/course_invitation.html',
+            template_name='emails/course_invite_link.html',
             context={
                 'course_title': 'X', 'instructor_name': 'Y',
-                'enrollment_code': 'Z',
+                'invite_url': 'http://example.com/invite/Z',
             },
             recipient_list=['victim@example.com'],
             triggered_by=demo,
@@ -2432,10 +2404,10 @@ class TestOutboundEmail:
 
         sent = send_templated_email(
             subject='Legit email',
-            template_name='emails/course_invitation.html',
+            template_name='emails/course_invite_link.html',
             context={
                 'course_title': 'X', 'instructor_name': 'Y',
-                'enrollment_code': 'Z',
+                'invite_url': 'http://example.com/invite/Z',
             },
             recipient_list=['student@example.com'],
             triggered_by=instructor,
@@ -2443,3 +2415,488 @@ class TestOutboundEmail:
 
         assert sent is True
         assert len(mail.outbox) == 1
+
+
+# ==================== Course Invites (Phase 51) ====================
+
+from datetime import timedelta
+
+from django.utils import timezone
+
+from .models import CourseInvite
+
+
+@pytest.fixture
+def other_instructor():
+    return User.objects.create_user(
+        email='other-instructor@test.com',
+        password='testpass123',
+        first_name='Other',
+        last_name='Instructor',
+        is_instructor=True,
+    )
+
+
+def invites_url(course):
+    return f'/api/courses/courses/{course.code}/invites/'
+
+
+def accept_url(token):
+    return f'/api/courses/invites/{token}/accept/'
+
+
+def detail_url(token):
+    return f'/api/courses/invites/{token}/'
+
+
+VALID_ACCEPT_BODY = {
+    'first_name': 'New',
+    'last_name': 'Student',
+    'password': 'correct-horse-battery',
+    'agree_terms': True,
+}
+
+
+@pytest.mark.django_db
+class TestCourseInviteCreate:
+
+    def test_bulk_create_mixed_outcomes(
+            self, api_client, instructor, course, student, enrollment,
+            settings, monkeypatch):
+        """One POST, per-email outcomes: invited / resent / already_enrolled
+        / invalid (bad address, demo account, instructor's own email);
+        duplicates within the paste are silently deduped."""
+        from django.core import mail
+        import courses.views as courses_views
+
+        monkeypatch.setattr(
+            courses_views, 'send_emails_async',
+            lambda tasks: [f(*a, **k) for f, a, k in tasks])
+
+        pending = CourseInvite.objects.create(
+            course=course, email='pending@example.com', invited_by=instructor)
+
+        api_client.force_authenticate(user=instructor)
+        response = api_client.post(invites_url(course), {'emails': [
+            'new@example.com',
+            'Pending@Example.com',      # normalizes to the pending invite
+            student.email,              # actively enrolled
+            'not-an-email',
+            settings.DEMO_ACCOUNT_EMAIL,
+            instructor.email,           # course owner
+            'NEW@example.com',          # duplicate of the first, deduped
+        ]}, format='json')
+
+        assert response.status_code == status.HTTP_200_OK
+        outcomes = {r['email']: r['status'] for r in response.data['results']}
+        assert outcomes == {
+            'new@example.com': 'invited',
+            'pending@example.com': 'resent',
+            student.email: 'already_enrolled',
+            'not-an-email': 'invalid',
+            settings.DEMO_ACCOUNT_EMAIL: 'invalid',
+            instructor.email: 'invalid',
+        }
+        # Emails went out only for invited + resent.
+        assert sorted(m.to[0] for m in mail.outbox) == [
+            'new@example.com', 'pending@example.com']
+        # The resent invite was refreshed in place, not duplicated.
+        assert CourseInvite.objects.filter(
+            course=course, email='pending@example.com').count() == 1
+        refreshed = CourseInvite.objects.get(pk=pending.pk)
+        assert refreshed.token != pending.token
+
+    def test_reinvite_refreshes_instead_of_duplicating(
+            self, api_client, instructor, course):
+        api_client.force_authenticate(user=instructor)
+        api_client.post(invites_url(course),
+                        {'emails': ['kid@example.com']}, format='json')
+        first = CourseInvite.objects.get(email='kid@example.com')
+
+        response = api_client.post(invites_url(course),
+                                   {'emails': ['kid@example.com']}, format='json')
+
+        assert response.data['results'][0]['status'] == 'resent'
+        assert CourseInvite.objects.filter(email='kid@example.com').count() == 1
+        second = CourseInvite.objects.get(email='kid@example.com')
+        assert second.pk == first.pk
+        assert second.token != first.token
+        assert second.expires_at >= first.expires_at
+
+    def test_reinvite_after_expiry_counts_as_invited(
+            self, api_client, instructor, course):
+        CourseInvite.objects.create(
+            course=course, email='late@example.com', invited_by=instructor,
+            expires_at=timezone.now() - timedelta(days=1))
+
+        api_client.force_authenticate(user=instructor)
+        response = api_client.post(invites_url(course),
+                                   {'emails': ['late@example.com']}, format='json')
+
+        assert response.data['results'][0]['status'] == 'invited'
+        invite = CourseInvite.objects.get(email='late@example.com')
+        assert invite.is_pending
+
+    def test_requires_email_list(self, api_client, instructor, course):
+        api_client.force_authenticate(user=instructor)
+        for bad_body in ({}, {'emails': []}, {'emails': 'a@x.com'}):
+            response = api_client.post(invites_url(course), bad_body, format='json')
+            assert response.status_code == status.HTTP_400_BAD_REQUEST
+
+    def test_student_forbidden(self, api_client, student, course):
+        api_client.force_authenticate(user=student)
+        assert api_client.post(
+            invites_url(course), {'emails': ['a@x.com']}, format='json'
+        ).status_code == status.HTTP_403_FORBIDDEN
+        assert api_client.get(
+            invites_url(course)).status_code == status.HTTP_403_FORBIDDEN
+
+    def test_non_owner_instructor_forbidden(
+            self, api_client, other_instructor, course):
+        api_client.force_authenticate(user=other_instructor)
+        assert api_client.post(
+            invites_url(course), {'emails': ['a@x.com']}, format='json'
+        ).status_code == status.HTTP_403_FORBIDDEN
+
+    def test_anonymous_unauthorized(self, api_client, course):
+        response = api_client.post(
+            invites_url(course), {'emails': ['a@x.com']}, format='json')
+        assert response.status_code == status.HTTP_401_UNAUTHORIZED
+
+    def test_list_invites_with_statuses(self, api_client, instructor, course):
+        CourseInvite.objects.create(
+            course=course, email='pending@example.com', invited_by=instructor)
+        CourseInvite.objects.create(
+            course=course, email='expired@example.com', invited_by=instructor,
+            expires_at=timezone.now() - timedelta(minutes=1))
+        CourseInvite.objects.create(
+            course=course, email='revoked@example.com', invited_by=instructor,
+            revoked_at=timezone.now())
+        CourseInvite.objects.create(
+            course=course, email='accepted@example.com', invited_by=instructor,
+            accepted_at=timezone.now())
+
+        api_client.force_authenticate(user=instructor)
+        response = api_client.get(invites_url(course))
+
+        assert response.status_code == status.HTTP_200_OK
+        statuses = {row['email']: row['status'] for row in response.data}
+        assert statuses == {
+            'pending@example.com': 'pending',
+            'expired@example.com': 'expired',
+            'revoked@example.com': 'revoked',
+            'accepted@example.com': 'accepted',
+        }
+
+
+@pytest.mark.django_db
+class TestCourseInviteRevoke:
+
+    def test_revoke_pending_invite(self, api_client, instructor, course):
+        invite = CourseInvite.objects.create(
+            course=course, email='kid@example.com', invited_by=instructor)
+
+        api_client.force_authenticate(user=instructor)
+        response = api_client.delete(f'{invites_url(course)}{invite.id}/')
+
+        assert response.status_code == status.HTTP_200_OK
+        invite.refresh_from_db()
+        assert invite.status == 'revoked'
+
+    def test_accepted_invite_cannot_be_revoked(
+            self, api_client, instructor, course):
+        invite = CourseInvite.objects.create(
+            course=course, email='kid@example.com', invited_by=instructor,
+            accepted_at=timezone.now())
+
+        api_client.force_authenticate(user=instructor)
+        response = api_client.delete(f'{invites_url(course)}{invite.id}/')
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        invite.refresh_from_db()
+        assert invite.revoked_at is None
+
+    def test_student_cannot_revoke(self, api_client, student, instructor, course):
+        invite = CourseInvite.objects.create(
+            course=course, email='kid@example.com', invited_by=instructor)
+        api_client.force_authenticate(user=student)
+        assert api_client.delete(
+            f'{invites_url(course)}{invite.id}/'
+        ).status_code == status.HTTP_403_FORBIDDEN
+
+
+@pytest.mark.django_db
+class TestInviteDetail:
+
+    def test_pending_invite_no_account(self, api_client, instructor, course):
+        invite = CourseInvite.objects.create(
+            course=course, email='newkid@example.com', invited_by=instructor)
+
+        response = api_client.get(detail_url(invite.token))
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.data == {
+            'course_title': course.title,
+            'course_code': course.code,
+            'email_masked': 'n***d@example.com',
+            'status': 'pending',
+            'account_exists': False,
+        }
+
+    def test_pending_invite_with_account(
+            self, api_client, instructor, course, student):
+        invite = CourseInvite.objects.create(
+            course=course, email=student.email, invited_by=instructor)
+        response = api_client.get(detail_url(invite.token))
+        assert response.data['account_exists'] is True
+
+    def test_dead_invites_report_status(self, api_client, instructor, course):
+        expired = CourseInvite.objects.create(
+            course=course, email='a@example.com', invited_by=instructor,
+            expires_at=timezone.now() - timedelta(minutes=1))
+        revoked = CourseInvite.objects.create(
+            course=course, email='b@example.com', invited_by=instructor,
+            revoked_at=timezone.now())
+        accepted = CourseInvite.objects.create(
+            course=course, email='c@example.com', invited_by=instructor,
+            accepted_at=timezone.now())
+
+        for invite, expected in ((expired, 'expired'), (revoked, 'revoked'),
+                                 (accepted, 'accepted')):
+            response = api_client.get(detail_url(invite.token))
+            assert response.status_code == status.HTTP_200_OK
+            assert response.data['status'] == expected
+
+    def test_unknown_token_is_invalid_not_500(self, api_client):
+        response = api_client.get(detail_url('no-such-token'))
+        assert response.status_code == status.HTTP_404_NOT_FOUND
+        assert response.data['status'] == 'invalid'
+
+
+@pytest.mark.django_db
+class TestInviteAccept:
+
+    def test_accept_creates_verified_user_enrollment_and_jwt(
+            self, api_client, instructor, course):
+        from allauth.account.models import EmailAddress
+
+        invite = CourseInvite.objects.create(
+            course=course, email='newkid@example.com', invited_by=instructor)
+
+        response = api_client.post(
+            accept_url(invite.token), VALID_ACCEPT_BODY, format='json')
+
+        assert response.status_code == status.HTTP_201_CREATED
+        assert response.data['access'] and response.data['refresh']
+        assert response.data['user']['email'] == 'newkid@example.com'
+
+        user = User.objects.get(email='newkid@example.com')
+        assert user.first_name == 'New'
+        assert user.is_instructor is False
+        email_address = EmailAddress.objects.get(user=user)
+        assert email_address.verified is True and email_address.primary is True
+        assert Enrollment.objects.filter(
+            user=user, course=course, is_active=True).exists()
+        invite.refresh_from_db()
+        assert invite.status == 'accepted'
+
+    def test_token_dead_after_accept(self, api_client, instructor, course):
+        invite = CourseInvite.objects.create(
+            course=course, email='newkid@example.com', invited_by=instructor)
+        api_client.post(accept_url(invite.token), VALID_ACCEPT_BODY, format='json')
+
+        response = api_client.post(
+            accept_url(invite.token), VALID_ACCEPT_BODY, format='json')
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.data['status'] == 'accepted'
+
+    def test_expired_and_revoked_and_unknown_tokens_rejected(
+            self, api_client, instructor, course):
+        expired = CourseInvite.objects.create(
+            course=course, email='a@example.com', invited_by=instructor,
+            expires_at=timezone.now() - timedelta(minutes=1))
+        revoked = CourseInvite.objects.create(
+            course=course, email='b@example.com', invited_by=instructor,
+            revoked_at=timezone.now())
+
+        for token, expected in ((expired.token, 'expired'),
+                                (revoked.token, 'revoked'),
+                                ('no-such-token', 'invalid')):
+            response = api_client.post(
+                accept_url(token), VALID_ACCEPT_BODY, format='json')
+            assert response.status_code == status.HTTP_400_BAD_REQUEST
+            assert response.data['status'] == expected
+        assert not User.objects.filter(email='a@example.com').exists()
+
+    def test_accept_validates_body(self, api_client, instructor, course):
+        invite = CourseInvite.objects.create(
+            course=course, email='newkid@example.com', invited_by=instructor)
+
+        response = api_client.post(accept_url(invite.token), {
+            'first_name': '', 'last_name': '',
+            'password': '123', 'agree_terms': False,
+        }, format='json')
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        for field in ('first_name', 'last_name', 'password', 'agree_terms'):
+            assert field in response.data
+        assert not User.objects.filter(email='newkid@example.com').exists()
+        invite.refresh_from_db()
+        assert invite.status == 'pending'
+
+    def test_accept_existing_account_authed_enrolls(
+            self, api_client, instructor, course, student):
+        invite = CourseInvite.objects.create(
+            course=course, email=student.email, invited_by=instructor)
+
+        api_client.force_authenticate(user=student)
+        response = api_client.post(accept_url(invite.token), {}, format='json')
+
+        assert response.status_code == status.HTTP_200_OK
+        assert Enrollment.objects.filter(
+            user=student, course=course, is_active=True).exists()
+        invite.refresh_from_db()
+        assert invite.status == 'accepted'
+
+    def test_accept_existing_account_reactivates_soft_deleted_enrollment(
+            self, api_client, instructor, course, student, enrollment):
+        enrollment.is_active = False
+        enrollment.save(update_fields=['is_active'])
+        invite = CourseInvite.objects.create(
+            course=course, email=student.email, invited_by=instructor)
+
+        api_client.force_authenticate(user=student)
+        response = api_client.post(accept_url(invite.token), {}, format='json')
+
+        assert response.status_code == status.HTTP_200_OK
+        enrollment.refresh_from_db()
+        assert enrollment.is_active is True
+        assert Enrollment.objects.filter(user=student, course=course).count() == 1
+
+    def test_accept_existing_account_anon_gets_403_account_exists(
+            self, api_client, instructor, course, student):
+        invite = CourseInvite.objects.create(
+            course=course, email=student.email, invited_by=instructor)
+
+        response = api_client.post(
+            accept_url(invite.token), VALID_ACCEPT_BODY, format='json')
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+        assert response.data['account_exists'] is True
+        invite.refresh_from_db()
+        assert invite.status == 'pending'
+
+    def test_accept_existing_account_wrong_user_gets_403(
+            self, api_client, instructor, course, student, other_instructor):
+        invite = CourseInvite.objects.create(
+            course=course, email=student.email, invited_by=instructor)
+
+        api_client.force_authenticate(user=other_instructor)
+        response = api_client.post(accept_url(invite.token), {}, format='json')
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+        assert response.data['account_exists'] is True
+
+    def test_accept_is_atomic_no_user_left_behind(
+            self, instructor, course, monkeypatch):
+        """If enrollment creation blows up, the freshly created user (and
+        the invite's accepted_at) must roll back with it."""
+        import courses.views as courses_views
+
+        invite = CourseInvite.objects.create(
+            course=course, email='newkid@example.com', invited_by=instructor)
+
+        def explode(user, course):
+            raise RuntimeError('enrollment failed')
+
+        monkeypatch.setattr(courses_views, '_activate_enrollment', explode)
+        client = APIClient(raise_request_exception=False)
+        response = client.post(
+            accept_url(invite.token), VALID_ACCEPT_BODY, format='json')
+
+        assert response.status_code == status.HTTP_500_INTERNAL_SERVER_ERROR
+        assert not User.objects.filter(email='newkid@example.com').exists()
+        invite.refresh_from_db()
+        assert invite.status == 'pending'
+
+
+@pytest.mark.django_db
+class TestPhase51Throttles:
+    """Env-gated rates: unset (the default) means unlimited; when a rate is
+    set, the scoped/user buckets enforce it. DRF snapshots rates onto the
+    throttle classes at import, so tests patch the class attribute."""
+
+    def test_invite_send_scoped_throttle_skips_reads(
+            self, api_client, instructor, course, monkeypatch):
+        from django.core.cache import cache
+        from rest_framework.throttling import ScopedRateThrottle
+
+        monkeypatch.setattr(
+            ScopedRateThrottle, 'THROTTLE_RATES', {'invite_send': '2/hour'})
+        cache.clear()
+        try:
+            api_client.force_authenticate(user=instructor)
+            for _ in range(2):
+                ok = api_client.post(
+                    invites_url(course), {'emails': ['a@x.com']}, format='json')
+                assert ok.status_code == status.HTTP_200_OK
+
+            throttled = api_client.post(
+                invites_url(course), {'emails': ['a@x.com']}, format='json')
+            assert throttled.status_code == status.HTTP_429_TOO_MANY_REQUESTS
+
+            # GET shares the URL but must not consume or hit the send bucket.
+            listed = api_client.get(invites_url(course))
+            assert listed.status_code == status.HTTP_200_OK
+        finally:
+            cache.clear()
+
+    def test_invite_accept_scoped_throttle(self, api_client, monkeypatch):
+        from django.core.cache import cache
+        from rest_framework.throttling import ScopedRateThrottle
+
+        monkeypatch.setattr(
+            ScopedRateThrottle, 'THROTTLE_RATES', {'invite_accept': '2/hour'})
+        cache.clear()
+        try:
+            for _ in range(2):
+                response = api_client.post(
+                    accept_url('bogus'), VALID_ACCEPT_BODY, format='json')
+                assert response.status_code == status.HTTP_400_BAD_REQUEST
+
+            throttled = api_client.post(
+                accept_url('bogus'), VALID_ACCEPT_BODY, format='json')
+            assert throttled.status_code == status.HTTP_429_TOO_MANY_REQUESTS
+        finally:
+            cache.clear()
+
+    def test_user_throttle_off_by_default(self, api_client, student, enrollment):
+        """THROTTLE_USER unset => rate None => authenticated traffic is
+        unlimited (the class is installed but inert)."""
+        from rest_framework.settings import api_settings
+
+        assert api_settings.DEFAULT_THROTTLE_RATES['user'] is None
+        api_client.force_authenticate(user=student)
+        for _ in range(30):
+            response = api_client.get('/api/courses/courses/')
+            assert response.status_code == status.HTTP_200_OK
+
+    def test_user_throttle_enforced_when_rate_set(
+            self, api_client, student, enrollment, monkeypatch):
+        from django.core.cache import cache
+        from rest_framework.throttling import UserRateThrottle
+
+        monkeypatch.setattr(
+            UserRateThrottle, 'THROTTLE_RATES', {'user': '3/min'})
+        cache.clear()
+        try:
+            api_client.force_authenticate(user=student)
+            for _ in range(3):
+                ok = api_client.get('/api/courses/courses/')
+                assert ok.status_code == status.HTTP_200_OK
+
+            throttled = api_client.get('/api/courses/courses/')
+            assert throttled.status_code == status.HTTP_429_TOO_MANY_REQUESTS
+        finally:
+            cache.clear()

@@ -12,7 +12,9 @@ deployment it is authoritative. Prefer it; fall back to DRF's default
 ident when it's absent (local dev, tests, non-Cloudflare hosts).
 """
 
-from rest_framework.throttling import AnonRateThrottle, ScopedRateThrottle
+from rest_framework.throttling import (
+    AnonRateThrottle, ScopedRateThrottle, UserRateThrottle,
+)
 
 
 class ClientIPIdentMixin:
@@ -27,5 +29,28 @@ class ClientIPAnonRateThrottle(ClientIPIdentMixin, AnonRateThrottle):
     pass
 
 
+class ClientIPUserRateThrottle(ClientIPIdentMixin, UserRateThrottle):
+    """Rate limit for authenticated traffic, keyed on user id (scope 'user').
+
+    Anonymous requests fall back to the IP ident, but in practice they're
+    covered by ClientIPAnonRateThrottle's separate 'anon' bucket.
+    """
+    pass
+
+
 class ClientIPScopedRateThrottle(ClientIPIdentMixin, ScopedRateThrottle):
     pass
+
+
+class ClientIPScopedWriteRateThrottle(ClientIPScopedRateThrottle):
+    """Scoped throttle that exempts safe methods.
+
+    For views where a rate-limited write shares a URL (and therefore a view)
+    with reads that must stay unthrottled — e.g. the invite endpoint, where
+    POST sends email but GET just lists invites for the roster page.
+    """
+
+    def allow_request(self, request, view):
+        if request.method in ('GET', 'HEAD', 'OPTIONS'):
+            return True
+        return super().allow_request(request, view)

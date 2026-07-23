@@ -1,0 +1,83 @@
+# Phase 51: daily Neon -> R2 database backups.
+#
+# Dumps the production Postgres (Neon) with pg_dump and uploads the
+# compressed custom-format dump to a private R2 bucket. Retention: the 14
+# newest daily dumps plus the 8 newest weekly dumps (Sundays' dailies are
+# also copied to weekly/). Restore steps:
+# docs/runbooks/phase-51-db-restore-steps.txt
+#
+# Required repo secrets (names only — values live in GitHub):
+#   NEON_DATABASE_URL            full postgres:// URL for the main branch
+#   R2_ACCOUNT_ID                Cloudflare account id
+#   R2_BACKUPS_BUCKET            private backups bucket name
+#   R2_BACKUPS_ACCESS_KEY_ID     R2 API token scoped to that bucket
+#   R2_BACKUPS_SECRET_ACCESS_KEY
+
+name: db-backup
+
+on:
+  schedule:
+    # 08:17 UTC daily — off the top of the hour to dodge cron congestion.
+    - cron: '17 8 * * *'
+  workflow_dispatch: {}
+
+permissions: {}
+
+env:
+  AWS_ACCESS_KEY_ID: ${{ secrets.R2_BACKUPS_ACCESS_KEY_ID }}
+  AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_BACKUPS_SECRET_ACCESS_KEY }}
+  AWS_DEFAULT_REGION: auto
+  # aws-cli v2.23+ sends new default integrity checksums R2 rejects; these
+  # opt back into checksums only where the request requires them.
+  AWS_REQUEST_CHECKSUM_CALCULATION: when_required
+  AWS_RESPONSE_CHECKSUM_VALIDATION: when_required
+  ENDPOINT: https://${{ secrets.R2_ACCOUNT_ID }}.r2.cloudflarestorage.com
+  BUCKET: ${{ secrets.R2_BACKUPS_BUCKET }}
+
+jobs:
+  backup:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - name: Install PostgreSQL 16 client
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq postgresql-client-16
+
+      - name: Dump database
+        env:
+          NEON_DATABASE_URL: ${{ secrets.NEON_DATABASE_URL }}
+        run: |
+          STAMP="$(date -u +%F)"
+          pg_dump "$NEON_DATABASE_URL" --format=custom --compress=9 \
+            --no-owner --no-privileges --file="stemquest-${STAMP}.dump"
+          ls -lh "stemquest-${STAMP}.dump"
+          echo "STAMP=${STAMP}" >> "$GITHUB_ENV"
+
+      - name: Upload daily (plus weekly copy on Sundays)
+        run: |
+          aws s3 cp "stemquest-${STAMP}.dump" \
+            "s3://${BUCKET}/daily/stemquest-${STAMP}.dump" \
+            --endpoint-url "$ENDPOINT"
+          if [ "$(date -u +%u)" = "7" ]; then
+            aws s3 cp "stemquest-${STAMP}.dump" \
+              "s3://${BUCKET}/weekly/stemquest-${STAMP}.dump" \
+              --endpoint-url "$ENDPOINT"
+          fi
+
+      - name: Prune (keep 14 daily, 8 weekly)
+        run: |
+          prune() {
+            prefix="$1"; keep="$2"
+            aws s3api list-objects-v2 --bucket "$BUCKET" \
+              --prefix "${prefix}/" --endpoint-url "$ENDPOINT" \
+              --query 'Contents[].Key' --output text |
+            tr '\t' '\n' | grep -v '^None$' | grep . | sort |
+            head -n -"$keep" |
+            while read -r key; do
+              echo "Pruning $key"
+              aws s3 rm "s3://${BUCKET}/${key}" --endpoint-url "$ENDPOINT"
+            done
+          }
+          prune daily 14
+          prune weekly 8

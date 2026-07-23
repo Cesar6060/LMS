@@ -57,7 +57,11 @@ services:
 #                  FRONTEND_URL, ADMIN_URL, SENTRY_DSN
 # Demo lockdown:   ALLOW_REGISTRATION, DEMO_ACCOUNT_PASSWORD,
 #                  THROTTLE_ANON, THROTTLE_DEMO_LOGIN, THROTTLE_PASSWORD_RESET
-# Email (Gmail):   EMAIL_BACKEND, EMAIL_HOST, EMAIL_PORT, EMAIL_USE_TLS,
+# Throttles (P51): THROTTLE_USER, THROTTLE_INVITE_SEND, THROTTLE_INVITE_ACCEPT
+#                  (suggested: 120/min, 30/hour, 10/hour)
+# Email (Resend since Phase 51 — was Gmail from Phase 47; see
+# docs/runbooks/phase-51-email-provider-steps.txt):
+#                  EMAIL_BACKEND, EMAIL_HOST, EMAIL_PORT, EMAIL_USE_TLS,
 #                  EMAIL_HOST_USER, EMAIL_HOST_PASSWORD, DEFAULT_FROM_EMAIL,
 #                  ACCOUNT_EMAIL_VERIFICATION
 # Media (R2):      USE_R2, R2_ACCESS_KEY_ID, R2_SECRET_ACCESS_KEY,

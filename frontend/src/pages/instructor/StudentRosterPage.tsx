@@ -1,9 +1,11 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useParams } from 'react-router';
-import { Card, CardContent } from '@/components/ui/Card';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { courseService, type RosterStudent } from '@/services/courses';
+import { inviteService } from '@/services/invites';
+import type { CourseInvite, InviteOutcome, InviteOutcomeRow } from '@/types';
 import { isForbidden } from '@/services/api';
 import { AccessDenied } from '@/components/AccessDenied';
 import { Skeleton } from '@/components/ui/Skeleton';
@@ -13,18 +15,32 @@ import { CourseToolsNav } from '@/components/instructor/CourseToolsNav';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 import {
   Mail, Users, AlertCircle, Trash2,
-  Search, CheckCircle, Clock, AlertTriangle
+  Search, CheckCircle, Clock, AlertTriangle, RefreshCw, XCircle, Send
 } from 'lucide-react';
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogFooter,
-} from '@/components/ui/Dialog';
 
 type SortField = 'name' | 'email' | 'enrolled_at' | 'last_activity_at' | 'progress';
 type SortDirection = 'asc' | 'desc';
+
+const OUTCOME_LABELS: Record<InviteOutcome, string> = {
+  invited: 'Invitation sent',
+  resent: 'Invitation re-sent',
+  already_enrolled: 'Already enrolled',
+  invalid: 'Invalid address',
+};
+
+const OUTCOME_STYLES: Record<InviteOutcome, string> = {
+  invited: 'bg-green-100 text-green-700 dark:bg-green-900/50 dark:text-green-300',
+  resent: 'bg-blue-100 text-blue-700 dark:bg-blue-900/50 dark:text-blue-300',
+  already_enrolled: 'bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-400',
+  invalid: 'bg-red-100 text-red-700 dark:bg-red-900/50 dark:text-red-300',
+};
+
+const INVITE_STATUS_STYLES: Record<CourseInvite['status'], string> = {
+  pending: 'bg-blue-100 text-blue-700 dark:bg-blue-900/50 dark:text-blue-300',
+  accepted: 'bg-green-100 text-green-700 dark:bg-green-900/50 dark:text-green-300',
+  expired: 'bg-amber-100 text-amber-700 dark:bg-amber-900/50 dark:text-amber-300',
+  revoked: 'bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-400',
+};
 
 export function StudentRosterPage() {
   const { code } = useParams<{ code: string }>();
@@ -39,12 +55,13 @@ export function StudentRosterPage() {
   const [sortField, setSortField] = useState<SortField>('name');
   const [sortDirection, setSortDirection] = useState<SortDirection>('asc');
 
-  // Invite modal
-  const [showInviteModal, setShowInviteModal] = useState(false);
-  const [inviteEmail, setInviteEmail] = useState('');
-  const [inviteLoading, setInviteLoading] = useState(false);
-  const [inviteSuccess, setInviteSuccess] = useState('');
+  // Invite students card
+  const [inviteText, setInviteText] = useState('');
+  const [inviteSubmitting, setInviteSubmitting] = useState(false);
+  const [inviteResults, setInviteResults] = useState<InviteOutcomeRow[] | null>(null);
   const [inviteError, setInviteError] = useState('');
+  const [invites, setInvites] = useState<CourseInvite[]>([]);
+  const [busyInviteId, setBusyInviteId] = useState<number | null>(null);
 
   // Remove student dialog
   const [removeStudent, setRemoveStudent] = useState<RosterStudent | null>(null);
@@ -67,11 +84,23 @@ export function StudentRosterPage() {
     }
   }, [code]);
 
+  const loadInvites = useCallback(async () => {
+    try {
+      const data = await inviteService.listInvites(code!);
+      setInvites(data);
+    } catch (err) {
+      // The roster load surfaces permission problems; a failed invite list
+      // just leaves the table empty.
+      console.error('Failed to load invites:', err);
+    }
+  }, [code]);
+
   useEffect(() => {
     if (code) {
       loadRoster();
+      loadInvites();
     }
-  }, [code, loadRoster]);
+  }, [code, loadRoster, loadInvites]);
 
   const handleSort = (field: SortField) => {
     if (sortField === field) {
@@ -82,29 +111,60 @@ export function StudentRosterPage() {
     }
   };
 
-  const handleSendInvite = async () => {
-    if (!inviteEmail.trim()) return;
+  const parseEmails = (text: string): string[] =>
+    text.split(/[\s,;]+/).map((e) => e.trim()).filter(Boolean);
+
+  const handleSendInvites = async () => {
+    const emails = parseEmails(inviteText);
+    if (emails.length === 0) return;
 
     try {
-      setInviteLoading(true);
+      setInviteSubmitting(true);
       setInviteError('');
-      setInviteSuccess('');
-      const result = await courseService.sendCourseInvite(code!, inviteEmail.trim());
-      setInviteSuccess(result.message);
-      setInviteEmail('');
+      const result = await inviteService.createInvites(code!, emails);
+      setInviteResults(result.results);
+      setInviteText('');
+      loadInvites();
     } catch (err: unknown) {
-      const error = err as { response?: { data?: { error?: string } } };
-      setInviteError(error.response?.data?.error || 'Failed to send invitation');
+      const e = err as { response?: { status?: number; data?: { detail?: string } } };
+      if (e.response?.status === 429) {
+        setInviteError('Too many invitations sent — please wait a while and try again.');
+      } else {
+        setInviteError(e.response?.data?.detail || 'Failed to send invitations');
+      }
+      console.error(err);
     } finally {
-      setInviteLoading(false);
+      setInviteSubmitting(false);
     }
   };
 
-  const closeInviteModal = () => {
-    setShowInviteModal(false);
-    setInviteEmail('');
-    setInviteSuccess('');
-    setInviteError('');
+  const handleResendInvite = async (invite: CourseInvite) => {
+    try {
+      setBusyInviteId(invite.id);
+      setInviteError('');
+      const result = await inviteService.createInvites(code!, [invite.email]);
+      setInviteResults(result.results);
+      loadInvites();
+    } catch (err) {
+      setInviteError('Failed to re-send the invitation');
+      console.error(err);
+    } finally {
+      setBusyInviteId(null);
+    }
+  };
+
+  const handleRevokeInvite = async (invite: CourseInvite) => {
+    try {
+      setBusyInviteId(invite.id);
+      setInviteError('');
+      await inviteService.revokeInvite(code!, invite.id);
+      loadInvites();
+    } catch (err) {
+      setInviteError('Failed to revoke the invitation');
+      console.error(err);
+    } finally {
+      setBusyInviteId(null);
+    }
   };
 
   const handleRemoveStudent = async () => {
@@ -158,6 +218,9 @@ export function StudentRosterPage() {
       }
       return sortDirection === 'asc' ? comparison : -comparison;
     });
+
+  // Accepted invites already show up on the roster itself.
+  const openInvites = invites.filter((i) => i.status !== 'accepted');
 
   const formatDate = (dateStr: string | null) => {
     if (!dateStr) return 'Never';
@@ -254,21 +317,133 @@ export function StudentRosterPage() {
 
       {/* Header */}
       <div className="mb-6">
-        <div className="flex items-start justify-between">
-          <div>
-            <h1 className="text-3xl font-bold flex items-center gap-2">
-              <Users className="h-6 w-6" />
-              Student Roster
-            </h1>
-            <p className="text-muted-foreground">{students.length} students enrolled</p>
+        <h1 className="text-3xl font-bold flex items-center gap-2">
+          <Users className="h-6 w-6" />
+          Student Roster
+        </h1>
+        <p className="text-muted-foreground">{students.length} students enrolled</p>
+      </div>
+
+      {/* Invite students */}
+      <Card className="mb-6">
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2 text-xl">
+            <Mail className="h-5 w-5" />
+            Invite students
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <p className="text-base text-muted-foreground">
+            Paste one or more email addresses (separated by commas or new lines).
+            Each student receives a personal link to create their account and join
+            this course. Links expire after 14 days.
+          </p>
+
+          <textarea
+            value={inviteText}
+            onChange={(e) => setInviteText(e.target.value)}
+            placeholder={'student1@example.com\nstudent2@example.com'}
+            rows={4}
+            className="w-full rounded-md border border-input bg-background px-3 py-2 text-base ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+            aria-label="Student email addresses"
+          />
+
+          {inviteError && (
+            <div className="bg-destructive/10 border border-destructive/20 rounded-lg p-3 flex items-center gap-2">
+              <AlertCircle className="h-4 w-4 text-destructive shrink-0" />
+              <p className="text-sm text-destructive">{inviteError}</p>
+            </div>
+          )}
+
+          <div className="flex items-center justify-between">
+            <p className="text-sm text-muted-foreground">
+              {parseEmails(inviteText).length > 0 &&
+                `${parseEmails(inviteText).length} address${parseEmails(inviteText).length === 1 ? '' : 'es'} to invite`}
+            </p>
+            <Button
+              size="lg"
+              onClick={handleSendInvites}
+              disabled={parseEmails(inviteText).length === 0 || inviteSubmitting}
+            >
+              <Send className="h-4 w-4 mr-2" />
+              {inviteSubmitting ? 'Sending...' : 'Send invitations'}
+            </Button>
           </div>
 
-          <Button onClick={() => setShowInviteModal(true)}>
-            <Mail className="h-4 w-4 mr-2" />
-            Invite Student
-          </Button>
-        </div>
-      </div>
+          {inviteResults && (
+            <div className="rounded-lg border bg-muted/30 p-4 space-y-2">
+              <h4 className="font-semibold">Results</h4>
+              <ul className="space-y-1">
+                {inviteResults.map((row) => (
+                  <li key={row.email} className="flex items-center justify-between gap-3 text-base">
+                    <span className="truncate">{row.email}</span>
+                    <span className={`shrink-0 text-sm px-2 py-1 rounded ${OUTCOME_STYLES[row.status]}`}>
+                      {OUTCOME_LABELS[row.status]}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+
+          {/* Pending invites */}
+          {openInvites.length > 0 && (
+            <div className="pt-2">
+              <h4 className="font-semibold mb-2">Open invitations</h4>
+              <div className="overflow-x-auto rounded-lg border">
+                <table className="w-full text-base">
+                  <thead>
+                    <tr className="border-b bg-muted/50 text-left">
+                      <th className="p-3 font-medium">Email</th>
+                      <th className="p-3 font-medium">Status</th>
+                      <th className="p-3 font-medium">Expires</th>
+                      <th className="p-3 font-medium text-right">Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {openInvites.map((invite) => (
+                      <tr key={invite.id} className="border-b last:border-b-0 hover:bg-muted/30">
+                        <td className="p-3">{invite.email}</td>
+                        <td className="p-3">
+                          <span className={`text-sm px-2 py-1 rounded capitalize ${INVITE_STATUS_STYLES[invite.status]}`}>
+                            {invite.status}
+                          </span>
+                        </td>
+                        <td className="p-3">{formatDate(invite.expires_at)}</td>
+                        <td className="p-3">
+                          <div className="flex justify-end gap-2">
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              onClick={() => handleResendInvite(invite)}
+                              disabled={busyInviteId === invite.id}
+                            >
+                              <RefreshCw className="h-4 w-4 mr-1" />
+                              Resend
+                            </Button>
+                            {invite.status === 'pending' && (
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                onClick={() => handleRevokeInvite(invite)}
+                                disabled={busyInviteId === invite.id}
+                                className="text-destructive hover:text-destructive"
+                              >
+                                <XCircle className="h-4 w-4 mr-1" />
+                                Revoke
+                              </Button>
+                            )}
+                          </div>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+        </CardContent>
+      </Card>
 
       {/* Search */}
       <div className="mb-4">
@@ -320,14 +495,8 @@ export function StudentRosterPage() {
             <p className="text-muted-foreground">
               {searchQuery
                 ? 'Try a different search term.'
-                : 'Share the enrollment code or send an email invitation.'}
+                : 'Invite students by email above, or share the enrollment code.'}
             </p>
-            {!searchQuery && (
-              <Button className="mt-4" onClick={() => setShowInviteModal(true)}>
-                <Mail className="h-4 w-4 mr-2" />
-                Invite Student
-              </Button>
-            )}
           </CardContent>
         </Card>
       ) : (
@@ -417,66 +586,6 @@ export function StudentRosterPage() {
           </CardContent>
         </Card>
       )}
-
-      {/* Invite Student Modal */}
-      <Dialog open={showInviteModal} onOpenChange={closeInviteModal}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Invite Student</DialogTitle>
-          </DialogHeader>
-
-          <div className="space-y-4 py-4">
-            <p className="text-sm text-muted-foreground">
-              Send an email invitation with the course enrollment code.
-            </p>
-
-            {inviteSuccess && (
-              <div className="bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 rounded-lg p-3 flex items-center gap-2">
-                <CheckCircle className="h-4 w-4 text-green-600" />
-                <p className="text-sm text-green-700 dark:text-green-300">{inviteSuccess}</p>
-              </div>
-            )}
-
-            {inviteError && (
-              <div className="bg-destructive/10 border border-destructive/20 rounded-lg p-3 flex items-center gap-2">
-                <AlertCircle className="h-4 w-4 text-destructive" />
-                <p className="text-sm text-destructive">{inviteError}</p>
-              </div>
-            )}
-
-            <div className="space-y-2">
-              <label htmlFor="invite-email" className="text-sm font-medium">
-                Email Address
-              </label>
-              <Input
-                id="invite-email"
-                type="email"
-                placeholder="student@example.com"
-                value={inviteEmail}
-                onChange={(e) => setInviteEmail(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter' && inviteEmail.trim()) {
-                    handleSendInvite();
-                  }
-                }}
-              />
-            </div>
-          </div>
-
-          <DialogFooter>
-            <Button variant="outline" onClick={closeInviteModal}>
-              Close
-            </Button>
-            <Button
-              onClick={handleSendInvite}
-              disabled={!inviteEmail.trim() || inviteLoading}
-            >
-              <Mail className="h-4 w-4 mr-2" />
-              {inviteLoading ? 'Sending...' : 'Send Invitation'}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
 
       {/* Remove Student Dialog */}
       <ConfirmDialog
