@@ -164,7 +164,7 @@ phase-50 ADMIN_URL flip finally applied.
   demo/throttle tests), `tsc --noEmit` 0 errors, lint 0 warnings.
 - [x] Backend flow (pytest, exact cases listed per section above) — invite
   lifecycle: create → accept → enrolled → token dead on reuse.
-- [ ] Manual end-to-end (USER, silence = passed): from the roster page, invite
+- [x] Manual end-to-end (USER, silence = passed): from the roster page, invite
   a personal email → email arrives from the new domain → accept link → create
   account with ToS checkbox → land enrolled in the course → appears on the
   roster; revoke a second pending invite and confirm its link shows the
@@ -178,7 +178,7 @@ phase-50 ADMIN_URL flip finally applied.
   restore drill output recorded.
 - [ ] Admin: `curl -o /dev/null -w '%{http_code}' https://stemquest-api-va.onrender.com/admin/`
   → 404, and the slug path → 200/302 (paste outputs).
-- [ ] Sentry: forced frontend error visible in the Sentry project.
+- [x] Sentry: forced frontend error visible in the Sentry project.
 
 ## Implementation notes & evidence (2026-07-23)
 
@@ -284,3 +284,22 @@ https://stemquests.com/reset-password?... (FRONTEND_URL confirmed).
 Remaining email-adjacent items: USER's manual invite E2E click-through
 (runbook step B5 — now unblocked) and revoking the old Gmail app
 password (runbook cleanup).
+
+## Manual E2E + Sentry verified in production (2026-07-23)
+
+USER ran the real flow: invite to cesar_villarreal11@yahoo.com -> Resend
+email arrived -> accept link -> account created (verified email, active
+enrollment, invite consumed — all confirmed in Neon; accept POST 201).
+The post-signup navigation crashed into the ErrorBoundary because the
+tab predated the day's deploys and its lazy CourseDetailPage chunk hash
+no longer existed (Sentry STEMQUEST-REACT-2 — which also proves frontend
+Sentry works end-to-end, no forced error needed). Fixed in PR #53:
+vite:preloadError handler reloads stale tabs once (30s loop guard);
+verified live in the served bundle. Sentry also confirmed prior
+incidents: yesterday's invite failure was Gmail SMTPAuthenticationError
+(retired by Resend); this morning's roster 500s were the merge-before-
+migrate window (self-resolved).
+
+Remaining USER items: revoke old Gmail app password, ADMIN_URL flip,
+UptimeRobot Gmail filter, legal DRAFT sign-off (+ optional revoke-link
+check on a second invite).
