@@ -172,7 +172,7 @@ phase-50 ADMIN_URL flip finally applied.
 - [x] Demo check: "Try the demo" on the live site lands in DEMO101; JAVA101
   roster contains no demo account; demo visitor actions never appear to a
   JAVA101 student.
-- [ ] `/terms` and `/privacy` render on the live site; links present on Login
+- [x] `/terms` and `/privacy` render on the live site; links present on Login
   and AcceptInvite.
 - [x] Backups: one green scheduled workflow run; dump object visible in R2;
   restore drill output recorded.
@@ -254,3 +254,21 @@ points at the failing Gmail — invite emails will NOT send until then),
 frontend Sentry DSN build var, ADMIN_URL flip, UptimeRobot Gmail filter
 fix, manual E2E invite test (blocked on Resend), legal-page DRAFT
 sign-off.
+
+## Post-cutover incident + close-out (2026-07-23, later same day)
+
+- **Outage**: the PR #49 merge deploy carried the new wrangler `routes`
+  block; wrangler disables the workers.dev subdomain on deploy when
+  routes exist without `workers_dev: true`, so BOTH URLs went down
+  (`error code: 1042`). Code was fine (version rollback changed nothing).
+  Fix: re-enabled the workers.dev toggles in the dashboard (site restored
+  in minutes), then PR #50 pinned `workers_dev: true` +
+  `preview_urls: true`. Verified post-fix-deploy: workers.dev 200 AND
+  stemquests.com 200 — deploys are idempotent for both URLs again.
+- `/terms` and `/privacy` serve 200 on https://stemquests.com with footer
+  links live on Login/AcceptInvite (DRAFT banner stays until user
+  sign-off).
+- Close-out verify: pytest 454 passed, tsc 0 errors, lint 0 warnings.
+- Sentry note: the Workers build already carries VITE_SENTRY_DSN +
+  SENTRY_ORG/PROJECT/AUTH_TOKEN build vars (seen in build settings), so
+  the remaining Sentry item is likely just the forced-test-error check.
