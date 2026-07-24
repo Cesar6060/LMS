@@ -589,10 +589,36 @@ Run `/verify-stack` and show the output. Beyond that, these specific checks:
 
 ## Deploy notes
 
-- New migrations from C4 are **`RemoveField` — irreversible in practice**. Apply
-  locally, verify, and only then apply to Neon as an explicit step at merge time.
-  Snapshot first; the daily R2 backup (`.github/workflows/db-backup.yml`, last
-  success 2026-07-24 10:28 UTC) is the recovery net.
+- New migration from C4 (`0021`) is **`RemoveField` — irreversible in practice**.
+  Applied locally and verified; the Neon apply is an explicit operator step.
+
+  **ORDER: MERGE FIRST, THEN MIGRATE — the opposite of this project's usual
+  rule.** Every previous phase shipped *additive* migrations, where migrating
+  first is correct because new schema is harmless to old code. `0021` is
+  *subtractive*, so it inverts: the code on `main` today still declares both
+  fields on the `Lesson` model, and Django's default manager puts them in every
+  `SELECT` (no `.only()`/`.defer()` anywhere on `Lesson`). Dropping the columns
+  before the new code is live would raise
+  `ProgrammingError: column courses_lesson.required_quiz_id does not exist`
+  across `LessonViewSet` list/retrieve/update **and `course_map`** — the course
+  roadmap endpoint, i.e. a visible outage for anyone browsing a course, for the
+  whole length of the Render deploy.
+
+  Correct sequence:
+    1. Snapshot / confirm the daily R2 backup is recent
+       (`.github/workflows/db-backup.yml`).
+    2. `showmigrations courses` against Neon — confirm `0020` is applied.
+    3. **Merge the PR.** Let Render deploy and go healthy; confirm the new code
+       is actually live before continuing.
+    4. `DATABASE_URL=<neon> python manage.py migrate courses 0021`.
+    5. Verify: `showmigrations`, a lesson list/detail call, and `course_map`;
+       watch Sentry for `ProgrammingError` for a few minutes.
+
+  Reversibility, checked at the SQL level with `sqlmigrate --backwards`:
+  reversing restores `required_quiz_id` as all-NULL (which matches prod's
+  current state exactly, so nothing is lost there), but it recreates
+  `max_quiz_attempts` backfilled to `0` — **not** the historical per-lesson
+  values. Recovering those needs the snapshot, not `migrate`.
 - The `django-allauth` upgrade (A1) touches live auth settings. Verify login,
   logout, password reset, and the demo lockdown against the local stack before
   merging.
