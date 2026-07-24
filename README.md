@@ -13,8 +13,9 @@ The live site runs as a **public demo**. There's no sign-up and nothing to
 type — click **Try the demo** on the landing page (or the login page) and
 you're in as Jordan Doe, the shared demo student.
 
-The demo account is enrolled in **JAVA101 (Introduction to Java)**, which exists
-purely as a sandbox course for kicking the tires — Unit 1 is completed and Unit 2
+The demo account is enrolled in **DEMO101 (Java Fundamentals — Demo)**, a clone
+of JAVA101 that exists purely as a sandbox for kicking the tires, so demo
+visitors never share a roster with real students. Unit 1 is completed and Unit 2
 is in progress. Poke around freely; it resets to that baseline periodically. The
 first request may take up to a minute if the free-tier backend happens to be cold.
 
@@ -110,7 +111,7 @@ Deep dives: [deployment overview](docs/specs/deployment-overview.md) · [deploym
 
 | Layer | Technology |
 |-------|------------|
-| **Frontend** | React 18, TypeScript, Vite, Tailwind CSS, Framer Motion |
+| **Frontend** | React 18, TypeScript, Vite, Tailwind CSS, Radix UI |
 | **Frontend hosting** | Cloudflare Workers (static assets, global CDN) |
 | **Backend** | Django 4.2 LTS, Django REST Framework, gunicorn, WhiteNoise |
 | **Backend hosting** | Render |

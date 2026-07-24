@@ -92,38 +92,30 @@ class Lesson(models.Model):
         related_name='lessons'
     )
     title = models.CharField(max_length=200)
+    # DORMANT (Phase 53): lesson content moved to LessonSection. Migration 0019
+    # blanked these on every row, phase 55 closed the write path, and nothing
+    # renders them. They survive only so the schema drop can be its own change;
+    # read LessonSection for the real content/video. Do not write them.
     content = models.TextField(
         blank=True,
-        help_text='Lesson content in Markdown format'
+        help_text='DORMANT (Phase 53): superseded by LessonSection.content.'
     )
     order = models.PositiveIntegerField(default=0)
     video_type = models.CharField(
         max_length=10,
         choices=VIDEO_TYPE_CHOICES,
-        default='none'
+        default='none',
+        help_text='DORMANT (Phase 53): superseded by LessonSection.video_type.'
     )
     video_id = models.CharField(
         max_length=50,
         blank=True,
-        help_text='YouTube video ID'
-    )
-    required_quiz = models.ForeignKey(
-        'quizzes.Quiz',
-        null=True,
-        blank=True,
-        on_delete=models.SET_NULL,
-        related_name='required_for_lessons',
-        help_text='DORMANT (Phase 54): retired cross-course quiz gate. Kept as a '
-                  'dormant column; no longer written or enforced.'
+        help_text='DORMANT (Phase 53): superseded by LessonSection.video_id.'
     )
     requires_quiz = models.BooleanField(
         default=False,
         help_text="When true, students must pass this lesson's own comprehension "
                   "questions (the Questions tab) to complete the lesson."
-    )
-    max_quiz_attempts = models.PositiveIntegerField(
-        default=0,
-        help_text='Maximum attempts for comprehension quiz (0 = unlimited)'
     )
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)

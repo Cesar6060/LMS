@@ -89,7 +89,6 @@ export interface Lesson {
   video_id: string | null;
   /** Phase 54 — when true, the lesson's own comprehension questions gate completion. */
   requires_quiz?: boolean;
-  max_quiz_attempts?: number | null;
   question_count?: number;
   attachments?: LessonAttachment[];
   attachment_count?: number;
@@ -338,29 +337,6 @@ export interface LessonQuestionsStatus {
   attempts_remaining?: number | null;
   can_attempt?: boolean;
   has_passed?: boolean;
-}
-
-export interface QuizSubmissionResult {
-  attempt_number: number;
-  score: number;
-  total_questions: number;
-  percentage: number;
-  passed: boolean;
-  results: Array<{
-    question_id: number;
-    is_correct: boolean;
-    selected_choice_id: number | null;
-    correct_choice_id: number | null;
-  }>;
-  attempts_remaining: number | null;
-  can_complete_lesson: boolean;
-  gamification?: GamificationDelta;
-}
-
-export interface AnswerQuestionResult {
-  is_correct: boolean;
-  correct_choice_id: number | null;
-  correct_choice_text: string | null;
 }
 
 // Instructor Calendar & Reminders

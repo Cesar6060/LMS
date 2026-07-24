@@ -232,7 +232,7 @@ export function ManageCoursePage() {
 
   const handleAddLesson = async (unitId: number, title: string) => {
     try {
-      await courseService.createLesson(unitId, { title, content: '' });
+      await courseService.createLesson(unitId, { title });
       await loadCourse();
     } catch (err) {
       console.error('Failed to add lesson:', err);

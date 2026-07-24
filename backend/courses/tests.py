@@ -1771,44 +1771,19 @@ class TestLessonCompletionGating:
         assert lesson.requires_quiz is False
 
 
-@pytest.mark.django_db
-class TestRequiresQuizMigration:
-    """Phase 54: `0020` seeds `requires_quiz` from existing questions and clears
-    the retired `required_quiz` FK."""
-
-    def test_seed_and_clear(self, instructor, course, unit):
-        import importlib
-        from django.apps import apps as global_apps
-        migration = importlib.import_module(
-            'courses.migrations.0020_lesson_requires_quiz'
-        )
-        seed_requires_quiz_and_clear_required_quiz = (
-            migration.seed_requires_quiz_and_clear_required_quiz
-        )
-        from quizzes.models import Quiz
-
-        quiz = Quiz.objects.create(unit=unit, title='Legacy Gate')
-
-        # Lesson with questions → should become requires_quiz=True.
-        with_q = Lesson.objects.create(unit=unit, title='Has Q', order=0)
-        LessonQuestion.objects.create(lesson=with_q, text='Q?', order=1)
-
-        # Lesson with no questions → stays False.
-        no_q = Lesson.objects.create(unit=unit, title='No Q', order=1)
-
-        # Lesson carrying a retired required_quiz FK → cleared.
-        with_fk = Lesson.objects.create(
-            unit=unit, title='Has FK', order=2, required_quiz=quiz
-        )
-
-        seed_requires_quiz_and_clear_required_quiz(global_apps, None)
-
-        with_q.refresh_from_db()
-        no_q.refresh_from_db()
-        with_fk.refresh_from_db()
-        assert with_q.requires_quiz is True
-        assert no_q.requires_quiz is False
-        assert with_fk.required_quiz_id is None
+# Phase 55 (C4): TestRequiresQuizMigration is retired alongside the column.
+#
+# It called 0020's data function with the *current* app registry to prove it
+# seeded `requires_quiz` from existing questions and cleared the retired
+# `required_quiz` FK. Migration 0021 drops `required_quiz` from the schema, so
+# the column no longer exists in the test database and no registry trick can
+# resurrect it — the function is only runnable against historical state that a
+# head-migrated test DB does not have.
+#
+# 0020 is already applied everywhere that matters (production 2026-07-23), so
+# what needs ongoing protection is not the one-time backfill but the *rule* it
+# established: a lesson gates on its quiz iff it has questions. That is now
+# pinned forward by TestSeedingGateMatchesProduction.
 
 
 # ---------------------------------------------------------------------------
@@ -2237,11 +2212,14 @@ class TestLessonQuizSession:
         assert progress.status_code == status.HTTP_200_OK
         assert progress.data['completed'] is True
 
-    def test_attempt_cap_ignored(self, api_client, student, lesson, enrollment):
-        """max_quiz_attempts is retired: prior completed attempts never block."""
+    def test_prior_attempts_never_block(self, api_client, student, lesson, enrollment):
+        """Prior completed attempts never block a new one.
+
+        Phase 32 retired the attempt cap (mastery re-queues until passed, so a
+        pass is guaranteed) and phase 55 (C4) dropped the `max_quiz_attempts`
+        column outright. This pins the guarantee that replaced it.
+        """
         _add_comprehension_quiz(lesson)
-        lesson.max_quiz_attempts = 1
-        lesson.save()
         LessonQuizAttempt.objects.create(
             user=student, lesson=lesson, attempt_number=1,
             score=0, total_questions=2, passed=False,
@@ -2411,23 +2389,6 @@ class TestCourseMap:
         assert boss_node['best_score'] == 85.0
         assert data['current_node_id'] == f"lesson-{map_course['lesson_b1'].id}"
         assert data['completed_nodes'] == 3
-
-    def test_required_quiz_unlocks_with_its_lesson(self, api_client, student, map_course):
-        """Deadlock exception: a lesson's required_quiz is unlocked while the
-        lesson is still incomplete (not locked behind its completion)."""
-        map_course['lesson_a2'].required_quiz = map_course['boss_a']
-        map_course['lesson_a2'].save()
-        Enrollment.objects.create(user=student, course=map_course['course'])
-        LessonProgress.objects.create(
-            user=student, lesson=map_course['lesson_a1'], completed=True
-        )
-        api_client.force_authenticate(user=student)
-
-        data = api_client.get(self.URL).data
-        nodes = self.flat_nodes(data)
-        assert nodes[1]['state'] == 'current'   # A2 (the gated lesson)
-        assert nodes[2]['state'] == 'unlocked'  # Boss A: unlocked, not current
-        assert nodes[3]['state'] == 'locked'    # B1 untouched by the exception
 
     def test_permission_boundaries(self, api_client, student, instructor, map_course):
         """Unenrolled student 403; course instructor 200; anonymous 401."""
@@ -3196,91 +3157,12 @@ class TestYouTubeVideoIdExtraction:
         assert extract_youtube_video_id(value) is None
 
 
-@pytest.mark.django_db
-class TestLessonVideoValidation:
-    def test_lesson_update_with_shorts_url_stores_bare_id(
-            self, api_client, instructor, lesson):
-        api_client.force_authenticate(user=instructor)
-        response = api_client.patch(
-            f'/api/courses/lessons/{lesson.id}/',
-            {'video_type': 'youtube',
-             'video_id': 'https://www.youtube.com/shorts/dQw4w9WgXcQ'},
-            format='json',
-        )
-        assert response.status_code == status.HTTP_200_OK
-        lesson.refresh_from_db()
-        assert lesson.video_id == 'dQw4w9WgXcQ'
-        assert lesson.video_type == 'youtube'
-
-    def test_lesson_update_with_long_share_url_stores_bare_id(
-            self, api_client, instructor, lesson):
-        # Regression: a valid share URL longer than the 50-char column must be
-        # extracted, not rejected for length. DRF runs the model-derived
-        # max_length validator before validate(), so without an input-length
-        # override this 63-char URL 400s on max_length instead of normalizing.
-        url = 'https://www.youtube.com/watch?v=dQw4w9WgXcQ&si=aB3dEfGhIjKlMnOp'
-        assert len(url) > 50
-        api_client.force_authenticate(user=instructor)
-        response = api_client.patch(
-            f'/api/courses/lessons/{lesson.id}/',
-            {'video_type': 'youtube', 'video_id': url},
-            format='json',
-        )
-        assert response.status_code == status.HTTP_200_OK
-        lesson.refresh_from_db()
-        assert lesson.video_id == 'dQw4w9WgXcQ'
-
-    def test_lesson_update_oversized_video_id_rejected(
-            self, api_client, instructor, lesson):
-        # The input-length override is bounded (255) so oversized junk is still
-        # rejected before extraction runs.
-        api_client.force_authenticate(user=instructor)
-        response = api_client.patch(
-            f'/api/courses/lessons/{lesson.id}/',
-            {'video_type': 'youtube', 'video_id': 'x' * 5000},
-            format='json',
-        )
-        assert response.status_code == status.HTTP_400_BAD_REQUEST
-        assert 'video_id' in response.data
-
-    def test_lesson_update_unparseable_returns_field_error(
-            self, api_client, instructor, lesson):
-        api_client.force_authenticate(user=instructor)
-        response = api_client.patch(
-            f'/api/courses/lessons/{lesson.id}/',
-            {'video_type': 'youtube', 'video_id': 'https://example.com'},
-            format='json',
-        )
-        assert response.status_code == status.HTTP_400_BAD_REQUEST
-        assert 'video_id' in response.data
-        lesson.refresh_from_db()
-        assert lesson.video_id == ''
-
-    def test_lesson_vimeo_choice_rejected(self, api_client, instructor, lesson):
-        api_client.force_authenticate(user=instructor)
-        response = api_client.patch(
-            f'/api/courses/lessons/{lesson.id}/',
-            {'video_type': 'vimeo', 'video_id': '123456789'},
-            format='json',
-        )
-        assert response.status_code == status.HTTP_400_BAD_REQUEST
-        assert 'video_type' in response.data
-
-    def test_lesson_video_type_none_forces_empty_video_id(
-            self, api_client, instructor, lesson):
-        lesson.video_type = 'youtube'
-        lesson.video_id = 'dQw4w9WgXcQ'
-        lesson.save()
-        api_client.force_authenticate(user=instructor)
-        response = api_client.patch(
-            f'/api/courses/lessons/{lesson.id}/',
-            {'video_type': 'none', 'video_id': 'dQw4w9WgXcQ'},
-            format='json',
-        )
-        assert response.status_code == status.HTTP_200_OK
-        lesson.refresh_from_db()
-        assert lesson.video_type == 'none'
-        assert lesson.video_id == ''
+# Phase 55 (C5): TestLessonVideoValidation is gone — lesson-level
+# `video_type`/`video_id` became read-only, so there is no write path left to
+# validate. Video lives on LessonSection (phase 53), and the three cases that
+# class covered uniquely (the >50-char share URL that regressed in phase 52,
+# the 255-char input bound, and video_type=none forcing an empty id) are
+# retargeted onto sections below so the coverage survives the move.
 
 
 @pytest.mark.django_db
@@ -3337,6 +3219,58 @@ class TestSectionVideoValidation:
         )
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert 'video_type' in response.data
+
+    def test_section_long_share_url_stores_bare_id(
+            self, api_client, instructor, lesson):
+        # Regression (phase 52): a valid share URL longer than the 50-char
+        # column must be extracted, not rejected for length. DRF runs the
+        # model-derived max_length validator before validate(), so without
+        # VideoFieldsValidationMixin's input-length override this 63-char URL
+        # 400s on max_length instead of normalizing.
+        url = 'https://www.youtube.com/watch?v=dQw4w9WgXcQ&si=aB3dEfGhIjKlMnOp'
+        assert len(url) > 50
+        api_client.force_authenticate(user=instructor)
+        response = api_client.post(
+            f'/api/courses/lessons/{lesson.id}/sections/',
+            {'title': 'Long url', 'content': '',
+             'video_type': 'youtube', 'video_id': url},
+            format='json',
+        )
+        assert response.status_code == status.HTTP_201_CREATED
+        assert response.data['video_id'] == 'dQw4w9WgXcQ'
+
+    def test_section_oversized_video_id_rejected(
+            self, api_client, instructor, lesson):
+        # The input-length override is bounded (255) so oversized junk is still
+        # rejected before extraction runs.
+        api_client.force_authenticate(user=instructor)
+        response = api_client.post(
+            f'/api/courses/lessons/{lesson.id}/sections/',
+            {'title': 'Huge', 'content': '',
+             'video_type': 'youtube', 'video_id': 'x' * 5000},
+            format='json',
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert 'video_id' in response.data
+
+    def test_section_video_type_none_forces_empty_video_id(
+            self, api_client, instructor, lesson):
+        section = LessonSection.objects.create(
+            lesson=lesson, title='Has video', content='', order=1,
+            video_type='youtube', video_id='dQw4w9WgXcQ',
+        )
+        api_client.force_authenticate(user=instructor)
+        # The section detail route takes a full PUT, not a PATCH.
+        response = api_client.put(
+            f'/api/courses/lessons/{lesson.id}/sections/{section.id}/',
+            {'title': 'Has video', 'content': '', 'order': 1,
+             'video_type': 'none', 'video_id': 'dQw4w9WgXcQ'},
+            format='json',
+        )
+        assert response.status_code == status.HTTP_200_OK
+        section.refresh_from_db()
+        assert section.video_type == 'none'
+        assert section.video_id == ''
 
 
 @pytest.mark.django_db
@@ -3470,29 +3404,10 @@ class TestConsolidateContentIntoSectionsMigration:
 
 
 @pytest.mark.django_db
-class TestRequiredQuizRetired:
-    """Phase 54: the cross-course `required_quiz` gate (System A) is retired.
-
-    The FK is no longer a writable serializer field, so any attempt to set it via
-    the API is silently ignored (the column stays dormant). This supersedes the
-    Phase-53 IDOR-scoping tests — with no writable field there is no IDOR surface.
-    """
-
-    def test_setting_required_quiz_via_api_is_ignored(
-        self, api_client, instructor, unit, lesson
-    ):
-        from quizzes.models import Quiz
-        quiz = Quiz.objects.create(unit=unit, title='Some Quiz')
-
-        api_client.force_authenticate(user=instructor)
-        resp = api_client.patch(
-            f'/api/courses/lessons/{lesson.id}/',
-            {'required_quiz': quiz.id}, format='json')
-
-        # Accepted (unknown write field ignored), but the FK is not set.
-        assert resp.status_code == status.HTTP_200_OK
-        lesson.refresh_from_db()
-        assert lesson.required_quiz_id is None
+class TestRequiresQuizIsTheOnlyGate:
+    """Phase 54 retired the cross-course `required_quiz` gate (System A);
+    phase 55 (C4) dropped the column. `requires_quiz` is the only per-lesson
+    gate left, and it is writable."""
 
     def test_requires_quiz_is_writable(self, api_client, instructor, lesson):
         api_client.force_authenticate(user=instructor)
@@ -3503,3 +3418,63 @@ class TestRequiredQuizRetired:
         assert resp.status_code == status.HTTP_200_OK
         lesson.refresh_from_db()
         assert lesson.requires_quiz is True
+
+
+# ---------------------------------------------------------------------------
+# Phase 55 (C1): seeded gating must match the production gating rule
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.django_db
+class TestSeedingGateMatchesProduction:
+    """The seed commands must produce the gate production actually runs.
+
+    Migration 0020 set `requires_quiz` True on every production lesson that had
+    questions (40 of 40). But the seed commands never wrote the field and the
+    model default is False, so a freshly seeded local or CI database exercised
+    the *ungated* completion path while production exercised the gated one —
+    the exact distinction phase 54 was built to make explicit.
+
+    The invariant: a seeded lesson gates on its quiz if and only if it has
+    comprehension questions.
+    """
+
+    def _assert_gate_matches_questions(self, lessons):
+        mismatched = [
+            (lesson.title, lesson.requires_quiz, lesson.questions.count())
+            for lesson in lessons
+            if lesson.requires_quiz != lesson.questions.exists()
+        ]
+        assert mismatched == [], (
+            'seeded lessons whose requires_quiz disagrees with whether they '
+            f'have questions: {mismatched}'
+        )
+
+    def test_populate_java_course_gates_lessons_that_have_questions(self):
+        from django.core.management import call_command
+
+        # The command looks the course owner up by name and bails out quietly
+        # if it is missing, so create it before seeding.
+        User.objects.create_user(
+            email='cesar@test.com', password='testpass123',
+            first_name='Cesar', last_name='Villarreal', is_instructor=True,
+        )
+        call_command('populate_java_course')
+
+        lessons = list(
+            Lesson.objects.filter(unit__course__code='JAVA101')
+            .prefetch_related('questions')
+        )
+        assert lessons, 'populate_java_course seeded no lessons'
+        assert any(lesson.questions.exists() for lesson in lessons)
+        self._assert_gate_matches_questions(lessons)
+
+    def test_seed_data_gates_lessons_that_have_questions(self):
+        from django.core.management import call_command
+
+        call_command('seed_data')
+
+        lessons = list(Lesson.objects.prefetch_related('questions'))
+        assert lessons, 'seed_data seeded no lessons'
+        assert any(lesson.questions.exists() for lesson in lessons)
+        self._assert_gate_matches_questions(lessons)

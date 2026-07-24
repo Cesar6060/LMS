@@ -1,5 +1,5 @@
 import api from './api';
-import type { Course, Unit, Lesson, Enrollment, LessonProgress, GradingConfig, GradeSummary, EnhancedDashboard, LessonQuestion, LessonQuestionsStatus, AnswerQuestionResult, QuizSubmissionResult, LessonAttachment, LessonSection, InstructorReminder, CalendarResponse, QuizSessionState, LessonSessionAnswerResult, CourseMap, PaginatedResponse } from '../types';
+import type { Course, Unit, Lesson, Enrollment, LessonProgress, GradingConfig, GradeSummary, EnhancedDashboard, LessonQuestion, LessonQuestionsStatus, LessonAttachment, LessonSection, InstructorReminder, CalendarResponse, QuizSessionState, LessonSessionAnswerResult, CourseMap, PaginatedResponse } from '../types';
 
 // Re-export types for convenience
 export type { Unit, Lesson } from '../types';
@@ -231,7 +231,10 @@ export const courseService = {
     return response.data;
   },
 
-  async createLesson(unitId: number, data: { title: string; content?: string; video_type?: string; video_id?: string; order?: number }): Promise<Lesson> {
+  // Phase 55 (C5): `content`/`video_type`/`video_id` are read-only server-side.
+  // A lesson starts empty and gains its content as LessonSections, so those
+  // params are gone rather than silently ignored.
+  async createLesson(unitId: number, data: { title: string; order?: number }): Promise<Lesson> {
     const response = await api.post<Lesson>(`/courses/units/${unitId}/lessons/`, data);
     return response.data;
   },
@@ -478,23 +481,8 @@ export const courseService = {
     await api.delete(`/courses/lessons/${lessonId}/questions/${questionId}/`);
   },
 
-  async answerLessonQuestion(lessonId: number, questionId: number, choiceId: number): Promise<AnswerQuestionResult> {
-    const response = await api.post<AnswerQuestionResult>(`/courses/lessons/${lessonId}/answer-question/`, {
-      question_id: questionId,
-      choice_id: choiceId,
-    });
-    return response.data;
-  },
-
   async getLessonQuestionsStatus(lessonId: number): Promise<LessonQuestionsStatus> {
     const response = await api.get<LessonQuestionsStatus>(`/courses/lessons/${lessonId}/questions-status/`);
-    return response.data;
-  },
-
-  async submitLessonQuiz(lessonId: number, answers: Record<string, number>): Promise<QuizSubmissionResult> {
-    const response = await api.post<QuizSubmissionResult>(`/courses/lessons/${lessonId}/submit-quiz/`, {
-      answers,
-    });
     return response.data;
   },
 

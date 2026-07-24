@@ -101,7 +101,7 @@ class LessonSectionBulkCreateSerializer(serializers.Serializer):
     sections = LessonSectionCreateSerializer(many=True, min_length=1, max_length=50)
 
 
-class LessonSerializer(VideoFieldsValidationMixin, serializers.ModelSerializer):
+class LessonSerializer(serializers.ModelSerializer):
     """Serializer for Lesson model."""
     question_count = serializers.SerializerMethodField()
     attachments = LessonAttachmentSerializer(many=True, read_only=True)
@@ -114,14 +114,26 @@ class LessonSerializer(VideoFieldsValidationMixin, serializers.ModelSerializer):
         # Phase 54: `required_quiz` (System A) retired — not writable/readable.
         # `requires_quiz` is the single per-lesson gate over the lesson's own
         # comprehension questions.
+        #
+        # Phase 55 (C5): `content`/`video_type`/`video_id` are read-only. They
+        # are dormant on Lesson — content and video live on LessonSection since
+        # phase 53, and migration 0019 blanked every lesson-level value — but
+        # they stayed writable, so a client could still put data somewhere
+        # nothing renders. Kept readable while old clients still deserialize
+        # them; the column drop is a later change.
+        # VideoFieldsValidationMixin is deliberately gone with them: it exists
+        # to normalize a writable video_id, and LessonSection still uses it.
         fields = [
             'id', 'unit', 'title', 'content', 'order',
             'video_type', 'video_id', 'requires_quiz',
-            'max_quiz_attempts', 'question_count', 'attachments',
+            'question_count', 'attachments',
             'sections', 'section_count', 'has_video',
             'created_at', 'updated_at'
         ]
-        read_only_fields = ['id', 'created_at', 'updated_at']
+        read_only_fields = [
+            'id', 'created_at', 'updated_at',
+            'content', 'video_type', 'video_id',
+        ]
 
     def validate_unit(self, value):
         """Refuse a PATCH that would move the lesson into another course.
@@ -161,13 +173,18 @@ class LessonSerializer(VideoFieldsValidationMixin, serializers.ModelSerializer):
         return obj.sections.filter(video_type='youtube').exclude(video_id='').exists()
 
 
-class LessonCreateSerializer(VideoFieldsValidationMixin, serializers.ModelSerializer):
-    """Serializer for creating lessons (unit set in view)."""
+class LessonCreateSerializer(serializers.ModelSerializer):
+    """Serializer for creating lessons (unit set in view).
+
+    Phase 55 (C5): `content`/`video_type`/`video_id` are read-only here too — a
+    new lesson starts empty and gains its content as LessonSections. They stay
+    in `fields` so the create response keeps its shape for existing clients.
+    """
 
     class Meta:
         model = Lesson
-        fields = ['id', 'title', 'content', 'order', 'video_type', 'video_id', 'requires_quiz', 'max_quiz_attempts']
-        read_only_fields = ['id']
+        fields = ['id', 'title', 'content', 'order', 'video_type', 'video_id', 'requires_quiz']
+        read_only_fields = ['id', 'content', 'video_type', 'video_id']
 
 
 class LessonListSerializer(serializers.ModelSerializer):
@@ -181,7 +198,7 @@ class LessonListSerializer(serializers.ModelSerializer):
         model = Lesson
         fields = [
             'id', 'title', 'order', 'video_type', 'video_id', 'content',
-            'requires_quiz', 'max_quiz_attempts', 'question_count',
+            'requires_quiz', 'question_count',
             'attachment_count', 'section_count', 'has_video'
         ]
 
@@ -641,30 +658,6 @@ class LessonQuestionAnswerSerializer(serializers.ModelSerializer):
         model = LessonQuestionAnswer
         fields = ['id', 'question', 'question_text', 'selected_choice', 'selected_choice_text', 'is_correct', 'answered_at']
         read_only_fields = ['id', 'is_correct', 'answered_at']
-
-
-class AnswerQuestionSerializer(serializers.Serializer):
-    """Serializer for answering a lesson question."""
-    question_id = serializers.IntegerField()
-    choice_id = serializers.IntegerField()
-
-    def validate(self, data):
-        question_id = data['question_id']
-        choice_id = data['choice_id']
-
-        try:
-            question = LessonQuestion.objects.get(id=question_id)
-        except LessonQuestion.DoesNotExist:
-            raise serializers.ValidationError({'question_id': 'Question not found.'})
-
-        try:
-            choice = LessonQuestionChoice.objects.get(id=choice_id, question=question)
-        except LessonQuestionChoice.DoesNotExist:
-            raise serializers.ValidationError({'choice_id': 'Choice not found for this question.'})
-
-        data['question'] = question
-        data['choice'] = choice
-        return data
 
 
 class LessonQuestionsStatusSerializer(serializers.Serializer):
