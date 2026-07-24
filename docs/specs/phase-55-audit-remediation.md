@@ -590,7 +590,9 @@ Run `/verify-stack` and show the output. Beyond that, these specific checks:
 ## Deploy notes
 
 - New migration from C4 (`0021`) is **`RemoveField` — irreversible in practice**.
-  Applied locally and verified; the Neon apply is an explicit operator step.
+  **APPLIED TO NEON 2026-07-24**, after the merge and after confirming the new
+  code was live. Verified post-apply: both columns gone, 40 lessons intact,
+  `course_map` and lesson detail 200. Sequence below was followed as written.
 
   **ORDER: MERGE FIRST, THEN MIGRATE — the opposite of this project's usual
   rule.** Every previous phase shipped *additive* migrations, where migrating

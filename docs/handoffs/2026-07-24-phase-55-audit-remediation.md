@@ -22,10 +22,32 @@ deleted (C2/C3); dormant columns dropped (C4); content write path closed (C5);
 Redis stub removed (C6); real per-lesson completion (C7); vitest (D1);
 coverage (D2); first `core/` tests (D3); notification signal tests (D4).
 
-## In progress / not done
+## Deployed and verified (2026-07-24, after merge)
 
-- **Migration `0021` is applied LOCALLY ONLY.** Not applied to Neon. See
-  Next steps — the order matters and is not the usual one.
+PR #60 merged as `552d454`. Render deployed, migration `0021` applied to Neon.
+Order followed as planned: confirmed new code live **first** (the C2-deleted
+routes `/submit-quiz/` and `/answer-question/` returned 404 while surviving
+routes returned 401 — proof the new build was serving), then migrated.
+
+Post-migration verification, all green:
+- `courses_lesson` columns: `required_quiz_id` and `max_quiz_attempts` gone;
+  `requires_quiz` and the dormant `content`/`video_type`/`video_id` retained.
+- Data intact: 40 lessons (40 gated), 148 sections, 170 questions,
+  2 active enrollments.
+- `course_map` — the endpoint that would have 500'd on the wrong order — 200.
+- Course detail carries C7's `is_completed` on all 20 lessons; notifications
+  return `{count,next,previous,results}`; lesson detail 200 with the dropped
+  fields absent from the payload.
+- Auth after the allauth 65.14.1 migration: demo-login 200, profile 200,
+  registration still 403, my-grades 200. `stemquests.com` serves.
+- Phase-54 gate intact: `questions-status` reports `requires_quiz: true`,
+  `can_complete_lesson: false`.
+
+Worth recording: `max_quiz_attempts` was uniformly `3` on all 40 rows, so the
+"irreversible data loss" was 40 copies of one constant — reconstructable from
+the seed script if it ever mattered.
+
+## In progress / not done
 - **47 merged remote `lms/*` branches not pruned** — user chose to leave them
   this session. The 6 unmerged ones stay regardless. Recorded as a follow-up.
 - **Manual click-through not performed** (local or prod). The five scenarios
@@ -34,12 +56,15 @@ coverage (D2); first `core/` tests (D3); notification signal tests (D4).
 
 ## Next steps
 
-1. **Review and merge PR #60.** Do NOT migrate first — see step 2.
-2. **After the merge deploys and Render is healthy**, apply the migration:
-   `DATABASE_URL=<neon> python manage.py migrate courses 0021`.
-   Then verify `course_map` and a lesson detail call, and watch Sentry.
-3. Post-deploy: `https://stemquest-api-va.onrender.com/api/health/?deep=1` →
-   `{"status":"ok","database":"ok"}`, and `https://stemquests.com` loads.
+1. **Check Sentry** for any `ProgrammingError` in the window between the merge
+   and the migration — the only unverifiable-from-here item. Expected clean:
+   the deleted routes proved the new code was live before the columns went.
+2. **Manual click-through** (not done): instructor lesson-create from
+   ManageCoursePage (C5 changed the payload), and an avatar upload of a valid
+   PNG plus a renamed HTML file (A3 changed validation).
+3. **Triage the Dependabot PRs** — the first (`pytest-cov 7.1.0`) opened within
+   minutes of the merge. A `github-actions` one for the Node-20 deprecation on
+   `actions/checkout@v4` etc. should follow.
 4. Phase 56: Django 4.2 → 5.2 LTS (4.2 is past EOL; 4.2.30 is its final patch).
 5. Phase 56b (or fold into 56): react-router 7 → 8, which requires React 18 → 19.
 
