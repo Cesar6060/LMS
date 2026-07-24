@@ -253,7 +253,7 @@ SUPPORTING CAST (small but load-bearing)
   (config('SENTRY_DSN', default='')). The reason the whole "inert
   unless its env var is set" pattern is one-liners.
 - pillow: image processing for avatar uploads (validation/resizing).
-- pytest + pytest-django: the backend test suite (~435 tests) that CI
+- pytest + pytest-django: the backend test suite (~555 tests) that CI
   and /verify-stack run; the merge gate that keeps main deployable.
 - ESLint + TypeScript (tsc): the frontend's equivalent gates.
 

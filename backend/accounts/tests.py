@@ -374,7 +374,9 @@ class TestDemoLogin:
 
 
 def make_png(name='avatar.png'):
-    # ImageField runs Pillow verification, so the payload must be a real PNG.
+    # The payload must be a real PNG because upload_avatar runs an explicit
+    # Pillow verify() (phase 55, A3) — NOT because of ImageField, whose
+    # validation never runs: save() skips full_clean().
     buf = BytesIO()
     Image.new('RGB', (1, 1), 'red').save(buf, format='PNG')
     return SimpleUploadedFile(name, buf.getvalue(), content_type='image/png')
@@ -507,6 +509,97 @@ class TestAvatarEndpoints:
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert not UserPreferences.objects.get(user=user).avatar
+
+    # -- Phase 55 review: format confusion -----------------------------------
+    # Found by the adversarial-tester. `Image.open(...).verify()` accepts
+    # ANYTHING Pillow can decode, so before the format pin these all uploaded
+    # successfully despite the extension allowlist. The allowlist exists to
+    # bound which Pillow decoders untrusted bytes reach — the less-common
+    # codecs are where most of the CVEs behind this phase's Pillow bump live —
+    # so "it's a valid image of some kind" is not the bar.
+
+    @pytest.mark.parametrize('pillow_format', ['TIFF', 'BMP', 'PPM'])
+    def test_other_image_format_disguised_as_png_rejected(
+        self, api_client, user, pillow_format
+    ):
+        api_client.force_authenticate(user=user)
+        buf = BytesIO()
+        Image.new('RGB', (4, 4), 'blue').save(buf, format=pillow_format)
+        disguised = SimpleUploadedFile(
+            'avatar.png', buf.getvalue(), content_type='image/png',
+        )
+
+        response = api_client.post(
+            '/api/auth/settings/avatar/',
+            {'avatar': disguised},
+            format='multipart',
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert not UserPreferences.objects.get(user=user).avatar
+
+    def test_real_jpeg_named_png_rejected(self, api_client, user):
+        """Even an allowed *format* must match its declared extension."""
+        api_client.force_authenticate(user=user)
+        buf = BytesIO()
+        Image.new('RGB', (4, 4), 'green').save(buf, format='JPEG')
+        mismatched = SimpleUploadedFile(
+            'avatar.png', buf.getvalue(), content_type='image/png',
+        )
+
+        response = api_client.post(
+            '/api/auth/settings/avatar/',
+            {'avatar': mismatched},
+            format='multipart',
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+
+    def test_real_jpeg_named_jpg_accepted(self, api_client, user):
+        """...and the matching pair still works, so the pin isn't over-tight."""
+        api_client.force_authenticate(user=user)
+        buf = BytesIO()
+        Image.new('RGB', (4, 4), 'green').save(buf, format='JPEG')
+        good = SimpleUploadedFile(
+            'avatar.jpg', buf.getvalue(), content_type='image/jpeg',
+        )
+
+        response = api_client.post(
+            '/api/auth/settings/avatar/',
+            {'avatar': good},
+            format='multipart',
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        assert UserPreferences.objects.get(user=user).avatar
+
+    @pytest.mark.parametrize('hostile_name', [
+        '../../../evil.png',
+        '....//....//evil.png',
+        '/etc/evil.png',
+    ])
+    def test_path_traversal_filename_is_sanitized(
+        self, api_client, user, hostile_name
+    ):
+        """Django's storage layer strips the path; pin it so a future custom
+        upload_to or storage backend can't quietly reintroduce an escape."""
+        api_client.force_authenticate(user=user)
+        buf = BytesIO()
+        Image.new('RGB', (1, 1), 'red').save(buf, format='PNG')
+        traversal = SimpleUploadedFile(
+            hostile_name, buf.getvalue(), content_type='image/png',
+        )
+
+        response = api_client.post(
+            '/api/auth/settings/avatar/',
+            {'avatar': traversal},
+            format='multipart',
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        stored = UserPreferences.objects.get(user=user).avatar.name
+        assert '..' not in stored
+        assert stored.startswith('avatars/')
 
     def test_delete_avatar(self, api_client, user):
         api_client.force_authenticate(user=user)

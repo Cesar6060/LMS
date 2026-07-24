@@ -147,6 +147,18 @@ class LessonSerializer(serializers.ModelSerializer):
         Mirrors the guard `LessonViewSet.reorder` already applies to its own
         optional `unit` argument: same-course only, and the instructor is
         re-checked against the target's course.
+
+        That second check cannot fire through the API today — by the time it
+        runs the target is known to be in the same course, which `get_object()`
+        already checked the caller owns. It is kept as belt-and-braces so it
+        becomes load-bearing if the same-course restriction is ever relaxed,
+        matching what `reorder` does.
+
+        It fails *closed* when the serializer has no request in its context.
+        Every current call site is a DRF view, which always supplies one, but
+        skipping the ownership check for a context-less caller (a management
+        command, a shell session, a future bulk import) would make this guard
+        quietly optional — the opposite of what it is for.
         """
         if self.instance is None:
             return value
@@ -157,8 +169,12 @@ class LessonSerializer(serializers.ModelSerializer):
             )
 
         request = self.context.get('request')
-        if request is not None:
-            require_course_instructor(request.user, value.course)
+        if request is None:
+            raise serializers.ValidationError(
+                'Cannot change a lesson\'s unit without a request context to '
+                'check course ownership against.'
+            )
+        require_course_instructor(request.user, value.course)
 
         return value
 

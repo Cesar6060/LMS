@@ -222,6 +222,50 @@ class TestEnrollment:
         assert enrollment.is_active is False
         assert Enrollment.objects.filter(pk=enrollment.pk).exists()
 
+    def test_idor_cannot_delete_another_users_enrollment(
+        self, api_client, student, course, enrollment
+    ):
+        """Enrollment ids are guessable; the queryset scoping is what stops
+        one student deactivating another's enrollment."""
+        attacker = User.objects.create_user(
+            email='attacker@test.com', password='testpass123'
+        )
+        Enrollment.objects.create(user=attacker, course=course)
+
+        api_client.force_authenticate(user=attacker)
+        response = api_client.delete(f'/api/courses/enrollments/{enrollment.id}/')
+
+        assert response.status_code == status.HTTP_404_NOT_FOUND
+        enrollment.refresh_from_db()
+        assert enrollment.is_active is True
+
+    def test_soft_delete_actually_revokes_access(
+        self, api_client, student, course, enrollment, unit
+    ):
+        """Soft-delete must revoke access, not just flip a flag — otherwise
+        'unenrolled' students would keep reading course content."""
+        lesson = Lesson.objects.create(unit=unit, title='L1', order=1)
+        api_client.force_authenticate(user=student)
+        assert api_client.get(
+            f'/api/courses/lessons/{lesson.id}/'
+        ).status_code == status.HTTP_200_OK
+
+        assert api_client.delete(
+            f'/api/courses/enrollments/{enrollment.id}/'
+        ).status_code == status.HTTP_204_NO_CONTENT
+
+        assert api_client.get(
+            f'/api/courses/lessons/{lesson.id}/'
+        ).status_code == status.HTTP_403_FORBIDDEN
+
+    def test_cannot_unenroll_twice(self, api_client, student, enrollment):
+        """An already-inactive enrollment is out of the queryset."""
+        api_client.force_authenticate(user=student)
+        api_client.delete(f'/api/courses/enrollments/{enrollment.id}/')
+
+        response = api_client.delete(f'/api/courses/enrollments/{enrollment.id}/')
+        assert response.status_code == status.HTTP_404_NOT_FOUND
+
     def test_demo_account_cannot_unenroll(self, api_client, course):
         """Every visitor shares the demo login, so one un-enroll would break
         the demo for everyone until an operator re-ran seed_demo_account."""
@@ -1414,6 +1458,39 @@ class TestLessonReorder:
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         lesson.refresh_from_db()
         assert lesson.unit_id == original_unit_id
+
+    def test_instructor_of_destination_course_cannot_pull_lesson_in(
+        self, api_client, other_instructor, lessons_a, other_course_unit
+    ):
+        """The third actor: someone who legitimately owns the *destination*
+        but not the lesson's own course. Blocked at get_object(), before
+        validate_unit runs at all."""
+        lesson = lessons_a[0]
+        original_unit_id = lesson.unit_id
+        api_client.force_authenticate(user=other_instructor)
+        response = api_client.patch(
+            f'/api/courses/lessons/{lesson.id}/',
+            {'unit': other_course_unit.id},
+        )
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+        lesson.refresh_from_db()
+        assert lesson.unit_id == original_unit_id
+
+    def test_validate_unit_fails_closed_without_request_context(
+        self, unit_b, lessons_a
+    ):
+        """No request context means no user to check ownership against, so the
+        guard must refuse rather than quietly skip the check. Pins the
+        behaviour for non-view callers (shell, management command, bulk import).
+        """
+        from .serializers import LessonSerializer
+
+        serializer = LessonSerializer(
+            instance=lessons_a[0], data={'unit': unit_b.id},
+            partial=True, context={},
+        )
+        assert serializer.is_valid() is False
+        assert 'unit' in serializer.errors
 
     def test_patch_unit_within_same_course_allowed(
         self, api_client, instructor, unit_b, lessons_a

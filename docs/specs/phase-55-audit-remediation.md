@@ -676,6 +676,11 @@ Deviations from the spec as written, all deliberate:
 - **B5 moved 7 one-time runbooks, not 8.** Only 7 exist for the phases the spec
   lists (38, 39, 40, 46, 47, 49, 50).
 - **B6 remote-branch prune not done** — user's call; see follow-ups.
+- **`docs/PROMPT-REFERENCE.md` was refreshed under B4 and then deleted under
+  B6**, which consolidates the three overlapping workflow guides down to the
+  newest. Its two unique sections (non-phase work, steering a session) were
+  folded into `docs/runbooks/workflow-prompting-guide.txt` first. So
+  `.gitignore` now names 5 private docs, not 6 — the sixth no longer exists.
 
 Also fixed, found while working and not in the spec: `README.md:16` claimed the
 demo account is enrolled in JAVA101, but since phase 51 it is **DEMO101 ("Java

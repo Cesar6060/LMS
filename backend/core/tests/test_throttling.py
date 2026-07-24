@@ -203,3 +203,32 @@ def test_scoped_write_throttle_defers_to_super_for_writes(factory):
     with pytest.raises(AssertionError, match='must not be consulted'):
         ClientIPScopedWriteRateThrottle().allow_request(
             request, ExplodingScopeView())
+
+
+# ---------------------------------------------------------------------------
+# Accepted residual risk (phase 55 review)
+# ---------------------------------------------------------------------------
+
+
+@override_settings(TRUST_CF_HEADERS=True)
+def test_trusting_cf_headers_does_not_close_xff_splitting(factory):
+    """Trusting CF-Connecting-IP only helps when Cloudflare actually sent it.
+
+    Raised by the adversarial-tester during the phase 55 review. With trust ON
+    but no CF header, DRF's default ident falls back to X-Forwarded-For, which
+    a caller can vary per request to mint a fresh throttle bucket each time.
+
+    This is pinned deliberately as an *accepted* risk, not a passing guard: the
+    whole hardening rests on one topology guarantee — Cloudflare is always in
+    front and the Render origin is not separately addressable — with no
+    secondary control such as a pinned NUM_PROXIES. If that guarantee ever
+    stops holding (a staging host behind a different proxy, a leaked origin
+    address), the throttle degrades to spoofable and this test should start
+    failing on purpose.
+    """
+    throttle = ClientIPAnonRateThrottle()
+
+    first = factory.get('/api/auth/login/', HTTP_X_FORWARDED_FOR='1.1.1.1')
+    second = factory.get('/api/auth/login/', HTTP_X_FORWARDED_FOR='2.2.2.2')
+
+    assert throttle.get_ident(first) != throttle.get_ident(second)

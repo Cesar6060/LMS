@@ -219,7 +219,7 @@ class UnitViewSet(viewsets.ModelViewSet):
                 Unit.objects.filter(pk=item.pk).update(order=index)
 
         unit.refresh_from_db()
-        return Response(UnitSerializer(unit).data)
+        return Response(UnitSerializer(unit, context={'request': request}).data)
 
 
 class CourseUnitsView(generics.ListCreateAPIView):
@@ -359,7 +359,7 @@ class LessonViewSet(viewsets.ModelViewSet):
                 Lesson.objects.filter(pk=item.pk).update(unit=target_unit, order=index)
 
         lesson.refresh_from_db()
-        return Response(LessonSerializer(lesson).data)
+        return Response(LessonSerializer(lesson, context={'request': request}).data)
 
 
 class UnitLessonsView(generics.ListCreateAPIView):

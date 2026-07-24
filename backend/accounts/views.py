@@ -183,13 +183,39 @@ def upload_avatar(request):
     # really are an image. Pillow's verify() raises a broad, undocumented set of
     # exceptions on malformed input (OSError, SyntaxError, DecompressionBomb,
     # struct errors from plugins), so catch Exception rather than guess.
+    #
+    # verify() alone is NOT enough: it accepts anything Pillow can decode, so
+    # TIFF/BMP/PPM bytes named ".png" with content_type "image/png" sail
+    # through and the allowlist above buys nothing. That matters because the
+    # allowlist's real job is bounding which Pillow *decoders* untrusted bytes
+    # can reach — the less-common codecs are where most of the ~20 CVEs behind
+    # this phase's Pillow bump live. So pin the detected format too.
+    #
+    # `.format` must be read BEFORE verify(), which leaves the Image unusable.
+    EXTENSION_FORMATS = {
+        'png': {'PNG'},
+        'jpg': {'JPEG'},
+        'jpeg': {'JPEG'},
+        'gif': {'GIF'},
+        'webp': {'WEBP'},
+    }
     try:
-        Image.open(avatar_file).verify()
+        image = Image.open(avatar_file)
+        detected_format = image.format
+        image.verify()
     except Exception:
         return Response(
             {'error': 'Avatar is not a valid image file.'},
             status=status.HTTP_400_BAD_REQUEST
         )
+
+    if detected_format not in EXTENSION_FORMATS[file_ext]:
+        return Response(
+            {'error': f'Avatar contents are {detected_format or "an unknown format"}, '
+                      f'which does not match its ".{file_ext}" extension.'},
+            status=status.HTTP_400_BAD_REQUEST
+        )
+
     # verify() consumes the file and leaves it unusable — rewind before saving.
     avatar_file.seek(0)
 

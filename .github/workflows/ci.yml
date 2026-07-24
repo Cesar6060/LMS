@@ -65,6 +65,12 @@ jobs:
         env:
           DB_HOST: localhost
           SECRET_KEY: ci-test-secret-key-not-for-production
+          # TRUST_CF_HEADERS defaults to `not DEBUG`, and DEBUG is deliberately
+          # unset above — which would silently flip it ON for the whole CI run,
+          # the opposite of the dev/test default the setting documents. Pinned
+          # off so tests exercise the same trust boundary they do locally;
+          # the trusted path is opted into per-test with override_settings.
+          TRUST_CF_HEADERS: 'False'
         run: pytest
 
       # Phase 55 (A8). The audit that opened this phase found CVEs in
@@ -74,13 +80,20 @@ jobs:
       # Scoped to requirements.txt rather than the whole environment on
       # purpose: auditing the environment also reports the CI runner's own
       # `pip`, which is not an application dependency and whose advisories we
-      # cannot act on from here. Auditing the declared file is exactly the
-      # "no HIGH findings in app dependencies" bar, and it needs no ignore
-      # list that would silently rot.
+      # cannot act on from here.
+      #
+      # Note this is STRICTER than the spec's "fail on HIGH": pip-audit has no
+      # severity filter, so this fails on any known advisory of any severity in
+      # a declared dependency. That is the intended bar for a 5-user app with
+      # fully pinned requirements, but it does mean one new LOW advisory reds
+      # every PR — hence the allowlist slot below, mirroring the npm side.
       - name: Audit backend dependencies
         working-directory: backend
         run: |
           pip install pip-audit
+          # Reviewed exceptions go here as repeated --ignore-vuln flags, each
+          # with a comment saying why and when to remove it. Empty today.
+          #   e.g. --ignore-vuln GHSA-xxxx-xxxx-xxxx \
           pip-audit --requirement requirements.txt
 
   frontend:
@@ -135,6 +148,17 @@ jobs:
           node -e '
             const accepted = new Set(process.env.ACCEPTED_ADVISORIES.split(/\s+/).filter(Boolean));
             const report = require("./audit.json");
+            // `npm audit ... || true` above masks the exit code so a real
+            // report with findings does not kill the step. That also means a
+            // registry outage or auth failure yields {"error": ...} with no
+            // `vulnerabilities` key, which would otherwise scan clean and pass.
+            // A supply-chain gate that goes green on infrastructure failure is
+            // not a gate, so require a usable report first.
+            if (!report.metadata || !report.auditReportVersion) {
+              console.error("npm audit did not produce a usable report:",
+                JSON.stringify(report.error || report).slice(0, 500));
+              process.exit(1);
+            }
             const unexpected = [];
             for (const [name, vuln] of Object.entries(report.vulnerabilities || {})) {
               if (!["high", "critical"].includes(vuln.severity)) continue;
