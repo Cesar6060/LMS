@@ -655,3 +655,13 @@ export interface AcceptInvitePayload {
   password: string;
   agree_terms: boolean;
 }
+
+// DRF page shape. Only the endpoints that genuinely grow without bound opt in
+// to pagination (phase 55) — there is no global DEFAULT_PAGINATION_CLASS, so
+// most list endpoints still return a bare array.
+export interface PaginatedResponse<T> {
+  count: number;
+  next: string | null;
+  previous: string | null;
+  results: T[];
+}

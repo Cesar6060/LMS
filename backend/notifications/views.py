@@ -3,14 +3,24 @@ from rest_framework.decorators import api_view, permission_classes
 from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated
 
+from core.pagination import NotificationPagination
+
 from .models import Notification
 from .serializers import NotificationSerializer
 
 
 class NotificationListView(generics.ListAPIView):
-    """List all notifications for the current user."""
+    """List notifications for the current user, newest first.
+
+    Paginated (Phase 55, A6): a user's notification history only ever grows and
+    nothing prunes it, so an unpaginated list gets slower for the heaviest users
+    forever. The response shape is `{count, next, previous, results}` — the
+    unread badge reads the dedicated `unread-count/` endpoint rather than
+    counting the current page.
+    """
     serializer_class = NotificationSerializer
     permission_classes = [IsAuthenticated]
+    pagination_class = NotificationPagination
 
     def get_queryset(self):
         return Notification.objects.filter(recipient=self.request.user)

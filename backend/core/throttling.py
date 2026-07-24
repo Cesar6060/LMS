@@ -10,7 +10,16 @@ Cloudflare sets CF-Connecting-IP to the real client address and
 overwrites any client-supplied value, so on a Cloudflare-fronted
 deployment it is authoritative. Prefer it; fall back to DRF's default
 ident when it's absent (local dev, tests, non-Cloudflare hosts).
+
+That "authoritative" only holds where the edge is genuinely in front of
+every request. Off a Cloudflare-fronted host the header is just client
+input, and honouring it would let a caller mint a fresh throttle bucket
+per request by varying it. So the trust is gated on an explicit
+``TRUST_CF_HEADERS`` setting (default: on wherever DEBUG is off) rather
+than left implied by this docstring.
 """
+
+from django.conf import settings
 
 from rest_framework.throttling import (
     AnonRateThrottle, ScopedRateThrottle, UserRateThrottle,
@@ -18,11 +27,18 @@ from rest_framework.throttling import (
 
 
 class ClientIPIdentMixin:
-    """Prefer Cloudflare's CF-Connecting-IP header as the throttle ident."""
+    """Prefer Cloudflare's CF-Connecting-IP header as the throttle ident.
+
+    Only when ``settings.TRUST_CF_HEADERS`` is on; otherwise the header is
+    ignored entirely and DRF's default ident applies.
+    """
 
     def get_ident(self, request):
-        cf_ip = request.META.get('HTTP_CF_CONNECTING_IP', '').strip()
-        return cf_ip or super().get_ident(request)
+        if getattr(settings, 'TRUST_CF_HEADERS', False):
+            cf_ip = request.META.get('HTTP_CF_CONNECTING_IP', '').strip()
+            if cf_ip:
+                return cf_ip
+        return super().get_ident(request)
 
 
 class ClientIPAnonRateThrottle(ClientIPIdentMixin, AnonRateThrottle):

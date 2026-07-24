@@ -1,5 +1,5 @@
 import api from './api';
-import type { Course, Unit, Lesson, Enrollment, LessonProgress, GradingConfig, GradeSummary, EnhancedDashboard, LessonQuestion, LessonQuestionsStatus, AnswerQuestionResult, QuizSubmissionResult, LessonAttachment, LessonSection, InstructorReminder, CalendarResponse, QuizSessionState, LessonSessionAnswerResult, CourseMap } from '../types';
+import type { Course, Unit, Lesson, Enrollment, LessonProgress, GradingConfig, GradeSummary, EnhancedDashboard, LessonQuestion, LessonQuestionsStatus, AnswerQuestionResult, QuizSubmissionResult, LessonAttachment, LessonSection, InstructorReminder, CalendarResponse, QuizSessionState, LessonSessionAnswerResult, CourseMap, PaginatedResponse } from '../types';
 
 // Re-export types for convenience
 export type { Unit, Lesson } from '../types';
@@ -365,9 +365,26 @@ export const courseService = {
   },
 
   // Student Roster
+  //
+  // Paginated server-side since phase 55 so no single response is unbounded.
+  // The roster page renders the whole class and has no paging UI, so we walk
+  // `next` here and hand back the flat list the callers already expect.
+  // Page size is 100, so one request covers any realistic class.
   async getStudentRoster(courseCode: string): Promise<RosterStudent[]> {
-    const response = await api.get<RosterStudent[]>(`/courses/courses/${courseCode}/students/`);
-    return response.data;
+    const students: RosterStudent[] = [];
+    let url: string | null = `/courses/courses/${courseCode}/students/`;
+
+    while (url) {
+      const response: { data: PaginatedResponse<RosterStudent> } =
+        await api.get<PaginatedResponse<RosterStudent>>(url);
+      students.push(...response.data.results);
+      // DRF returns an absolute URL; strip the API prefix so the axios
+      // baseURL still applies on the follow-up request.
+      const next: string | null = response.data.next;
+      url = next ? next.replace(/^.*\/api/, '') : null;
+    }
+
+    return students;
   },
 
   async removeStudent(courseCode: string, enrollmentId: number): Promise<void> {

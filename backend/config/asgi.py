@@ -1,7 +1,8 @@
 """
 ASGI config for gamedev_platform project.
 
-For Phase 5 (WebSockets), this will be updated to include Channels routing.
+Plain Django ASGI — the app serves HTTP only. Production runs gunicorn (WSGI);
+this module exists for ASGI-capable hosts and for `manage.py` introspection.
 """
 
 import os

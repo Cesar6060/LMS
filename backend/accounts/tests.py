@@ -454,6 +454,60 @@ class TestAvatarEndpoints:
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert not UserPreferences.objects.get(user=user).avatar
 
+    def test_valid_png_avatar_accepted(self, api_client, user):
+        """The hardening below must not block real images: a genuine PNG still
+        uploads and is stored."""
+        api_client.force_authenticate(user=user)
+
+        response = api_client.post(
+            '/api/auth/settings/avatar/',
+            {'avatar': make_png('portrait.png')},
+            format='multipart',
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        stored = UserPreferences.objects.get(user=user).avatar
+        assert stored
+        assert Path(stored.path).exists()
+
+    def test_svg_avatar_rejected(self, api_client, user):
+        """SVG can carry inline <script>, and media is same-origin under DEBUG,
+        so it must never reach storage — extension allowlist excludes it."""
+        api_client.force_authenticate(user=user)
+        svg = SimpleUploadedFile(
+            'avatar.svg',
+            b'<svg xmlns="http://www.w3.org/2000/svg"><script>alert(1)</script></svg>',
+            content_type='image/svg+xml',
+        )
+
+        response = api_client.post(
+            '/api/auth/settings/avatar/',
+            {'avatar': svg},
+            format='multipart',
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert not UserPreferences.objects.get(user=user).avatar
+
+    def test_html_disguised_as_png_rejected(self, api_client, user):
+        """An HTML payload renamed to .png passes the extension and content-type
+        checks, so the Pillow verify() pass is what has to catch it."""
+        api_client.force_authenticate(user=user)
+        disguised = SimpleUploadedFile(
+            'avatar.png',
+            b'<html><body><script>alert(document.cookie)</script></body></html>',
+            content_type='image/png',
+        )
+
+        response = api_client.post(
+            '/api/auth/settings/avatar/',
+            {'avatar': disguised},
+            format='multipart',
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert not UserPreferences.objects.get(user=user).avatar
+
     def test_delete_avatar(self, api_client, user):
         api_client.force_authenticate(user=user)
         api_client.post(
@@ -558,7 +612,7 @@ class TestPasswordResetEmail:
             cache.clear()
 
     def test_throttle_keys_on_cf_connecting_ip(
-            self, api_client, user, monkeypatch):
+            self, api_client, user, monkeypatch, settings):
         """Cloudflare's rotating edge IP must not defeat the throttle.
 
         Production sits behind Cloudflare, which appends a per-request edge
@@ -566,10 +620,16 @@ class TestPasswordResetEmail:
         a fresh bucket and no rate limit ever fired. The fix keys the bucket
         on CF-Connecting-IP, so requests from one client throttle together
         no matter what the rest of the chain looks like.
+
+        Phase 55 (A5) gated that behind TRUST_CF_HEADERS, which defaults off
+        in dev/tests — this test is asserting the *production* configuration,
+        so it opts in explicitly. The off case is covered in
+        core/tests/test_throttling.py.
         """
         from django.core.cache import cache
         from rest_framework.throttling import ScopedRateThrottle
 
+        settings.TRUST_CF_HEADERS = True
         monkeypatch.setattr(
             ScopedRateThrottle, 'THROTTLE_RATES', {'password_reset': '3/min'})
         cache.clear()

@@ -28,14 +28,14 @@ first request may take up to a minute if the free-tier backend happens to be col
 ## Features
 
 ### For Students
-- **Immersive Learning Mode** — distraction-free course player with paginated sections, embedded video, and markdown content
+- **Immersive Learning Mode** — distraction-free course player with paginated pages, embedded video, and markdown content
 - **Mastery Quizzes** — comprehension checks that re-queue missed questions until every one is answered correctly, plus auto-graded unit quizzes with attempt limits
 - **Gamification** — XP, levels, streaks, badges, and a customizable mascot
-- **Progress Tracking** — pick up exactly where you left off, down to the section and video position
+- **Progress Tracking** — pick up exactly where you left off, down to the page and video position
 - **Discussions** — course-level threads and replies
 
 ### For Instructors
-- **Course Builder** — courses → units → lessons → sections, with embedded videos and file attachments
+- **Course Builder** — courses → units → lessons → pages, with embedded videos and file attachments
 - **Gradebook** — matrix view with inline grading and CSV export
 - **Student Roster** — activity tracking, invitations, enrollment management
 - **Announcements** — pinned updates with optional email notifications
@@ -116,7 +116,7 @@ Deep dives: [deployment overview](docs/specs/deployment-overview.md) · [deploym
 | **Backend hosting** | Render |
 | **Database** | PostgreSQL 16 (Neon serverless in production) |
 | **Media storage** | Cloudflare R2 via django-storages |
-| **Auth** | DRF token auth, django-allauth, dj-rest-auth |
+| **Auth** | django-allauth + dj-rest-auth (JWT) |
 | **Observability** | Sentry (both halves), UptimeRobot |
 | **CI/CD** | GitHub Actions; git-push deploys to Render + Cloudflare |
 | **Local dev** | Docker Compose (production runs no containers) |
@@ -168,6 +168,7 @@ Then log in at http://localhost:5173/login:
 
 ```
 ├── backend/
+│   ├── core/            # Shared helpers: templated email senders, API throttle classes
 │   ├── accounts/        # Custom user model, auth, preferences
 │   ├── courses/         # Courses, units, lessons, sections, progress
 │   ├── quizzes/         # Unit quiz engine with auto-grading
@@ -186,7 +187,7 @@ Then log in at http://localhost:5173/login:
 
 ## Key Design Decisions
 
-- **Token Authentication** — DRF token auth via dj-rest-auth; every request is deny-by-default (`IsAuthenticated`)
+- **JWT Authentication** — JWT via dj-rest-auth (`Authorization: Bearer` with refresh-token rotation); every request is deny-by-default (`IsAuthenticated`)
 - **Role-based Access Control** — instructor vs student permissions enforced at the API level, backed by a per-endpoint permission test suite
 - **Demo-mode lockdown** — public self-registration is gated behind `ALLOW_REGISTRATION` (off in production), so the live site exposes only the shared demo student; the endpoint returns 403 server-side, not just a hidden button
 - **Enrollment Codes** — secure course access without per-student instructor approval

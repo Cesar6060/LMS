@@ -196,6 +196,16 @@ AUTH_USER_MODEL = 'accounts.User'
 SITE_ID = 1
 
 # Django REST Framework
+# Whether CF-Connecting-IP may be trusted as the real client address
+# (core.throttling.ClientIPIdentMixin). It is authoritative only when *every*
+# request provably arrives through Cloudflare's edge, which overwrites any
+# client-supplied value. That holds for the Render service behind Cloudflare;
+# it does not hold for a local runserver or the test client, where anyone can
+# set the header and mint themselves a fresh throttle bucket. Stating the trust
+# boundary as a setting keeps it in code rather than implied by a docstring.
+# Defaults to on wherever DEBUG is off (i.e. production), off in dev/tests.
+TRUST_CF_HEADERS = config('TRUST_CF_HEADERS', default=not DEBUG, cast=bool)
+
 REST_FRAMEWORK = {
     'DEFAULT_AUTHENTICATION_CLASSES': [
         # JWTCookieAuthentication also accepts plain `Authorization: Bearer`
@@ -328,10 +338,17 @@ AVATAR_MAX_UPLOAD_BYTES = 5 * 1024 * 1024
 ATTACHMENT_MAX_UPLOAD_BYTES = 25 * 1024 * 1024
 
 # Django Allauth Settings
-ACCOUNT_EMAIL_REQUIRED = True
+#
+# allauth 65.4/65.5 replaced the old per-flag signup configuration with two
+# settings. The pairs map as:
+#   ACCOUNT_AUTHENTICATION_METHOD = 'email'  ->  ACCOUNT_LOGIN_METHODS = {'email'}
+#   ACCOUNT_EMAIL_REQUIRED = True            -\
+#   ACCOUNT_USERNAME_REQUIRED = False        -/-> ACCOUNT_SIGNUP_FIELDS
+# The two must agree: logging in by email while email is not a required signup
+# field raises an ImproperlyConfigured at startup.
+ACCOUNT_LOGIN_METHODS = {'email'}
+ACCOUNT_SIGNUP_FIELDS = ['email*', 'password1*', 'password2*']
 ACCOUNT_EMAIL_VERIFICATION = config('ACCOUNT_EMAIL_VERIFICATION', default='optional')
-ACCOUNT_AUTHENTICATION_METHOD = 'email'
-ACCOUNT_USERNAME_REQUIRED = False
 ACCOUNT_USER_MODEL_USERNAME_FIELD = None
 ACCOUNT_UNIQUE_EMAIL = True
 ACCOUNT_LOGIN_ON_EMAIL_CONFIRMATION = True

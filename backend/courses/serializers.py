@@ -6,6 +6,7 @@ from .models import (
     LessonAttachment, LessonSection, InstructorReminder, CourseInvite
 )
 from accounts.serializers import UserSerializer
+from .permissions import require_course_instructor
 from .video import extract_youtube_video_id
 
 
@@ -121,6 +122,33 @@ class LessonSerializer(VideoFieldsValidationMixin, serializers.ModelSerializer):
             'created_at', 'updated_at'
         ]
         read_only_fields = ['id', 'created_at', 'updated_at']
+
+    def validate_unit(self, value):
+        """Refuse a PATCH that would move the lesson into another course.
+
+        `unit` is writable so an instructor can move a lesson between units,
+        but `IsEnrolledOrInstructor.has_object_permission` resolves the course
+        from `obj.unit.course` — the *source* course only. Without this check a
+        plain `PATCH {"unit": <unit in another course>}` moves the lesson out of
+        its course with nothing validating the destination.
+
+        Mirrors the guard `LessonViewSet.reorder` already applies to its own
+        optional `unit` argument: same-course only, and the instructor is
+        re-checked against the target's course.
+        """
+        if self.instance is None:
+            return value
+
+        if value.course_id != self.instance.unit.course_id:
+            raise serializers.ValidationError(
+                'Target unit must belong to the same course.'
+            )
+
+        request = self.context.get('request')
+        if request is not None:
+            require_course_instructor(request.user, value.course)
+
+        return value
 
     def get_question_count(self, obj):
         return obj.questions.count()

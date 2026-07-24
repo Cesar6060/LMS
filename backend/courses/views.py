@@ -21,6 +21,7 @@ from allauth.account.models import EmailAddress
 from accounts.models import User
 from accounts.serializers import UserSerializer
 from core.email import send_course_invite_link_email, send_emails_async
+from core.pagination import RosterPagination
 from core.throttling import (
     ClientIPScopedRateThrottle, ClientIPScopedWriteRateThrottle,
 )
@@ -418,6 +419,30 @@ class EnrollmentViewSet(viewsets.ModelViewSet):
             EnrollmentSerializer(enrollment).data,
             status=status.HTTP_201_CREATED
         )
+
+    def destroy(self, request, *args, **kwargs):
+        """Self-unenroll — soft delete, and never for the demo account.
+
+        Two problems with the inherited ModelViewSet.destroy (Phase 55, A4):
+
+        1. It hard-deleted the row, cascading the student's progress away,
+           where the instructor-side `remove_student` soft-deletes precisely to
+           preserve grades. Same operation, two different outcomes.
+        2. Every demo visitor shares one account, so a single visitor could
+           un-enroll `jdoe@demo.com` for everybody until an operator re-ran
+           `seed_demo_account`. Refusing outright matches the rest of the demo
+           lockdown (see accounts.serializers.ProtectedPasswordChangeSerializer).
+        """
+        enrollment = self.get_object()
+
+        if request.user.email == settings.DEMO_ACCOUNT_EMAIL:
+            raise PermissionDenied(
+                'The demo account cannot un-enroll from its course.'
+            )
+
+        enrollment.is_active = False
+        enrollment.save(update_fields=['is_active'])
+        return Response(status=status.HTTP_204_NO_CONTENT)
 
 
 class LessonProgressView(generics.RetrieveUpdateAPIView):
@@ -1195,8 +1220,14 @@ def student_roster(request, course_code):
         is_active=True
     ).select_related('user').order_by('user__last_name', 'user__first_name')
 
-    serializer = StudentRosterSerializer(enrollments, many=True)
-    return Response(serializer.data)
+    # Paginated in Phase 55 (A6): the roster had no ceiling, and each row costs
+    # a serializer pass over activity data. The roster page has no paging UI —
+    # the client walks `next` — so this bounds the response size without
+    # changing what an instructor sees.
+    paginator = RosterPagination()
+    page = paginator.paginate_queryset(enrollments, request)
+    serializer = StudentRosterSerializer(page, many=True)
+    return paginator.get_paginated_response(serializer.data)
 
 
 # ==================== Instructor Analytics (Phase 31) ====================

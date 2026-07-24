@@ -1,6 +1,7 @@
 from pathlib import Path
 
 import pytest
+from django.conf import settings
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.urls import reverse
 from rest_framework import status
@@ -207,6 +208,37 @@ class TestEnrollment:
             'enrollment_code': course.enrollment_code
         })
         assert response.status_code == status.HTTP_201_CREATED
+
+    # -- Phase 55 (A4): self-unenroll ---------------------------------------
+
+    def test_unenroll_soft_deletes(self, api_client, student, enrollment):
+        """DELETE deactivates the row instead of dropping it, matching the
+        instructor-side `remove_student` so progress/grades survive."""
+        api_client.force_authenticate(user=student)
+        response = api_client.delete(f'/api/courses/enrollments/{enrollment.id}/')
+        assert response.status_code == status.HTTP_204_NO_CONTENT
+
+        enrollment.refresh_from_db()
+        assert enrollment.is_active is False
+        assert Enrollment.objects.filter(pk=enrollment.pk).exists()
+
+    def test_demo_account_cannot_unenroll(self, api_client, course):
+        """Every visitor shares the demo login, so one un-enroll would break
+        the demo for everyone until an operator re-ran seed_demo_account."""
+        demo_user = User.objects.create_user(
+            email=settings.DEMO_ACCOUNT_EMAIL,
+            password='testpass123',
+        )
+        demo_enrollment = Enrollment.objects.create(user=demo_user, course=course)
+
+        api_client.force_authenticate(user=demo_user)
+        response = api_client.delete(
+            f'/api/courses/enrollments/{demo_enrollment.id}/'
+        )
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+
+        demo_enrollment.refresh_from_db()
+        assert demo_enrollment.is_active is True
 
 
 @pytest.mark.django_db
@@ -670,21 +702,26 @@ class TestStudentRoster:
         response = api_client.get(f'/api/courses/courses/{course.code}/students/')
         assert response.status_code == status.HTTP_403_FORBIDDEN
 
+    # Phase 55 (A6): the roster is paginated, so the rows live under
+    # `results` and the response also carries `count`/`next`/`previous`.
+
     def test_roster_returns_students(self, api_client, instructor, course, student, enrollment):
         """Roster returns enrolled students."""
         api_client.force_authenticate(user=instructor)
         response = api_client.get(f'/api/courses/courses/{course.code}/students/')
         assert response.status_code == status.HTTP_200_OK
-        assert len(response.data) == 1
-        assert response.data[0]['email'] == student.email
+        assert response.data['count'] == 1
+        assert len(response.data['results']) == 1
+        assert response.data['results'][0]['email'] == student.email
 
     def test_roster_includes_activity_data(self, api_client, instructor, course, student, enrollment):
         """Roster includes activity tracking fields."""
         api_client.force_authenticate(user=instructor)
         response = api_client.get(f'/api/courses/courses/{course.code}/students/')
-        assert 'last_activity_at' in response.data[0]
-        assert 'is_inactive' in response.data[0]
-        assert 'progress_percentage' in response.data[0]
+        row = response.data['results'][0]
+        assert 'last_activity_at' in row
+        assert 'is_inactive' in row
+        assert 'progress_percentage' in row
 
     def test_roster_excludes_removed_students(self, api_client, instructor, course, student, enrollment):
         """Roster excludes soft-deleted students."""
@@ -693,7 +730,8 @@ class TestStudentRoster:
 
         api_client.force_authenticate(user=instructor)
         response = api_client.get(f'/api/courses/courses/{course.code}/students/')
-        assert len(response.data) == 0
+        assert response.data['count'] == 0
+        assert response.data['results'] == []
 
     def test_remove_student(self, api_client, instructor, course, student, enrollment):
         """Instructor can remove a student (soft delete)."""
@@ -1356,6 +1394,40 @@ class TestLessonReorder:
             f'/api/courses/lessons/{lessons_a[0].id}/reorder/', {'order': 2}
         )
         assert response.status_code == status.HTTP_401_UNAUTHORIZED
+
+    # -- Phase 55 (A2): the plain PATCH path, not just `reorder` -------------
+    # `unit` is writable on LessonSerializer, and IsEnrolledOrInstructor
+    # resolves the course from the *source* `obj.unit.course`, so before
+    # LessonSerializer.validate_unit a bare PATCH could move a lesson into a
+    # course the caller does not own.
+
+    def test_patch_unit_to_other_course_rejected(
+        self, api_client, instructor, lessons_a, other_course_unit
+    ):
+        lesson = lessons_a[0]
+        original_unit_id = lesson.unit_id
+        api_client.force_authenticate(user=instructor)
+        response = api_client.patch(
+            f'/api/courses/lessons/{lesson.id}/',
+            {'unit': other_course_unit.id},
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        lesson.refresh_from_db()
+        assert lesson.unit_id == original_unit_id
+
+    def test_patch_unit_within_same_course_allowed(
+        self, api_client, instructor, unit_b, lessons_a
+    ):
+        """Don't over-tighten: moving between units of the same course is fine."""
+        lesson = lessons_a[0]
+        api_client.force_authenticate(user=instructor)
+        response = api_client.patch(
+            f'/api/courses/lessons/{lesson.id}/',
+            {'unit': unit_b.id},
+        )
+        assert response.status_code == status.HTTP_200_OK
+        lesson.refresh_from_db()
+        assert lesson.unit_id == unit_b.id
 
 
 # ---------------------------------------------------------------------------
