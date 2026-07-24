@@ -1,10 +1,19 @@
 # Project docs (private)
 CLAUDE.md
-PLAN.md
+/PLAN.md
 TROUBLESHOOTING.md
 Troubleshooting.md
-docs/*.md
 /PHASE-*.txt
+skills-rules-agents-interview-notes.txt
+
+# Private docs at the docs/ root (named explicitly — a bare docs/*.md would
+# silently swallow any new doc dropped there).
+docs/PORTFOLIO.md
+docs/INTERVIEW_GUIDE.md
+docs/DEMO_SCRIPT.md
+docs/SCREENSHOT_CHECKLIST.md
+docs/CLAUDE-CODE-WORKFLOW.md
+docs/PROMPT-REFERENCE.md
 
 # Claude Code workspace
 .claude/
@@ -54,6 +63,10 @@ yarn-error.log*
 dist/
 build/
 *.egg-info/
+*.tsbuildinfo
+
+# Pre-refactor source snapshots kept locally only (git history has them)
+backups/
 
 # Coverage
 htmlcov/
@@ -66,6 +79,3 @@ coverage.xml
 # Frontend
 frontend/dist/
 frontend/.vite/
-
-# Docker
-*.log

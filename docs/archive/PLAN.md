@@ -1,8 +1,18 @@
-# Video Game Course Platform - Rebuild Plan v2.1
+> **RETIRED at Phase 50 (2026-07-22).** This roadmap ended at phase 33;
+> phases 34-49 ran without it. It is kept only as an archive. The source of
+> truth for what happened and what is next is docs/specs/ (phase specs) and
+> docs/handoffs/ (session handoffs).
+
+# STEM Quest - Platform Plan v3
 
 ## Overview
 
-Strategy for rebuilding the Prosper ISD Video Game Development course platform from scratch.
+STEM Quest (formerly "GameDev Platform") is a personal classroom LMS — no
+district affiliation — covering two subjects: **Computer Science** (video
+game development lives on as a track within CS, not a separate subject) and
+**Robotics**. The platform is moving toward a more interactive, gamified
+learning experience to keep students motivated, while grading stays scoped
+to quiz scores and lesson completion only.
 
 | Current State | Target State (MVP) | Target State (Full) |
 |---------------|-------------------|---------------------|
@@ -12,8 +22,19 @@ Strategy for rebuilding the Prosper ISD Video Game Development course platform f
 | Technical debt | Clean architecture | Teacher-focused LMS |
 
 **MVP Status:** ✅ Complete (Phases 1-6)
-**Extended Features:** Phases 7-12.5 ✅ Complete, Phases 13-15 Pending
+**Extended Features:** Phases 7-13, 15-20, 22-25 ✅ Complete (or in final
+close-out); analytics dashboard (old Phase 14, re-scoped as Phase 21)
+deferred, not abandoned — see Phase 31
+**Assignments/Submissions:** Removed entirely in Phase 18. This is
+permanent — grading is quiz scores + lesson completion only (see ADR-020).
 **Compatibility Research Completed:** January 2026
+**STEM Quest Pivot Started:** July 2026 — see Part 9
+
+> **Note:** This document's per-phase status marks are stale for Phase 13+.
+> `docs/specs/` and `docs/handoffs/` are the source of truth for phase
+> status from Phase 13 onward. Phases 1-25 below (Parts 1-6B) are kept as
+> a historical record of the original "GameDev Platform" build and are not
+> being rewritten. **Part 9 is where the current direction lives.**
 
 ---
 
@@ -1292,7 +1313,118 @@ POST    /api/assignments/{id}/quick-grade/{student_id}/  # Quick grade
 
 ---
 
-### Phase 13: Discussion Forums - Simple (Days 53-57)
+### Phase 12.6: Udemy-Style Course Player (Days 53-56)
+**Priority:** 🟠 High
+**Status:** 🔄 In Progress
+
+**Goal:** Transform course content viewing into a Udemy-like immersive learning experience
+
+#### Why Now?
+The current lesson viewing experience requires navigating back to the course page to select each lesson. Students need a focused, distraction-free learning environment with easy navigation between lessons.
+
+#### Scope
+- New CoursePlayerPage at `/courses/:code/learn`
+- Collapsible sidebar with course curriculum
+- Video player + markdown content in main area
+- Previous/Next lesson navigation
+- Auto-advance on lesson completion
+- Progress tracking visible in sidebar
+- Keyboard shortcuts for navigation
+
+#### Components
+
+**CoursePlayerPage** (New)
+- Full-height layout with header, sidebar, main content
+- Responsive design (sidebar collapses on mobile)
+
+**CourseSidebar** (New)
+- Course progress bar
+- Accordion-based unit list
+- Lesson items with completion status, type icons, duration
+- Collapsible state persisted to localStorage
+
+**LessonContent** (Refactored from LessonPage)
+- Video player (YouTube/Vimeo)
+- Markdown content rendering
+- Mark complete button
+- Previous/Next navigation
+
+#### Routes
+```
+/courses/:code/learn           # Opens first incomplete lesson
+/courses/:code/learn/:lessonId # Opens specific lesson
+```
+
+#### Backend Tasks
+- [ ] Add endpoint to get "next lesson" for a course
+- [ ] Ensure lesson ordering is correct in course detail response
+
+#### Frontend Tasks
+- [ ] Create CoursePlayerPage component
+- [ ] Create CourseSidebar component with accordion units
+- [ ] Refactor LessonContent from existing LessonPage
+- [ ] Implement sidebar collapse/expand with localStorage persistence
+- [ ] Add Previous/Next navigation buttons
+- [ ] Add keyboard shortcuts (arrow keys)
+- [ ] Auto-select first incomplete lesson on load
+- [ ] Update routes in App.tsx
+- [ ] Add "Continue Learning" button to CourseDetailPage
+
+#### Success Criteria
+- [ ] Students can view all lessons without leaving the player
+- [ ] Sidebar shows accurate progress per unit
+- [ ] Lessons auto-advance on completion
+- [ ] Previous/Next buttons work correctly
+- [ ] Sidebar collapse state persists across sessions
+- [ ] Video progress saves correctly
+- [ ] Mobile responsive layout works
+
+#### Rollback Plan
+Backup created at: `backups/pre-phase-12.6/`
+To restore: Copy files from backup directory to original locations
+
+---
+
+### Phase 12.7: Overall Styling & Theme Polish (Days 57-60)
+**Priority:** 🟢 Medium
+**Status:** ⏳ Pending
+
+**Goal:** Finalize the visual design and ensure consistent styling across the entire application
+
+#### Why Now?
+With core features complete, it's time to polish the UI for a professional, cohesive look before adding more features.
+
+#### Scope
+- Consistent color palette across all pages
+- Typography refinements
+- Dark mode polish
+- Loading states and animations
+- Button and card styling consistency
+- Responsive design improvements
+- Instructor vs student visual differentiation
+
+#### Tasks
+- [ ] Audit all pages for styling inconsistencies
+- [ ] Define and apply consistent color variables
+- [ ] Standardize button variants and sizes
+- [ ] Polish card components (shadows, borders, spacing)
+- [ ] Add subtle animations (hover, transitions)
+- [ ] Improve loading skeleton states
+- [ ] Test and fix dark mode issues
+- [ ] Ensure responsive breakpoints work correctly
+- [ ] Add visual distinction for instructor-only elements
+- [ ] Polish form inputs and validation states
+
+#### Success Criteria
+- [ ] All pages follow consistent design language
+- [ ] Dark mode works without visual issues
+- [ ] Animations are smooth and purposeful
+- [ ] Mobile experience is polished
+- [ ] Loading states provide good UX feedback
+
+---
+
+### Phase 13: Discussion Forums - Simple (Days 61-65)
 **Priority:** 🟢 Lower (peer support)
 
 **Goal:** Simple course-level discussion threads for Q&A
@@ -1422,15 +1554,106 @@ npm install recharts
 
 ---
 
-### Phase 15: Email Configuration & Notifications
+### Phase 15: Lesson Comprehension Questions ✅ COMPLETE
+**Priority:** 🟠 High
+**Status:** ✅ Complete
+
+**Goal:** Embedded mini-quizzes within lessons that students must pass to complete the lesson
+
+#### Implemented Features
+- ✅ LessonQuestion, LessonQuestionChoice, LessonQuestionAnswer, LessonQuizAttempt models
+- ✅ Instructor can add comprehension questions via "Manage Questions" button in Edit Lesson modal
+- ✅ Students take quiz via "Take Quiz" button with modal popup
+- ✅ Configurable max attempts (0 = unlimited)
+- ✅ Pass/fail tracking with attempt history
+- ✅ Lesson completion gated behind quiz passing
+- ✅ Auto-invalidation when questions are modified/deleted
+- ✅ "Mark Complete" button hidden for quiz-gated lessons
+
+#### API Endpoints
+```
+GET    /api/lessons/{id}/questions/           # List questions (instructor sees answers)
+POST   /api/lessons/{id}/questions/           # Create question (instructor)
+PUT    /api/lessons/{id}/questions/{qid}/     # Update question (instructor)
+DELETE /api/lessons/{id}/questions/{qid}/     # Delete question (instructor)
+GET    /api/lessons/{id}/questions-status/    # Student's quiz status
+POST   /api/lessons/{id}/submit-quiz/         # Submit all answers at once
+```
+
+#### Success Criteria
+- [x] Instructor can add/edit/delete comprehension questions
+- [x] Students see "Take Quiz" button and modal
+- [x] Quiz tracks attempts and shows pass/fail
+- [x] Lesson cannot be completed without passing quiz
+- [x] Questions changing invalidates previous attempts
+- [x] Max attempts configurable by instructor
+
+---
+
+### Phase 16: Lesson File Attachments ✅ COMPLETE
+**Priority:** 🟠 High
+**Status:** ✅ Complete
+
+**Goal:** Allow instructors to attach files (PDFs, images, documents) to lessons for students to download
+
+#### Implemented Features
+- ✅ LessonAttachment model with file, filename, file_type, file_size fields
+- ✅ Instructor can upload/delete attachments via "Manage Attachments" button
+- ✅ Max 10 attachments per lesson, 10MB per file
+- ✅ Students see "Lesson Materials" section in CoursePlayerPage
+- ✅ File icons based on type (image, document, generic)
+- ✅ Lesson detail endpoint includes attachments array
+
+#### API Endpoints
+```
+GET    /api/lessons/{id}/attachments/           # List attachments
+POST   /api/lessons/{id}/attachments/           # Upload files (multipart)
+DELETE /api/lessons/{id}/attachments/{aid}/     # Delete attachment
+```
+
+#### Files Modified
+- `backend/courses/models.py` - LessonAttachment model
+- `backend/courses/serializers.py` - LessonAttachmentSerializer
+- `backend/courses/views.py` - lesson_attachments, lesson_attachment_detail views
+- `backend/courses/urls.py` - Attachment URL patterns
+- `frontend/src/types/index.ts` - LessonAttachment type
+- `frontend/src/services/courses.ts` - Attachment API methods
+- `frontend/src/components/lesson/AttachmentUploader.tsx` - NEW
+- `frontend/src/pages/instructor/ManageCoursePage.tsx` - Manage Attachments button
+- `frontend/src/pages/courses/CoursePlayerPage.tsx` - Display attachments
+
+#### Success Criteria
+- [x] Instructor can upload files to lessons
+- [x] Instructor can delete attachments
+- [x] Students can view and download attachments
+- [x] File size and count limits enforced
+- [x] Lesson API includes attachments
+
+---
+
+### Phase 15b: Email Configuration & Notifications ✅ COMPLETE
 **Priority:** 🟡 Medium (required for invitations and announcements)
 
 **Goal:** Configure SMTP for email delivery
 
-#### Features
-1. **SMTP Configuration** - Connect to email provider (Gmail, SendGrid, etc.)
+**Status:** ✅ Implemented January 29, 2026
+
+#### Features Implemented
+1. **SMTP Configuration** - Environment variable based (Gmail, SendGrid supported)
 2. **Email Templates** - HTML templates for invitations, announcements, grades
-3. **Async Email** - Background email sending (optional Celery integration)
+3. **Email Utility Module** - `core/email.py` with templated email functions
+
+#### Files Created/Modified
+- `backend/core/email.py` - Email utility functions
+- `backend/templates/emails/base.html` - Base email template
+- `backend/templates/emails/course_invitation.html` - Course invitation
+- `backend/templates/emails/announcement.html` - Announcement notification
+- `backend/templates/emails/grade_notification.html` - Grade notification
+- `backend/courses/views.py` - Updated to use templated emails for invitations and announcements
+- `backend/assignments/views.py` - Added grade notification emails
+- `.env.example` - Added email configuration documentation
+- `docker-compose.yml` - Added FRONTEND_URL and email config comments
+- `TROUBLESHOOTING.md` - Added email configuration guide
 
 #### Environment Variables Required
 ```
@@ -1484,11 +1707,12 @@ Based on research, these features are deferred:
 | 11 | User Settings & Preferences | 🟡 Medium | ✅ Complete |
 | 12 | Quizzes (Basic) | 🟡 Medium | ✅ Complete |
 | 12.5 | Grading Polish | 🟠 High | ✅ Complete |
+| 15 | Lesson Comprehension Questions | 🟠 High | ✅ Complete |
 | 13 | Discussion Forums | 🟢 Lower | Pending |
 | 14 | Analytics Dashboard | 🟢 Lower | Pending |
-| 15 | Email Configuration | 🟡 Medium | Pending |
+| 15b | Email Configuration | 🟡 Medium | ✅ Complete |
 
-**Completed: Phases 7-12.5** | **Next: Phase 13 (Discussion Forums)**
+**Completed: Phases 7-12.5, 15-16, 15b** | **Next: Phase 13 (Discussion Forums) or Phase 14 (Analytics)**
 
 ---
 
@@ -1655,11 +1879,12 @@ VITE_WS_URL=ws://localhost:8000/ws
 | 11. Settings | Dark mode + preferences | 🟡 Medium | ✅ Complete |
 | 12. Quizzes | Auto-graded MC quizzes | 🟡 Medium | ✅ Complete |
 | 12.5. Grading Polish | Quiz gradebook + weighted grades + student grades page | 🟠 High | ✅ Complete |
+| 15. Lesson Questions | Embedded comprehension quizzes in lessons | 🟠 High | ✅ Complete |
 | 13. Discussions | Simple Q&A forums | 🟢 Lower | Pending |
 | 14. Analytics | Instructor dashboard | 🟢 Lower | Pending |
-| 15. Email Config | SMTP setup for notifications | 🟡 Medium | Pending |
+| 15b. Email Config | SMTP setup for notifications | 🟡 Medium | Pending |
 
-**Completed: Phases 7-12.5** | **Next: Phase 13 (Discussion Forums)**
+**Completed: Phases 7-12.5, 15** | **Next: Phase 14 (Learning Mode UX) or Phase 13 (Discussion Forums)**
 
 ---
 
@@ -1689,8 +1914,115 @@ VITE_WS_URL=ws://localhost:8000/ws
 
 ---
 
-*Document Version: 3.4*
-*Last Updated: January 27, 2026*
+## Part 9: STEM Quest Pivot (Phase 26+)
+
+### Rationale
+
+The context this plan was originally written for no longer holds. The user
+no longer works at Prosper ISD (already reflected in-app since Phase 22,
+which dropped the district name from the browser title) — this is now a
+personal classroom tool for the user's own students, not a district
+deployment. District-reporting framing (CSV export "for district
+compatibility," the original ~150-student MVP sizing) no longer drives
+priorities.
+
+Phase 18 already deleted the entire assignments/submissions/grading app;
+grading has been quiz scores + lesson completion only since then, and
+that's staying permanent (ADR-020) — this section formalizes it rather
+than changing anything.
+
+Going forward the platform is rebranding to **STEM Quest** and narrowing
+its course catalog to two subjects: **Computer Science** (video game
+development lives on as a track within CS, not a separate subject) and
+**Robotics**. The user wants the platform to feel more interactive and
+motivating — lightweight gamification (streaks, XP, badges, progress) in
+the near term, with a bigger Duolingo-style push (hearts/lives, skill
+tree, leaderboards, mascot) deferred to a larger future phase. A
+deliberate, cohesive professional visual redesign is also wanted, but the
+user explicitly wants it **last**, after functionality work below ships.
+
+### ADR-017: Rebrand to "STEM Quest"
+
+- **Decision:** Rename the product from "GameDev Platform" to "STEM
+  Quest" — user-facing text/copy only.
+- **Scope:** Page title (`frontend/index.html`), header wordmark
+  (`Header.tsx`), `README.md`, `frontend/package.json` name field, email
+  templates (`backend/templates/emails/*.html`), and this repo's
+  `CLAUDE.md` description line.
+- **Explicitly not touched:** DB name (`gamedev_db`/`gamedev_user`),
+  Docker Compose service/env values, Python module docstrings
+  (`config/{asgi,wsgi,urls,settings}.py`, `accounts/models.py`). Renaming
+  those is infra churn (migration/env risk) for zero user-facing benefit —
+  cosmetic rename only.
+
+### ADR-018: Course Catalog — Computer Science + Robotics
+
+- **Decision:** Two subjects going forward: Computer Science (game dev is
+  a track within it) and Robotics. No other subjects for now.
+- **Why:** Matches the user's actual teaching focus; the existing seeded
+  course (`populate_csharp_course.py`, "Video Game Development - C#
+  Fundamentals") is already general C# programming fundamentals with
+  game-themed examples — it maps cleanly onto a CS course/track with
+  minimal rework. Robotics has no content yet; building it is separate
+  future work, not part of the catalog-restructuring phase itself.
+- **Open question (resolve in the Phase 28 spec):** whether `Course`
+  needs a `subject`/`category` field for future filtering, or whether
+  that's premature with only one CS course and no Robotics content yet.
+
+### ADR-019: Gamification, staged
+
+- **Decision:** Two stages.
+  - **Stage 1 (near-term, Phase 30):** streaks, XP for lesson completion
+    + quiz scores, badges/achievements, level or progress visualization.
+    Layered on top of existing completion data — no new grading category.
+  - **Stage 2 (deferred, larger effort, Phase 32):** Duolingo-style
+    hearts/lives, instant micro-feedback, retry-until-mastery,
+    skill-tree/course-map visualization, leaderboards, streak freezes,
+    possible mascot/character system.
+- **Why:** Stage 1 is achievable on top of what already exists; Stage 2 is
+  a much larger UX/mechanics investment better tackled once Stage 1 and
+  the analytics dashboard are solid.
+
+### ADR-020: Grading model is permanent (quiz + completion only)
+
+- **Decision:** Formalizes what Phase 18 already shipped — grades come
+  from quiz scores and lesson completion only. Assignments/submissions
+  are not being reintroduced.
+- **Supersedes:** Original ADR-006 (Assignment Scope) and ADR-007
+  (Grading Model), which assumed an assignments system that no longer
+  exists.
+
+### ADR-021: Visual/UI redesign — deferred to last
+
+- **Decision:** A deliberate, cohesive professional design-system pass is
+  wanted, but sequenced after every functionality phase below (Phase 33).
+- **Why:** The user wants functionality to stabilize first. This is not a
+  moratorium on incremental polish — small UI tweaks (as in Phases 20, 24,
+  25) can keep happening as needed in the meantime; this ADR is about the
+  eventual dedicated redesign pass.
+
+### Phase Sequence
+
+Each phase below gets its own spec in `docs/specs/` (per the existing
+workflow rule) written just before it starts — this table is intentionally
+goal/scope-level, not a task checklist.
+
+| Phase | Goal | Priority | Notes |
+|-------|------|----------|-------|
+| 26. Close out in-flight work | Commit verified Phase 25 changes (margin consistency + "Teach" dropdown removal), do the deferred manual click-through, resolve branch/PR naming (currently `feat/phase-24-...`) | Housekeeping | Sequenced first — unblocks a clean base for everything after it |
+| 27. Rebrand to STEM Quest | Execute ADR-017 | High | Cheap, mechanical; do early so later phases build under the right name |
+| 28. Course catalog restructure | Execute ADR-018 | High | Re-scope existing C# course as CS; decide `subject` field question in spec |
+| 29. Authoring efficiency | Speed up adding lesson content (currently one-at-a-time, edit-mode only — flagged in Phase 23/24 handoffs, deferred twice) | 🔴 Top functional priority | Revisit "bulk paste-to-sections" idea raised and shelved in Phase 23 scoping |
+| 30. Lightweight gamification | Execute ADR-019 Stage 1 | High | Streaks, XP, badges, progress |
+| 31. Analytics dashboard | Implement the existing spec (`docs/specs/phase-21-instructor-analytics-dashboard.md`), re-validated against Phase 18's assignment removal + Phase 30's gamification data | Medium | Picks up work deferred since Phase 21 |
+| 32. Duolingo-style quiz UX & deeper gamification | Execute ADR-019 Stage 2 | Medium | Larger effort; after 30/31 are solid |
+| 33. Visual/UI professional redesign | Execute ADR-021 | Last | Deliberately sequenced after all functionality above |
+
+---
+
+*Document Version: 4.0*
+*Last Updated: July 19, 2026*
 *MVP Status: Complete (Phases 1-6)*
-*Extended Features: Phases 7-12.5 Complete, Phases 13-15 Pending*
-*Based on: Research into Canvas, Google Classroom, Schoology, and teacher feedback*
+*Extended Features: Phases 7-25 Complete or in final close-out; analytics (Phase 21) and discussions-era items deferred, not abandoned*
+*STEM Quest Pivot: Phase 26+ — see Part 9*
+*Based on: Research into Canvas, Google Classroom, Schoology, and teacher feedback (original MVP); user direction (STEM Quest pivot)*

@@ -1,0 +1,297 @@
+================================================================================
+STEM QUEST — HOW TO PROMPT WORKFLOWS FOR THE BEST RESULTS
+================================================================================
+Last updated: 2026-07-23
+Audience: You (the human driving Claude Code on this project).
+Purpose: How to run the phase workflow — start-phase, implement, finish-phase —
+         so each session produces correct, verified, review-clean work with the
+         least back-and-forth.
+
+Read this once end-to-end, then keep it open as a reference. The "COPY-PASTE
+PROMPTS" section near the bottom is the part you'll reuse most.
+
+
+--------------------------------------------------------------------------------
+0. THE MENTAL MODEL (read this first)
+--------------------------------------------------------------------------------
+Work on this project happens in PHASES. Every phase moves through three stages,
+and each stage is a SEPARATE Claude session (use /clear or a new terminal
+between them). Keeping them separate is the single biggest lever on quality —
+a fresh context means the model isn't distracted by earlier reasoning.
+
+    STAGE 1  PLAN      /start-phase   -> writes docs/specs/phase-N-name.md
+    STAGE 2  BUILD     (your prompt)  -> implements the spec on a feature branch
+    STAGE 3  CLOSE     /finish-phase  -> verify, review, PR, handoff
+
+The source of truth for project state is:
+    - docs/specs/       (what each phase is supposed to deliver + checklist)
+    - docs/handoffs/    (what actually happened, newest file = current state)
+There is NO roadmap file. PLAN.md was retired at phase 50 (archived at
+docs/archive/PLAN.md). See the KNOWN ISSUE note in section 6.
+
+Golden rules that make everything else work:
+    1. One phase per branch. Never work on main — merging auto-deploys prod.
+    2. New session per stage. /clear between plan, build, and close.
+    3. Specs are contracts. If the spec is vague, the build will be vague.
+       Spend your energy in STAGE 1; the rest gets easier.
+    4. Nothing is "done" until /verify-stack shows PASS and you've seen it.
+
+
+--------------------------------------------------------------------------------
+1. WHAT EACH TOOL DOES (your toolbox)
+--------------------------------------------------------------------------------
+SKILLS (you invoke these with a slash command):
+
+  /start-phase [N-or-name]
+      Interviews you, explores the codebase with subagents, then writes a phase
+      spec. Writes NO implementation code. This is a planning-only skill.
+
+  /finish-phase [N-or-name]
+      Closes a phase: verify -> parallel review (code-reviewer +
+      adversarial-tester) -> migration check -> update docs -> commit/push ->
+      open PR -> handoff. Each step gates the next. Never merges the PR.
+
+  /verify-stack
+      Runs backend tests (pytest), type check (tsc --noEmit), and lint. Reports
+      PASS/FAIL with evidence. Run it yourself any time; the close stage runs it
+      for you. Nothing ships red.
+
+  /handoff
+      Writes a dated handoff file to docs/handoffs/ capturing current state so
+      the next session starts clean. finish-phase calls this for you.
+
+AGENTS (Claude dispatches these; you rarely call them directly):
+
+  code-reviewer         Reviews the phase diff against the spec for correctness
+                        gaps. Runs in a fresh context during finish-phase.
+  adversarial-tester    NEW. Actively tries to BREAK the feature — permission
+                        boundaries, IDOR, malformed input, business-rule abuse.
+                        Reports BROKEN / SUSPICIOUS / HELD. Runs in parallel
+                        with code-reviewer during finish-phase.
+  db-migration-checker  Checks new/changed migrations for destructive ops, data
+                        loss, missing reverse. Auto-runs in finish-phase IF the
+                        phase touched backend/*/migrations/.
+
+You almost never invoke the agents by hand — finish-phase orchestrates them.
+The exception: if you just wrote one risky endpoint mid-phase and want an early
+adversarial pass, you can ask: "Run the adversarial-tester agent on the changes
+so far."
+
+
+--------------------------------------------------------------------------------
+2. STAGE 1 — PLAN (/start-phase)  ->  the highest-leverage stage
+--------------------------------------------------------------------------------
+GOAL: end this session holding a spec so clear that the build session needs to
+ask you zero questions.
+
+HOW TO RUN IT:
+    /start-phase 53-<short-name>
+
+WHAT IT WILL DO: read the latest handoff, explore the relevant code, then
+interview you with multiple-choice questions about the hard parts (edge cases,
+UI/UX, instructor-vs-student permissions, data-model tradeoffs).
+
+HOW TO PROMPT IT WELL:
+    - Give it a one-paragraph intent BEFORE or right after the slash command.
+      Don't make it guess the goal. Example:
+        "/start-phase 53-assignment-rubrics
+         Goal: let instructors attach a scoring rubric to an assignment and
+         grade against it. Students see the rubric before submitting. Out of
+         scope: peer review, rubric templates library."
+    - Answer the interview questions decisively. Every 'it depends' you leave
+      becomes an assumption the builder makes for you.
+    - State the OUT-OF-SCOPE list loudly. Scope creep is the #1 cause of a phase
+      that never closes.
+    - If it asks something you genuinely don't care about, say "your call, pick
+      the simplest" — that's a real answer and it will record it.
+
+WHAT 'DONE' LOOKS LIKE FOR THIS STAGE:
+    A spec at docs/specs/phase-53-*.md containing: Goal, Out of scope, Backend
+    tasks (models/migrations/endpoints with URL patterns + permission checks),
+    Frontend tasks (types/services/components/pages), and Verification (exact
+    pytest cases, tsc, a manual click-through). Items that can be built in
+    parallel are tagged [P].
+
+BEFORE YOU LEAVE THIS STAGE:
+    Read the spec yourself. Fix anything wrong NOW, in this session, by telling
+    Claude to edit the spec. Editing a spec costs minutes; discovering a wrong
+    spec after the build costs hours.
+
+
+--------------------------------------------------------------------------------
+3. STAGE 2 — BUILD  ->  interactive vs unattended
+--------------------------------------------------------------------------------
+Start a FRESH session (/clear). start-phase hands you two ready-made prompts;
+choose one based on how settled the spec is.
+
+INTERACTIVE (default — use this unless you have a specific reason not to):
+    "Read docs/specs/phase-53-<name>.md and implement it on a feature branch.
+     Work through the checklist in order; items marked [P] may be dispatched to
+     parallel subagents. Run /verify-stack before marking anything complete, and
+     /finish-phase when the checklist is done."
+
+    Use when: the spec has any soft spots, the phase touches auth or migrations,
+    or you want to watch decisions as they happen. You can course-correct live.
+
+UNATTENDED (overnight — only for airtight specs with zero open questions):
+    "Read docs/specs/phase-53-<name>.md and implement it on a feature branch,
+     unattended. Do not ask questions: make the most reasonable choice and
+     record every assumption in an '## Assumptions' section appended to the
+     spec. If a checklist item requires a decision with irreversible
+     consequences (especially migrations or auth), skip it and note why instead
+     of guessing. Items marked [P] may go to parallel subagents. Run
+     /verify-stack until PASS, then /finish-phase. STOP after opening the PR —
+     never merge, and never apply migrations to Neon yourself."
+
+    Use when: the spec is fully nailed down and low-risk (UI polish, additive
+    endpoints, content changes). NOT for anything that could silently corrupt
+    data or loosen a permission boundary.
+
+PROMPTING TIPS FOR THE BUILD STAGE:
+    - Point it at the spec by PATH, not by memory. "Read docs/specs/phase-53..."
+      is better than "implement the rubrics feature."
+    - Don't feed it new requirements mid-build. If scope changes, that's a sign
+      the spec was wrong — either amend the spec explicitly or note it for the
+      next phase. Silent scope changes wreck the review stage.
+    - Let it use [P] parallelism; the spec already marked what's safe to split.
+    - If you went unattended, the FIRST thing to read the next morning is the
+      '## Assumptions' section it appended to the spec — that's where every
+      judgment call it made for you is recorded.
+
+
+--------------------------------------------------------------------------------
+4. STAGE 3 — CLOSE (/finish-phase)
+--------------------------------------------------------------------------------
+Can be the tail of the build session or a fresh one. Just run:
+    /finish-phase 53-<name>
+
+It executes these gated steps (each must pass before the next):
+    1. Branch check      — refuses to run on main.
+    2. /verify-stack     — must end PASS; fixes root cause and re-runs if red.
+    3. Parallel review   — code-reviewer + adversarial-tester on git diff
+                           main...HEAD. Fixes correctness gaps and BROKEN
+                           findings, re-verifies. SUSPICIOUS items get deferred
+                           into the PR body, never dropped silently.
+    4. Migration check   — db-migration-checker IF migrations changed.
+    5. Spec completeness — every checklist item done, or explicitly punted.
+    6. Update docs       — checks off spec items. (See KNOWN ISSUE re: PLAN.md.)
+    7. Commit + push     — conventional commits, no Co-Authored-By lines.
+    8. Open PR to main   — with Summary/Spec/Verification/Review/Migrations/
+                           Deploy-note. Does NOT merge.
+    9. /handoff          — writes the dated handoff.
+   10. Tells you the PR URL and the merge sequence.
+
+YOUR JOB DURING CLOSE:
+    - Read the review summary. If adversarial-tester found BROKEN items, they
+      should already be fixed — confirm they were, don't just trust the label.
+    - If there are new migrations, note the ORDER: apply them to Neon BEFORE
+      merging (additive-safe migrations mean old code runs against the new
+      schema; the reverse is not safe). The PR body spells this out.
+    - MERGING IS YOURS ALONE. Claude never merges — merging auto-deploys the
+      backend (Render) and frontend (Cloudflare Pages) to production. After you
+      merge, check https://stemquest-api.onrender.com/api/health/?deep=1.
+
+
+--------------------------------------------------------------------------------
+5. THE REVIEW MODEL — why two agents, and how to read them
+--------------------------------------------------------------------------------
+finish-phase runs two reviewers IN PARALLEL against the full phase diff, because
+they look for different things:
+
+    code-reviewer      "Does this match the spec and is it correct?"
+                       -> gaps, missed requirements, wrong logic.
+    adversarial-tester "Can I break this?"
+                       -> hits instructor endpoints as a student / as an
+                          instructor of a DIFFERENT course / anonymously;
+                          swaps IDs and course codes for IDOR; sends malformed
+                          payloads; abuses business rules (quiz attempt limits,
+                          post-deadline submits, double enroll, negative
+                          scores); probes uploads and state edges.
+
+How to act on their output:
+    BROKEN      -> must be fixed before the PR. Non-negotiable.
+    Correctness
+      gap       -> must be fixed (code-reviewer).
+    SUSPICIOUS  -> may defer, but MUST appear in the PR body. Decide consciously.
+    HELD        -> the surface resisted attack. Good. No action.
+
+adversarial-tester also suggests which probes should become permanent tests —
+worth doing when a phase touched a real permission boundary.
+
+
+--------------------------------------------------------------------------------
+6. KNOWN ISSUE — PLAN.md references in the updated skills
+--------------------------------------------------------------------------------
+The updated start-phase (step 2) and finish-phase (step 6) still instruct Claude
+to read/update PLAN.md. But PLAN.md was RETIRED at phase 50 (archived at
+docs/archive/PLAN.md); specs + handoffs are now the source of truth.
+
+Practical effect: harmless but noisy. Claude may look for PLAN.md, not find a
+live one, and continue. It will NOT break a phase.
+
+If you want it clean, tell Claude in the session:
+    "Ignore the PLAN.md steps in start-phase/finish-phase — PLAN.md is retired.
+     Use docs/specs and docs/handoffs as the source of truth."
+Or ask Claude to patch both skill files to drop the PLAN.md lines. Recommended,
+so the instruction stops fighting your CLAUDE.md.
+
+
+--------------------------------------------------------------------------------
+7. PROMPTING PRINCIPLES THAT APPLY EVERYWHERE
+--------------------------------------------------------------------------------
+    - Reference by path, not by memory. "docs/specs/phase-53-x.md", not "the
+      rubric thing." Paths are unambiguous and clickable.
+    - One session, one job. Plan, build, and close are three sessions. /clear
+      between them keeps context sharp.
+    - Decide, don't defer. Every unanswered question becomes an assumption
+      someone (Claude) makes for you. Interview questions are cheaper to answer
+      than assumptions are to undo.
+    - Say the out-of-scope out loud. Bounding the work prevents the phase that
+      never closes.
+    - Show me the evidence. Ask for the actual /verify-stack verdict and diff,
+      not "tests pass." (This project's norm is verdict + evidence.)
+    - Never touch main directly. Feature branch always. Merge is a human
+      decision because it deploys to production.
+    - Migrations before merge. Additive-safe, applied to Neon manually, in
+      order, BEFORE the merge that ships the new code.
+    - Trust but verify the reviewers. If adversarial-tester says BROKEN and then
+      "fixed," confirm the fix — don't take the label on faith.
+
+
+--------------------------------------------------------------------------------
+8. COPY-PASTE PROMPTS (the part you'll actually reuse)
+--------------------------------------------------------------------------------
+--- Start a new phase (planning session) --------------------------------------
+/start-phase 53-<short-name>
+Goal: <one sentence on what this phase delivers>.
+Out of scope: <the things this phase will NOT do>.
+
+--- Build the phase, interactive (default) ------------------------------------
+Read docs/specs/phase-53-<name>.md and implement it on a feature branch. Work
+through the checklist in order; items marked [P] may be dispatched to parallel
+subagents. Run /verify-stack before marking anything complete, and
+/finish-phase when the checklist is done.
+
+--- Build the phase, unattended (airtight specs only) -------------------------
+Read docs/specs/phase-53-<name>.md and implement it on a feature branch,
+unattended. Do not ask questions: make the most reasonable choice and record
+every assumption in an '## Assumptions' section appended to the spec. If a
+checklist item requires a decision with irreversible consequences (especially
+migrations or auth), skip it and note why instead of guessing. Items marked [P]
+may go to parallel subagents. Run /verify-stack until PASS, then /finish-phase.
+STOP after opening the PR — never merge, and never apply migrations to Neon
+yourself.
+
+--- Close the phase -----------------------------------------------------------
+/finish-phase 53-<name>
+
+--- Quick health checks (any time) --------------------------------------------
+/verify-stack
+"Run the adversarial-tester agent on the changes so far."   (mid-phase spot check)
+
+--- After you merge -----------------------------------------------------------
+Check https://stemquest-api.onrender.com/api/health/?deep=1
+
+================================================================================
+END
+================================================================================
