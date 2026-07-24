@@ -1,0 +1,50 @@
+# Phase 55 (A8). This file is the answer to "why did the dependency debt drift
+# in the first place" — nothing was watching. The phase-55 audit found CVEs in
+# django-allauth, simplejwt, pyjwt, pillow and axios that had all been patched
+# upstream for months.
+#
+# Minor and patch updates are grouped into one PR per ecosystem so a weekly
+# bump is a single review, not a dozen. Majors come through individually,
+# because those are the ones that need a real decision (see the react-router
+# v8 / React 19 deferral recorded in the phase 55 spec).
+version: 2
+
+updates:
+  - package-ecosystem: pip
+    directory: /backend
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+    groups:
+      backend-minor-and-patch:
+        update-types:
+          - minor
+          - patch
+    commit-message:
+      prefix: "chore(deps)"
+
+  - package-ecosystem: npm
+    directory: /frontend
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+    groups:
+      frontend-minor-and-patch:
+        update-types:
+          - minor
+          - patch
+    commit-message:
+      prefix: "chore(deps)"
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+    groups:
+      actions-minor-and-patch:
+        update-types:
+          - minor
+          - patch
+    commit-message:
+      prefix: "chore(ci)"

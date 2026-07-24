@@ -67,6 +67,22 @@ jobs:
           SECRET_KEY: ci-test-secret-key-not-for-production
         run: pytest
 
+      # Phase 55 (A8). The audit that opened this phase found CVEs in
+      # django-allauth, simplejwt, pyjwt and pillow that had been patched
+      # upstream for months, because nothing was checking. This is that check.
+      #
+      # Scoped to requirements.txt rather than the whole environment on
+      # purpose: auditing the environment also reports the CI runner's own
+      # `pip`, which is not an application dependency and whose advisories we
+      # cannot act on from here. Auditing the declared file is exactly the
+      # "no HIGH findings in app dependencies" bar, and it needs no ignore
+      # list that would silently rot.
+      - name: Audit backend dependencies
+        working-directory: backend
+        run: |
+          pip install pip-audit
+          pip-audit --requirement requirements.txt
+
   frontend:
     name: Frontend (tsc, lint, build)
     runs-on: ubuntu-latest
@@ -91,6 +107,50 @@ jobs:
       - name: Lint
         working-directory: frontend
         run: npm run lint
+
+      - name: Test
+        working-directory: frontend
+        run: npm test
+
+      # Phase 55 (A8). `--omit=dev` scopes this to what actually ships to a
+      # browser; the remaining dev-only advisories (the eslint -> minimatch /
+      # brace-expansion chain) are build-time tooling with no runtime exposure
+      # and are tracked in the phase 55 spec's follow-ups.
+      #
+      # ACCEPTED_ADVISORIES is a deliberate, reviewed exception list — the
+      # point is that CI stays green while the debt stays visible, not that
+      # the finding disappears. Anything high or critical that is NOT on this
+      # list fails the build. Removing an entry is how the debt gets paid.
+      - name: Audit frontend dependencies
+        working-directory: frontend
+        run: |
+          # GHSA-qwww-vcr4-c8h2 — React Router RSC-mode CSRF. Fixed only in
+          # react-router 8.3.0, which requires React >=19.2.7; this app is on
+          # React 18, so the fix is a React major, deferred to phase 56b. Not
+          # reachable here regardless: this is a declarative SPA with no RSC,
+          # no server rendering and no router actions.
+          ACCEPTED_ADVISORIES="GHSA-qwww-vcr4-c8h2"
+          export ACCEPTED_ADVISORIES
+          npm audit --omit=dev --json > audit.json || true
+          node -e '
+            const accepted = new Set(process.env.ACCEPTED_ADVISORIES.split(/\s+/).filter(Boolean));
+            const report = require("./audit.json");
+            const unexpected = [];
+            for (const [name, vuln] of Object.entries(report.vulnerabilities || {})) {
+              if (!["high", "critical"].includes(vuln.severity)) continue;
+              for (const via of vuln.via) {
+                if (typeof via === "string") continue;
+                const id = (via.url || "").split("/").pop();
+                if (!accepted.has(id)) unexpected.push(`${name}: ${via.title} (${via.url})`);
+              }
+            }
+            if (unexpected.length) {
+              console.error("Unaccepted high/critical advisories:");
+              for (const line of unexpected) console.error("  - " + line);
+              process.exit(1);
+            }
+            console.log("No unaccepted high/critical runtime advisories.");
+          '
 
       - name: Production build
         working-directory: frontend

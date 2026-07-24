@@ -4,7 +4,7 @@
 # compressed custom-format dump to a private R2 bucket. Retention: the 14
 # newest daily dumps plus the 8 newest weekly dumps (Sundays' dailies are
 # also copied to weekly/). Restore steps:
-# docs/runbooks/phase-51-db-restore-steps.txt
+# docs/runbooks/db-restore-steps.txt
 #
 # Required repo secrets (names only — values live in GitHub):
 #   NEON_DATABASE_URL            full postgres:// URL for the main branch

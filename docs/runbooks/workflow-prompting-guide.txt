@@ -292,6 +292,50 @@ yourself.
 --- After you merge -----------------------------------------------------------
 Check https://stemquest-api.onrender.com/api/health/?deep=1
 
+
+--------------------------------------------------------------------------------
+9. WORK THAT ISN'T A PHASE (no spec, no branch ceremony)
+--------------------------------------------------------------------------------
+Not everything deserves a phase. For these, prompt directly:
+
+  Bug fix
+    "Bug: <symptom users see>. Look in <folder or file>. Write a failing test
+     that reproduces it, then fix the root cause. Run /verify-stack when done."
+
+  Small edit to an existing feature
+    "In <file or feature>, change <current behavior> to <desired behavior>.
+     Follow the existing patterns in that file. Run /verify-stack when done."
+
+  Question, no code changes
+    "How does <thing> work in this codebase? Don't change anything."
+
+Promote it to a phase the moment it touches a permission boundary, a migration,
+or more than about three files.
+
+
+--------------------------------------------------------------------------------
+10. STEERING MID-SESSION (when it's going sideways)
+--------------------------------------------------------------------------------
+  Redirect a wrong approach — say it early, it only gets more expensive
+    "Stop — <what it's doing wrong>. Instead, <what to do>."
+
+  Make it reuse what already exists, instead of inventing a parallel pattern
+    "Before building <thing>, use subagents to find how we already do <similar
+     thing> elsewhere in the codebase. Follow the same pattern."
+
+  It claimed done without proof
+    "Show me the actual output of /verify-stack. Don't summarize it."
+
+  Same mistake twice — stop steering and restart clean
+    /clear
+    then re-prompt with the lesson baked in:
+    "<original task>. Important: <what it got wrong last time and what to do
+     instead>."
+
+The general rule: two failed corrections on the same point means the context is
+working against you. A /clear plus a better first prompt beats a third
+correction.
+
 ================================================================================
 END
 ================================================================================

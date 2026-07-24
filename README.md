@@ -103,9 +103,9 @@ Every service runs on a free tier, each picked to do one job well:
 - **Cloudflare R2** stores user uploads (avatars, attachments) via `django-storages`, because Render's free-tier filesystem is wiped on every deploy.
 - **Sentry** tracks errors in two projects (`stemquest-django`, `stemquest-react`) with release tagging, readable stack traces via hidden source maps, and PII scrubbed.
 - **UptimeRobot** answers "is the site down?" with three monitors; its 5-minute ping doubles as the keep-warm that prevents free-tier cold starts.
-- **GitHub Actions** runs pytest, `tsc`, ESLint, and a production Vite build on every PR — a red run blocks the merge, and both hosts deploy whatever lands on `main`.
+- **GitHub Actions** runs pytest, `tsc`, ESLint, Vitest, a production Vite build, and a dependency audit on every PR — a red run blocks the merge, and both hosts deploy whatever lands on `main`. Dependabot opens grouped minor/patch bumps weekly.
 
-Deep dives: [deployment overview](docs/specs/deployment-overview.md) · [deployment runbooks](docs/runbooks/)
+Deep dives: [deployment overview](docs/specs/deployment-overview.md) (historical — see its banner) · standing runbooks: [database restore](docs/runbooks/db-restore-steps.txt) · [email provider](docs/runbooks/phase-51-email-provider-steps.txt). One-time rollout runbooks from earlier phases are in [docs/archive/runbooks/](docs/archive/runbooks/).
 
 ## Tech Stack
 
