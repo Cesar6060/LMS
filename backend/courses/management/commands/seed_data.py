@@ -589,6 +589,13 @@ When you finish reading, take the short comprehension check to complete the less
                         order=c_order,
                     )
 
+        # Phase 55 (C1): a seeded lesson with questions must gate on them, the
+        # way every production lesson does. Without this the local/CI database
+        # runs the ungated path while production runs the gated one.
+        if not demo_lesson.requires_quiz:
+            demo_lesson.requires_quiz = True
+            demo_lesson.save(update_fields=['requires_quiz'])
+
         self.stdout.write(
             f'  Demo lesson "{demo_lesson.title}": '
             f'{created_sections} new section(s), {created_questions} new question(s)'

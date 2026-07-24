@@ -7,7 +7,7 @@ or leaderboards with real students.
 
 The clone deep-copies course content: units -> lessons -> sections ->
 lesson questions/choices, plus unit quizzes -> questions -> choices, with
-lesson.required_quiz remapped to the cloned quiz. Lesson attachments
+Lesson attachments
 (uploaded files) are deliberately NOT copied — file storage is shared, and
 deleting an attachment deletes its file, so shared references would be
 destructive.
@@ -86,7 +86,7 @@ class Command(BaseCommand):
         quiz_map = {}
         unit_pairs = []
 
-        # Pass 1: units and their quizzes (so required_quiz can remap even
+        # Pass 1: units and their quizzes (cloned before lessons even
         # if a lesson references a quiz from another unit).
         for unit in source.units.order_by('order'):
             # _clone mutates the instance's pk in place — capture first.
@@ -115,17 +115,7 @@ class Command(BaseCommand):
             for lesson in source_unit.lessons.order_by('order'):
                 sections = list(lesson.sections.order_by('order'))
                 questions = list(lesson.questions.order_by('order'))
-                required_quiz = (
-                    quiz_map.get(lesson.required_quiz_id)
-                    if lesson.required_quiz_id else None
-                )
-                if lesson.required_quiz_id and required_quiz is None:
-                    self.stderr.write(self.style.WARNING(
-                        f'  Lesson "{lesson.title}": required quiz is not '
-                        f'part of {SOURCE_CODE}; cleared on the clone.'
-                    ))
-                new_lesson = _clone(
-                    lesson, unit=new_unit, required_quiz=required_quiz)
+                new_lesson = _clone(lesson, unit=new_unit)
                 counts['lessons'] += 1
                 for section in sections:
                     _clone(section, lesson=new_lesson)

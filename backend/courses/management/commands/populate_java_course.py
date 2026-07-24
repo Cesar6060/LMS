@@ -122,7 +122,7 @@ class Command(BaseCommand):
     def _create_unit1_getting_started_lessons(self, unit):
         # Lesson 1: Hello World
         lesson1 = Lesson.objects.create(
-            unit=unit, title='Hello World - Your First Program', order=0, max_quiz_attempts=3
+            unit=unit, title='Hello World - Your First Program', order=0
         )
         self._create_sections(lesson1, [
             {
@@ -259,7 +259,7 @@ Experiment with different messages. What happens when you use `\\n` inside the q
 
         # Lesson 2: Comments
         lesson2 = Lesson.objects.create(
-            unit=unit, title='Comments - Documenting Your Code', order=1, max_quiz_attempts=3
+            unit=unit, title='Comments - Documenting Your Code', order=1
         )
         self._create_sections(lesson2, [
             {
@@ -383,7 +383,7 @@ Remember: Good code with good variable names often needs fewer comments!'''
 
         # Lesson 3: Brackets and Code Blocks
         lesson3 = Lesson.objects.create(
-            unit=unit, title='Code Organization - Brackets & Blocks', order=2, max_quiz_attempts=3
+            unit=unit, title='Code Organization - Brackets & Blocks', order=2
         )
         self._create_sections(lesson3, [
             {
@@ -489,7 +489,7 @@ Both compile, but which would you rather debug at 2 AM?'''
 
         # Lesson 4: Naming Conventions
         lesson4 = Lesson.objects.create(
-            unit=unit, title='Naming Conventions', order=3, max_quiz_attempts=3
+            unit=unit, title='Naming Conventions', order=3
         )
         self._create_sections(lesson4, [
             {
@@ -649,7 +649,7 @@ final double PI = 3.14159;
     def _create_unit2_variables_lessons(self, unit):
         # Lesson 1: Number Types
         lesson1 = Lesson.objects.create(
-            unit=unit, title='Number Types - int, float, double', order=0, max_quiz_attempts=3
+            unit=unit, title='Number Types - int, float, double', order=0
         )
         self._create_sections(lesson1, [
             {
@@ -774,7 +774,7 @@ System.out.println("Slots remaining: " + usersRemaining);
 
         # Lesson 2: Text and Boolean Types
         lesson2 = Lesson.objects.create(
-            unit=unit, title='Text and Boolean Types', order=1, max_quiz_attempts=3
+            unit=unit, title='Text and Boolean Types', order=1
         )
         self._create_sections(lesson2, [
             {
@@ -999,7 +999,7 @@ System.out.println("Accuracy: " + (accuracy * 100) + "%");  // 70.0%
     # Operators lessons (part of Unit 2)
     def _create_unit2_operators_lessons(self, unit):
         lesson3 = Lesson.objects.create(
-            unit=unit, title='Arithmetic Operators', order=2, max_quiz_attempts=3
+            unit=unit, title='Arithmetic Operators', order=2
         )
         self._create_sections(lesson3, [
             {
@@ -1109,7 +1109,7 @@ System.out.println("Items in last row: " + lastRowItems); // 2
         ])
 
         lesson4 = Lesson.objects.create(
-            unit=unit, title='Assignment Operators', order=3, max_quiz_attempts=3
+            unit=unit, title='Assignment Operators', order=3
         )
         self._create_sections(lesson4, [
             {
@@ -1211,7 +1211,7 @@ Most of the time, `count++` and `++count` work the same. The difference only mat
     # ================== UNIT 3: Strings & User Input ==================
     def _create_unit3_text_lessons(self, unit):
         lesson1 = Lesson.objects.create(
-            unit=unit, title='Formatting Text', order=0, max_quiz_attempts=3
+            unit=unit, title='Formatting Text', order=0
         )
         self._create_sections(lesson1, [
             {
@@ -1320,7 +1320,7 @@ System.out.printf("Price: %.2f%n", price);  // Price: 20.00
         ])
 
         lesson2 = Lesson.objects.create(
-            unit=unit, title='String Methods', order=1, max_quiz_attempts=3
+            unit=unit, title='String Methods', order=1
         )
         self._create_sections(lesson2, [
             {
@@ -1423,7 +1423,7 @@ System.out.println(answer.equalsIgnoreCase("yes"));  // true
 
         # Lesson 3: User Input
         lesson3 = Lesson.objects.create(
-            unit=unit, title='User Input', order=2, max_quiz_attempts=3
+            unit=unit, title='User Input', order=2
         )
         self._create_sections(lesson3, [
             {
@@ -1656,7 +1656,7 @@ if (answer.equals("y") || answer.equals("yes")) {
     # ================== UNIT 4: Control Flow ==================
     def _create_unit4_conditionals_lessons(self, unit):
         lesson1 = Lesson.objects.create(
-            unit=unit, title='Comparison Operators', order=0, max_quiz_attempts=3
+            unit=unit, title='Comparison Operators', order=0
         )
         self._create_sections(lesson1, [
             {
@@ -1732,7 +1732,7 @@ System.out.println(name == "Alice");       // avoid - compares references, not t
         ])
 
         lesson2 = Lesson.objects.create(
-            unit=unit, title='If Statements', order=1, max_quiz_attempts=3
+            unit=unit, title='If Statements', order=1
         )
         self._create_sections(lesson2, [
             {
@@ -1906,7 +1906,7 @@ if (!hasKey)
 
         # Lesson 3: Switch Statements
         lesson3 = Lesson.objects.create(
-            unit=unit, title='Switch Statements', order=2, max_quiz_attempts=3
+            unit=unit, title='Switch Statements', order=2
         )
         self._create_sections(lesson3, [
             {
@@ -2151,7 +2151,7 @@ switch (grade)
     def _create_unit4_loops_lessons(self, unit):
         # Lesson 4: While Loops
         lesson4 = Lesson.objects.create(
-            unit=unit, title='While Loops', order=3, max_quiz_attempts=3
+            unit=unit, title='While Loops', order=3
         )
         self._create_sections(lesson4, [
             {
@@ -2336,7 +2336,7 @@ while (true)
 
         # Lesson 5: For Loops
         lesson5 = Lesson.objects.create(
-            unit=unit, title='For Loops', order=4, max_quiz_attempts=3
+            unit=unit, title='For Loops', order=4
         )
         self._create_sections(lesson5, [
             {
@@ -2505,7 +2505,7 @@ System.out.println("]");
 
         # Lesson 6: Nested Loops
         lesson6 = Lesson.objects.create(
-            unit=unit, title='Nested Loops', order=5, max_quiz_attempts=3
+            unit=unit, title='Nested Loops', order=5
         )
         self._create_sections(lesson6, [
             {
@@ -2639,7 +2639,7 @@ for (int y = 0; y < 3; y++)
 
         # Lesson 7: For-Each Loops (Enhanced For)
         lesson7 = Lesson.objects.create(
-            unit=unit, title='For-Each Loops (Enhanced For)', order=6, max_quiz_attempts=3
+            unit=unit, title='For-Each Loops (Enhanced For)', order=6
         )
         self._create_sections(lesson7, [
             {
@@ -2784,7 +2784,7 @@ for (String name : names)
     # ================== UNIT 5: Methods & Functions ==================
     def _create_unit5_methods_lessons(self, unit):
         lesson1 = Lesson.objects.create(
-            unit=unit, title='Built-in Methods', order=0, max_quiz_attempts=3
+            unit=unit, title='Built-in Methods', order=0
         )
         self._create_sections(lesson1, [
             {
@@ -2910,7 +2910,7 @@ int value = (int) (Math.random() * 11) + 10;
         ])
 
         lesson2 = Lesson.objects.create(
-            unit=unit, title='Creating Your Own Methods', order=1, max_quiz_attempts=3
+            unit=unit, title='Creating Your Own Methods', order=1
         )
         self._create_sections(lesson2, [
             {
@@ -3128,7 +3128,22 @@ Each method does one job: `addNumbers` and `calculateTax` return values, while `
             )
 
     def _create_lesson_questions(self, lesson, questions_data):
-        """Create comprehension questions for a lesson."""
+        """Create comprehension questions for a lesson, and gate on them.
+
+        Phase 55 (C1): production has `requires_quiz` true on all 40 lessons
+        (migration 0020 seeded it wherever questions existed), but this command
+        never set it and the model default is False — so a freshly seeded local
+        or CI database exercised a *different* completion gate than production,
+        which is exactly what phase 54 existed to make explicit.
+
+        Setting it here rather than at each of the 20 `Lesson.objects.create`
+        sites makes the invariant structural: a seeded lesson has the gate on
+        if and only if it has questions. `test_seeded_requires_quiz_matches_
+        production_rule` pins it.
+        """
+        if not questions_data:
+            return
+
         for i, q in enumerate(questions_data):
             question = LessonQuestion.objects.create(
                 lesson=lesson,
@@ -3142,6 +3157,10 @@ Each method does one job: `addNumbers` and `calculateTax` return values, while `
                     is_correct=is_correct,
                     order=j
                 )
+
+        if not lesson.requires_quiz:
+            lesson.requires_quiz = True
+            lesson.save(update_fields=['requires_quiz'])
 
     def _create_quiz_questions(self, quiz, questions_data):
         """Create quiz questions."""

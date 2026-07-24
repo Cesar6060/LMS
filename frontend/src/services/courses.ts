@@ -1,5 +1,5 @@
 import api from './api';
-import type { Course, Unit, Lesson, Enrollment, LessonProgress, GradingConfig, GradeSummary, EnhancedDashboard, LessonQuestion, LessonQuestionsStatus, AnswerQuestionResult, QuizSubmissionResult, LessonAttachment, LessonSection, InstructorReminder, CalendarResponse, QuizSessionState, LessonSessionAnswerResult, CourseMap } from '../types';
+import type { Course, Unit, Lesson, Enrollment, LessonProgress, GradingConfig, GradeSummary, EnhancedDashboard, LessonQuestion, LessonQuestionsStatus, LessonAttachment, LessonSection, InstructorReminder, CalendarResponse, QuizSessionState, LessonSessionAnswerResult, CourseMap, PaginatedResponse } from '../types';
 
 // Re-export types for convenience
 export type { Unit, Lesson } from '../types';
@@ -30,6 +30,8 @@ export interface LessonListItem {
   section_count?: number;
   /** Phase 53 — true if any section has a playable YouTube video. */
   has_video?: boolean;
+  /** Phase 55 — whether the requesting user has completed this lesson. */
+  is_completed?: boolean;
 }
 
 export interface UnitWithLessons {
@@ -231,7 +233,10 @@ export const courseService = {
     return response.data;
   },
 
-  async createLesson(unitId: number, data: { title: string; content?: string; video_type?: string; video_id?: string; order?: number }): Promise<Lesson> {
+  // Phase 55 (C5): `content`/`video_type`/`video_id` are read-only server-side.
+  // A lesson starts empty and gains its content as LessonSections, so those
+  // params are gone rather than silently ignored.
+  async createLesson(unitId: number, data: { title: string; order?: number }): Promise<Lesson> {
     const response = await api.post<Lesson>(`/courses/units/${unitId}/lessons/`, data);
     return response.data;
   },
@@ -365,9 +370,26 @@ export const courseService = {
   },
 
   // Student Roster
+  //
+  // Paginated server-side since phase 55 so no single response is unbounded.
+  // The roster page renders the whole class and has no paging UI, so we walk
+  // `next` here and hand back the flat list the callers already expect.
+  // Page size is 100, so one request covers any realistic class.
   async getStudentRoster(courseCode: string): Promise<RosterStudent[]> {
-    const response = await api.get<RosterStudent[]>(`/courses/courses/${courseCode}/students/`);
-    return response.data;
+    const students: RosterStudent[] = [];
+    let url: string | null = `/courses/courses/${courseCode}/students/`;
+
+    while (url) {
+      const response: { data: PaginatedResponse<RosterStudent> } =
+        await api.get<PaginatedResponse<RosterStudent>>(url);
+      students.push(...response.data.results);
+      // DRF returns an absolute URL; strip the API prefix so the axios
+      // baseURL still applies on the follow-up request.
+      const next: string | null = response.data.next;
+      url = next ? next.replace(/^.*\/api/, '') : null;
+    }
+
+    return students;
   },
 
   async removeStudent(courseCode: string, enrollmentId: number): Promise<void> {
@@ -396,41 +418,13 @@ export const courseService = {
   },
 
   // Course with progress (for course player)
-  async getCourseWithProgress(courseCode: string): Promise<CourseDetail & {
-    units: Array<UnitWithLessons & {
-      lessons: Array<LessonListItem & { is_completed?: boolean }>;
-    }>;
-  }> {
-    // Get course details
-    const courseData = await this.getCourse(courseCode);
-
-    // Get all lesson progress for this course (in parallel for performance)
-    const lessonProgressMap = new Map<number, boolean>();
-    const allLessons = courseData.units.flatMap(unit => unit.lessons);
-
-    const progressResults = await Promise.all(
-      allLessons.map(lesson =>
-        this.getLessonProgress(lesson.id)
-          .then(progress => ({ id: lesson.id, completed: progress.completed }))
-          .catch(() => ({ id: lesson.id, completed: false }))
-      )
-    );
-
-    for (const { id, completed } of progressResults) {
-      lessonProgressMap.set(id, completed);
-    }
-
-    // Merge progress into course data
-    return {
-      ...courseData,
-      units: courseData.units.map(unit => ({
-        ...unit,
-        lessons: unit.lessons.map(lesson => ({
-          ...lesson,
-          is_completed: lessonProgressMap.get(lesson.id) || false
-        }))
-      }))
-    };
+  //
+  // Phase 55 (C7): `is_completed` now comes down on the course-detail payload
+  // itself, resolved server-side in one query. This used to fan out one
+  // getLessonProgress request *per lesson* — 40 HTTP requests on every course
+  // player load — purely to reconstruct a field the API can just send.
+  async getCourseWithProgress(courseCode: string): Promise<CourseDetail> {
+    return this.getCourse(courseCode);
   },
 
   // Lesson Questions (Mini Comprehension Quizzes)
@@ -461,23 +455,8 @@ export const courseService = {
     await api.delete(`/courses/lessons/${lessonId}/questions/${questionId}/`);
   },
 
-  async answerLessonQuestion(lessonId: number, questionId: number, choiceId: number): Promise<AnswerQuestionResult> {
-    const response = await api.post<AnswerQuestionResult>(`/courses/lessons/${lessonId}/answer-question/`, {
-      question_id: questionId,
-      choice_id: choiceId,
-    });
-    return response.data;
-  },
-
   async getLessonQuestionsStatus(lessonId: number): Promise<LessonQuestionsStatus> {
     const response = await api.get<LessonQuestionsStatus>(`/courses/lessons/${lessonId}/questions-status/`);
-    return response.data;
-  },
-
-  async submitLessonQuiz(lessonId: number, answers: Record<string, number>): Promise<QuizSubmissionResult> {
-    const response = await api.post<QuizSubmissionResult>(`/courses/lessons/${lessonId}/submit-quiz/`, {
-      answers,
-    });
     return response.data;
   },
 

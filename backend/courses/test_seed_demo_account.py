@@ -288,8 +288,8 @@ class TestSeedDemoAccount:
 @pytest.fixture
 def java_course(course_instructor):
     """A JAVA101 source course exercising every copied relation:
-    units, lessons, sections, lesson questions/choices, unit quizzes with
-    questions/choices, and a lesson.required_quiz link."""
+    units, lessons, sections, lesson questions/choices, and unit quizzes with
+    questions/choices."""
     course = Course.objects.create(
         code='JAVA101',
         title='Introduction to Java',
@@ -310,9 +310,7 @@ def java_course(course_instructor):
     Choice.objects.create(question=q, text='B', is_correct=False, order=2)
 
     unit2 = Unit.objects.create(course=course, title='Variables', order=1)
-    Lesson.objects.create(
-        unit=unit2, title='Number Types', order=0, required_quiz=quiz,
-    )
+    Lesson.objects.create(unit=unit2, title='Number Types', order=0)
     return course
 
 
@@ -341,11 +339,12 @@ class TestCloneCourseForDemo:
         assert not demo.instructor.has_usable_password()
         assert content_counts(demo) == content_counts(java_course)
 
-        # required_quiz points at the cloned quiz, not the source one.
+        # Every lesson lands under a unit of the *clone*, never the source.
+        # (Phase 55 (C4) dropped `required_quiz`, so the old remap assertion
+        # went with it — this keeps the "clone is self-contained" check.)
         cloned_lesson = Lesson.objects.get(
             unit__course=demo, title='Number Types')
-        assert cloned_lesson.required_quiz is not None
-        assert cloned_lesson.required_quiz.unit.course == demo
+        assert cloned_lesson.unit.course == demo
 
     def test_rerun_is_idempotent_and_preserves_enrollment_code(self, java_course):
         call_command('clone_course_for_demo')

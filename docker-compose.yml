@@ -15,14 +15,6 @@ services:
       timeout: 5s
       retries: 5
 
-  redis:
-    image: redis:7.2-alpine
-    volumes:
-      - redis_data:/data
-    ports:
-      - "6379:6379"
-    command: redis-server --appendonly yes
-
   backend:
     build:
       context: ./backend
@@ -40,7 +32,6 @@ services:
       - SECRET_KEY=${SECRET_KEY:-dev-secret-key-change-in-production}
       - ALLOWED_HOSTS=localhost,127.0.0.1
       - CORS_ALLOWED_ORIGINS=http://localhost:5173,http://127.0.0.1:5173
-      - REDIS_URL=redis://redis:6379/0
       - SENTRY_DSN=${SENTRY_DSN:-}
       # Email configuration (console backend for dev - emails print to terminal)
       - EMAIL_BACKEND=django.core.mail.backends.console.EmailBackend
@@ -75,11 +66,9 @@ services:
       - "5173:5173"
     environment:
       - VITE_API_URL=http://localhost:8000/api
-      - VITE_WS_URL=ws://localhost:8000/ws
     command: npm run dev -- --host
 
 volumes:
   postgres_data:
-  redis_data:
   backend_static:
   backend_media:

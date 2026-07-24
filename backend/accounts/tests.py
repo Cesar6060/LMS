@@ -374,7 +374,9 @@ class TestDemoLogin:
 
 
 def make_png(name='avatar.png'):
-    # ImageField runs Pillow verification, so the payload must be a real PNG.
+    # The payload must be a real PNG because upload_avatar runs an explicit
+    # Pillow verify() (phase 55, A3) — NOT because of ImageField, whose
+    # validation never runs: save() skips full_clean().
     buf = BytesIO()
     Image.new('RGB', (1, 1), 'red').save(buf, format='PNG')
     return SimpleUploadedFile(name, buf.getvalue(), content_type='image/png')
@@ -453,6 +455,151 @@ class TestAvatarEndpoints:
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert not UserPreferences.objects.get(user=user).avatar
+
+    def test_valid_png_avatar_accepted(self, api_client, user):
+        """The hardening below must not block real images: a genuine PNG still
+        uploads and is stored."""
+        api_client.force_authenticate(user=user)
+
+        response = api_client.post(
+            '/api/auth/settings/avatar/',
+            {'avatar': make_png('portrait.png')},
+            format='multipart',
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        stored = UserPreferences.objects.get(user=user).avatar
+        assert stored
+        assert Path(stored.path).exists()
+
+    def test_svg_avatar_rejected(self, api_client, user):
+        """SVG can carry inline <script>, and media is same-origin under DEBUG,
+        so it must never reach storage — extension allowlist excludes it."""
+        api_client.force_authenticate(user=user)
+        svg = SimpleUploadedFile(
+            'avatar.svg',
+            b'<svg xmlns="http://www.w3.org/2000/svg"><script>alert(1)</script></svg>',
+            content_type='image/svg+xml',
+        )
+
+        response = api_client.post(
+            '/api/auth/settings/avatar/',
+            {'avatar': svg},
+            format='multipart',
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert not UserPreferences.objects.get(user=user).avatar
+
+    def test_html_disguised_as_png_rejected(self, api_client, user):
+        """An HTML payload renamed to .png passes the extension and content-type
+        checks, so the Pillow verify() pass is what has to catch it."""
+        api_client.force_authenticate(user=user)
+        disguised = SimpleUploadedFile(
+            'avatar.png',
+            b'<html><body><script>alert(document.cookie)</script></body></html>',
+            content_type='image/png',
+        )
+
+        response = api_client.post(
+            '/api/auth/settings/avatar/',
+            {'avatar': disguised},
+            format='multipart',
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert not UserPreferences.objects.get(user=user).avatar
+
+    # -- Phase 55 review: format confusion -----------------------------------
+    # Found by the adversarial-tester. `Image.open(...).verify()` accepts
+    # ANYTHING Pillow can decode, so before the format pin these all uploaded
+    # successfully despite the extension allowlist. The allowlist exists to
+    # bound which Pillow decoders untrusted bytes reach — the less-common
+    # codecs are where most of the CVEs behind this phase's Pillow bump live —
+    # so "it's a valid image of some kind" is not the bar.
+
+    @pytest.mark.parametrize('pillow_format', ['TIFF', 'BMP', 'PPM'])
+    def test_other_image_format_disguised_as_png_rejected(
+        self, api_client, user, pillow_format
+    ):
+        api_client.force_authenticate(user=user)
+        buf = BytesIO()
+        Image.new('RGB', (4, 4), 'blue').save(buf, format=pillow_format)
+        disguised = SimpleUploadedFile(
+            'avatar.png', buf.getvalue(), content_type='image/png',
+        )
+
+        response = api_client.post(
+            '/api/auth/settings/avatar/',
+            {'avatar': disguised},
+            format='multipart',
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert not UserPreferences.objects.get(user=user).avatar
+
+    def test_real_jpeg_named_png_rejected(self, api_client, user):
+        """Even an allowed *format* must match its declared extension."""
+        api_client.force_authenticate(user=user)
+        buf = BytesIO()
+        Image.new('RGB', (4, 4), 'green').save(buf, format='JPEG')
+        mismatched = SimpleUploadedFile(
+            'avatar.png', buf.getvalue(), content_type='image/png',
+        )
+
+        response = api_client.post(
+            '/api/auth/settings/avatar/',
+            {'avatar': mismatched},
+            format='multipart',
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+
+    def test_real_jpeg_named_jpg_accepted(self, api_client, user):
+        """...and the matching pair still works, so the pin isn't over-tight."""
+        api_client.force_authenticate(user=user)
+        buf = BytesIO()
+        Image.new('RGB', (4, 4), 'green').save(buf, format='JPEG')
+        good = SimpleUploadedFile(
+            'avatar.jpg', buf.getvalue(), content_type='image/jpeg',
+        )
+
+        response = api_client.post(
+            '/api/auth/settings/avatar/',
+            {'avatar': good},
+            format='multipart',
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        assert UserPreferences.objects.get(user=user).avatar
+
+    @pytest.mark.parametrize('hostile_name', [
+        '../../../evil.png',
+        '....//....//evil.png',
+        '/etc/evil.png',
+    ])
+    def test_path_traversal_filename_is_sanitized(
+        self, api_client, user, hostile_name
+    ):
+        """Django's storage layer strips the path; pin it so a future custom
+        upload_to or storage backend can't quietly reintroduce an escape."""
+        api_client.force_authenticate(user=user)
+        buf = BytesIO()
+        Image.new('RGB', (1, 1), 'red').save(buf, format='PNG')
+        traversal = SimpleUploadedFile(
+            hostile_name, buf.getvalue(), content_type='image/png',
+        )
+
+        response = api_client.post(
+            '/api/auth/settings/avatar/',
+            {'avatar': traversal},
+            format='multipart',
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        stored = UserPreferences.objects.get(user=user).avatar.name
+        assert '..' not in stored
+        assert stored.startswith('avatars/')
 
     def test_delete_avatar(self, api_client, user):
         api_client.force_authenticate(user=user)
@@ -558,7 +705,7 @@ class TestPasswordResetEmail:
             cache.clear()
 
     def test_throttle_keys_on_cf_connecting_ip(
-            self, api_client, user, monkeypatch):
+            self, api_client, user, monkeypatch, settings):
         """Cloudflare's rotating edge IP must not defeat the throttle.
 
         Production sits behind Cloudflare, which appends a per-request edge
@@ -566,10 +713,16 @@ class TestPasswordResetEmail:
         a fresh bucket and no rate limit ever fired. The fix keys the bucket
         on CF-Connecting-IP, so requests from one client throttle together
         no matter what the rest of the chain looks like.
+
+        Phase 55 (A5) gated that behind TRUST_CF_HEADERS, which defaults off
+        in dev/tests — this test is asserting the *production* configuration,
+        so it opts in explicitly. The off case is covered in
+        core/tests/test_throttling.py.
         """
         from django.core.cache import cache
         from rest_framework.throttling import ScopedRateThrottle
 
+        settings.TRUST_CF_HEADERS = True
         monkeypatch.setattr(
             ScopedRateThrottle, 'THROTTLE_RATES', {'password_reset': '3/min'})
         cache.clear()

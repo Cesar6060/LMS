@@ -15,27 +15,12 @@ import { EnrollmentModal } from '@/components/course/EnrollmentModal';
 import { StudentGradeCard } from '@/components/course/StudentGradeCard';
 import { Skeleton } from '@/components/ui/Skeleton';
 import { PageContainer } from '@/components/layout/PageContainer';
+import { getNextLesson, getUnitProgress } from '@/lib/courseProgress';
 
 interface CourseProgress {
   total_lessons: number;
   completed_lessons: number;
   progress_percentage: number;
-}
-
-interface NextLessonInfo {
-  lessonId: number;
-  lessonTitle: string;
-  unitTitle: string;
-  unitNumber: number;
-  lessonNumber: number;
-}
-
-interface UnitProgress {
-  unitId: number;
-  unitTitle: string;
-  totalLessons: number;
-  completedLessons: number;
-  isComplete: boolean;
 }
 
 export function CourseDetailPage() {
@@ -55,80 +40,11 @@ export function CourseDetailPage() {
   const isEnrolled = course?.is_enrolled || false;
   const canAccessContent = isCourseOwner || isEnrolled;
 
-  // Compute next lesson for enrolled students
-  const getNextLesson = (): NextLessonInfo | null => {
-    if (!course || !isEnrolled || isCourseOwner) return null;
-
-    // For now, we'll compute this from the course structure
-    // The first incomplete lesson or the first lesson if none completed
-    for (let unitIdx = 0; unitIdx < course.units.length; unitIdx++) {
-      const unit = course.units[unitIdx];
-      for (let lessonIdx = 0; lessonIdx < unit.lessons.length; lessonIdx++) {
-        const lesson = unit.lessons[lessonIdx];
-        // Check if this lesson is completed (would need progress data per lesson)
-        // For now, use overall progress to estimate
-        const estimatedCompleted = progress && progress.total_lessons > 0
-          ? Math.floor((progress.completed_lessons / progress.total_lessons) * course.units.reduce((sum, u) => sum + u.lessons.length, 0))
-          : 0;
-        const currentLessonIndex = course.units.slice(0, unitIdx).reduce((sum, u) => sum + u.lessons.length, 0) + lessonIdx;
-
-        if (currentLessonIndex >= estimatedCompleted) {
-          return {
-            lessonId: lesson.id,
-            lessonTitle: lesson.title,
-            unitTitle: unit.title,
-            unitNumber: unitIdx + 1,
-            lessonNumber: lessonIdx + 1,
-          };
-        }
-      }
-    }
-
-    // All completed, return first lesson
-    if (course.units.length > 0 && course.units[0].lessons.length > 0) {
-      return {
-        lessonId: course.units[0].lessons[0].id,
-        lessonTitle: course.units[0].lessons[0].title,
-        unitTitle: course.units[0].title,
-        unitNumber: 1,
-        lessonNumber: 1,
-      };
-    }
-
-    return null;
-  };
-
-  // Compute unit progress for timeline
-  const getUnitProgress = (): UnitProgress[] => {
-    if (!course || !progress) return [];
-
-    const totalLessons = course.units.reduce((sum, u) => sum + u.lessons.length, 0);
-    if (totalLessons === 0) return [];
-
-    let completedSoFar = 0;
-    const lessonsPerUnit = course.units.map(u => u.lessons.length);
-
-    return course.units.map((unit, idx) => {
-      const unitLessons = unit.lessons.length;
-      // Estimate completion based on overall progress
-      const estimatedUnitCompleted = Math.min(
-        unitLessons,
-        Math.max(0, progress.completed_lessons - completedSoFar)
-      );
-      completedSoFar += lessonsPerUnit[idx];
-
-      return {
-        unitId: unit.id,
-        unitTitle: unit.title,
-        totalLessons: unitLessons,
-        completedLessons: estimatedUnitCompleted,
-        isComplete: estimatedUnitCompleted >= unitLessons,
-      };
-    });
-  };
-
-  const nextLesson = getNextLesson();
-  const unitProgress = getUnitProgress();
+  // Phase 55 (C7): both read the per-lesson `is_completed` the course-detail
+  // payload now carries, instead of estimating from the overall percentage.
+  const showNextLesson = isEnrolled && !isCourseOwner;
+  const nextLesson = showNextLesson && course ? getNextLesson(course.units) : null;
+  const unitProgress = course ? getUnitProgress(course.units) : [];
 
   const loadCourse = useCallback(async () => {
     try {

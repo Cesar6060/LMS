@@ -13,8 +13,9 @@ The live site runs as a **public demo**. There's no sign-up and nothing to
 type — click **Try the demo** on the landing page (or the login page) and
 you're in as Jordan Doe, the shared demo student.
 
-The demo account is enrolled in **JAVA101 (Introduction to Java)**, which exists
-purely as a sandbox course for kicking the tires — Unit 1 is completed and Unit 2
+The demo account is enrolled in **DEMO101 (Java Fundamentals — Demo)**, a clone
+of JAVA101 that exists purely as a sandbox for kicking the tires, so demo
+visitors never share a roster with real students. Unit 1 is completed and Unit 2
 is in progress. Poke around freely; it resets to that baseline periodically. The
 first request may take up to a minute if the free-tier backend happens to be cold.
 
@@ -28,14 +29,14 @@ first request may take up to a minute if the free-tier backend happens to be col
 ## Features
 
 ### For Students
-- **Immersive Learning Mode** — distraction-free course player with paginated sections, embedded video, and markdown content
+- **Immersive Learning Mode** — distraction-free course player with paginated pages, embedded video, and markdown content
 - **Mastery Quizzes** — comprehension checks that re-queue missed questions until every one is answered correctly, plus auto-graded unit quizzes with attempt limits
 - **Gamification** — XP, levels, streaks, badges, and a customizable mascot
-- **Progress Tracking** — pick up exactly where you left off, down to the section and video position
+- **Progress Tracking** — pick up exactly where you left off, down to the page and video position
 - **Discussions** — course-level threads and replies
 
 ### For Instructors
-- **Course Builder** — courses → units → lessons → sections, with embedded videos and file attachments
+- **Course Builder** — courses → units → lessons → pages, with embedded videos and file attachments
 - **Gradebook** — matrix view with inline grading and CSV export
 - **Student Roster** — activity tracking, invitations, enrollment management
 - **Announcements** — pinned updates with optional email notifications
@@ -102,21 +103,21 @@ Every service runs on a free tier, each picked to do one job well:
 - **Cloudflare R2** stores user uploads (avatars, attachments) via `django-storages`, because Render's free-tier filesystem is wiped on every deploy.
 - **Sentry** tracks errors in two projects (`stemquest-django`, `stemquest-react`) with release tagging, readable stack traces via hidden source maps, and PII scrubbed.
 - **UptimeRobot** answers "is the site down?" with three monitors; its 5-minute ping doubles as the keep-warm that prevents free-tier cold starts.
-- **GitHub Actions** runs pytest, `tsc`, ESLint, and a production Vite build on every PR — a red run blocks the merge, and both hosts deploy whatever lands on `main`.
+- **GitHub Actions** runs pytest, `tsc`, ESLint, Vitest, a production Vite build, and a dependency audit on every PR — a red run blocks the merge, and both hosts deploy whatever lands on `main`. Dependabot opens grouped minor/patch bumps weekly.
 
-Deep dives: [deployment overview](docs/specs/deployment-overview.md) · [deployment runbooks](docs/runbooks/)
+Deep dives: [deployment overview](docs/specs/deployment-overview.md) (historical — see its banner) · standing runbooks: [database restore](docs/runbooks/db-restore-steps.txt) · [email provider](docs/runbooks/phase-51-email-provider-steps.txt). One-time rollout runbooks from earlier phases are in [docs/archive/runbooks/](docs/archive/runbooks/).
 
 ## Tech Stack
 
 | Layer | Technology |
 |-------|------------|
-| **Frontend** | React 18, TypeScript, Vite, Tailwind CSS, Framer Motion |
+| **Frontend** | React 18, TypeScript, Vite, Tailwind CSS, Radix UI |
 | **Frontend hosting** | Cloudflare Workers (static assets, global CDN) |
 | **Backend** | Django 4.2 LTS, Django REST Framework, gunicorn, WhiteNoise |
 | **Backend hosting** | Render |
 | **Database** | PostgreSQL 16 (Neon serverless in production) |
 | **Media storage** | Cloudflare R2 via django-storages |
-| **Auth** | DRF token auth, django-allauth, dj-rest-auth |
+| **Auth** | django-allauth + dj-rest-auth (JWT) |
 | **Observability** | Sentry (both halves), UptimeRobot |
 | **CI/CD** | GitHub Actions; git-push deploys to Render + Cloudflare |
 | **Local dev** | Docker Compose (production runs no containers) |
@@ -168,6 +169,7 @@ Then log in at http://localhost:5173/login:
 
 ```
 ├── backend/
+│   ├── core/            # Shared helpers: templated email senders, API throttle classes
 │   ├── accounts/        # Custom user model, auth, preferences
 │   ├── courses/         # Courses, units, lessons, sections, progress
 │   ├── quizzes/         # Unit quiz engine with auto-grading
@@ -186,7 +188,7 @@ Then log in at http://localhost:5173/login:
 
 ## Key Design Decisions
 
-- **Token Authentication** — DRF token auth via dj-rest-auth; every request is deny-by-default (`IsAuthenticated`)
+- **JWT Authentication** — JWT via dj-rest-auth (`Authorization: Bearer` with refresh-token rotation); every request is deny-by-default (`IsAuthenticated`)
 - **Role-based Access Control** — instructor vs student permissions enforced at the API level, backed by a per-endpoint permission test suite
 - **Demo-mode lockdown** — public self-registration is gated behind `ALLOW_REGISTRATION` (off in production), so the live site exposes only the shared demo student; the endpoint returns 403 server-side, not just a hidden button
 - **Enrollment Codes** — secure course access without per-student instructor approval

@@ -38,7 +38,10 @@ export function NotificationBell() {
     try {
       const data = await notificationService.getNotifications();
       setNotifications(data);
-      setUnreadCount(data.filter(n => !n.is_read).length);
+      // The list is paginated (phase 55), so counting unread rows in `data`
+      // would only count the newest page. The badge tracks the dedicated
+      // unread-count endpoint instead.
+      await fetchUnreadCount();
     } catch (err) {
       console.error('Failed to fetch notifications:', err);
     } finally {

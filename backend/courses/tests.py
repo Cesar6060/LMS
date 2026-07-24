@@ -1,6 +1,7 @@
 from pathlib import Path
 
 import pytest
+from django.conf import settings
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.urls import reverse
 from rest_framework import status
@@ -207,6 +208,81 @@ class TestEnrollment:
             'enrollment_code': course.enrollment_code
         })
         assert response.status_code == status.HTTP_201_CREATED
+
+    # -- Phase 55 (A4): self-unenroll ---------------------------------------
+
+    def test_unenroll_soft_deletes(self, api_client, student, enrollment):
+        """DELETE deactivates the row instead of dropping it, matching the
+        instructor-side `remove_student` so progress/grades survive."""
+        api_client.force_authenticate(user=student)
+        response = api_client.delete(f'/api/courses/enrollments/{enrollment.id}/')
+        assert response.status_code == status.HTTP_204_NO_CONTENT
+
+        enrollment.refresh_from_db()
+        assert enrollment.is_active is False
+        assert Enrollment.objects.filter(pk=enrollment.pk).exists()
+
+    def test_idor_cannot_delete_another_users_enrollment(
+        self, api_client, student, course, enrollment
+    ):
+        """Enrollment ids are guessable; the queryset scoping is what stops
+        one student deactivating another's enrollment."""
+        attacker = User.objects.create_user(
+            email='attacker@test.com', password='testpass123'
+        )
+        Enrollment.objects.create(user=attacker, course=course)
+
+        api_client.force_authenticate(user=attacker)
+        response = api_client.delete(f'/api/courses/enrollments/{enrollment.id}/')
+
+        assert response.status_code == status.HTTP_404_NOT_FOUND
+        enrollment.refresh_from_db()
+        assert enrollment.is_active is True
+
+    def test_soft_delete_actually_revokes_access(
+        self, api_client, student, course, enrollment, unit
+    ):
+        """Soft-delete must revoke access, not just flip a flag — otherwise
+        'unenrolled' students would keep reading course content."""
+        lesson = Lesson.objects.create(unit=unit, title='L1', order=1)
+        api_client.force_authenticate(user=student)
+        assert api_client.get(
+            f'/api/courses/lessons/{lesson.id}/'
+        ).status_code == status.HTTP_200_OK
+
+        assert api_client.delete(
+            f'/api/courses/enrollments/{enrollment.id}/'
+        ).status_code == status.HTTP_204_NO_CONTENT
+
+        assert api_client.get(
+            f'/api/courses/lessons/{lesson.id}/'
+        ).status_code == status.HTTP_403_FORBIDDEN
+
+    def test_cannot_unenroll_twice(self, api_client, student, enrollment):
+        """An already-inactive enrollment is out of the queryset."""
+        api_client.force_authenticate(user=student)
+        api_client.delete(f'/api/courses/enrollments/{enrollment.id}/')
+
+        response = api_client.delete(f'/api/courses/enrollments/{enrollment.id}/')
+        assert response.status_code == status.HTTP_404_NOT_FOUND
+
+    def test_demo_account_cannot_unenroll(self, api_client, course):
+        """Every visitor shares the demo login, so one un-enroll would break
+        the demo for everyone until an operator re-ran seed_demo_account."""
+        demo_user = User.objects.create_user(
+            email=settings.DEMO_ACCOUNT_EMAIL,
+            password='testpass123',
+        )
+        demo_enrollment = Enrollment.objects.create(user=demo_user, course=course)
+
+        api_client.force_authenticate(user=demo_user)
+        response = api_client.delete(
+            f'/api/courses/enrollments/{demo_enrollment.id}/'
+        )
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+
+        demo_enrollment.refresh_from_db()
+        assert demo_enrollment.is_active is True
 
 
 @pytest.mark.django_db
@@ -670,21 +746,26 @@ class TestStudentRoster:
         response = api_client.get(f'/api/courses/courses/{course.code}/students/')
         assert response.status_code == status.HTTP_403_FORBIDDEN
 
+    # Phase 55 (A6): the roster is paginated, so the rows live under
+    # `results` and the response also carries `count`/`next`/`previous`.
+
     def test_roster_returns_students(self, api_client, instructor, course, student, enrollment):
         """Roster returns enrolled students."""
         api_client.force_authenticate(user=instructor)
         response = api_client.get(f'/api/courses/courses/{course.code}/students/')
         assert response.status_code == status.HTTP_200_OK
-        assert len(response.data) == 1
-        assert response.data[0]['email'] == student.email
+        assert response.data['count'] == 1
+        assert len(response.data['results']) == 1
+        assert response.data['results'][0]['email'] == student.email
 
     def test_roster_includes_activity_data(self, api_client, instructor, course, student, enrollment):
         """Roster includes activity tracking fields."""
         api_client.force_authenticate(user=instructor)
         response = api_client.get(f'/api/courses/courses/{course.code}/students/')
-        assert 'last_activity_at' in response.data[0]
-        assert 'is_inactive' in response.data[0]
-        assert 'progress_percentage' in response.data[0]
+        row = response.data['results'][0]
+        assert 'last_activity_at' in row
+        assert 'is_inactive' in row
+        assert 'progress_percentage' in row
 
     def test_roster_excludes_removed_students(self, api_client, instructor, course, student, enrollment):
         """Roster excludes soft-deleted students."""
@@ -693,7 +774,8 @@ class TestStudentRoster:
 
         api_client.force_authenticate(user=instructor)
         response = api_client.get(f'/api/courses/courses/{course.code}/students/')
-        assert len(response.data) == 0
+        assert response.data['count'] == 0
+        assert response.data['results'] == []
 
     def test_remove_student(self, api_client, instructor, course, student, enrollment):
         """Instructor can remove a student (soft delete)."""
@@ -1357,6 +1439,73 @@ class TestLessonReorder:
         )
         assert response.status_code == status.HTTP_401_UNAUTHORIZED
 
+    # -- Phase 55 (A2): the plain PATCH path, not just `reorder` -------------
+    # `unit` is writable on LessonSerializer, and IsEnrolledOrInstructor
+    # resolves the course from the *source* `obj.unit.course`, so before
+    # LessonSerializer.validate_unit a bare PATCH could move a lesson into a
+    # course the caller does not own.
+
+    def test_patch_unit_to_other_course_rejected(
+        self, api_client, instructor, lessons_a, other_course_unit
+    ):
+        lesson = lessons_a[0]
+        original_unit_id = lesson.unit_id
+        api_client.force_authenticate(user=instructor)
+        response = api_client.patch(
+            f'/api/courses/lessons/{lesson.id}/',
+            {'unit': other_course_unit.id},
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        lesson.refresh_from_db()
+        assert lesson.unit_id == original_unit_id
+
+    def test_instructor_of_destination_course_cannot_pull_lesson_in(
+        self, api_client, other_instructor, lessons_a, other_course_unit
+    ):
+        """The third actor: someone who legitimately owns the *destination*
+        but not the lesson's own course. Blocked at get_object(), before
+        validate_unit runs at all."""
+        lesson = lessons_a[0]
+        original_unit_id = lesson.unit_id
+        api_client.force_authenticate(user=other_instructor)
+        response = api_client.patch(
+            f'/api/courses/lessons/{lesson.id}/',
+            {'unit': other_course_unit.id},
+        )
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+        lesson.refresh_from_db()
+        assert lesson.unit_id == original_unit_id
+
+    def test_validate_unit_fails_closed_without_request_context(
+        self, unit_b, lessons_a
+    ):
+        """No request context means no user to check ownership against, so the
+        guard must refuse rather than quietly skip the check. Pins the
+        behaviour for non-view callers (shell, management command, bulk import).
+        """
+        from .serializers import LessonSerializer
+
+        serializer = LessonSerializer(
+            instance=lessons_a[0], data={'unit': unit_b.id},
+            partial=True, context={},
+        )
+        assert serializer.is_valid() is False
+        assert 'unit' in serializer.errors
+
+    def test_patch_unit_within_same_course_allowed(
+        self, api_client, instructor, unit_b, lessons_a
+    ):
+        """Don't over-tighten: moving between units of the same course is fine."""
+        lesson = lessons_a[0]
+        api_client.force_authenticate(user=instructor)
+        response = api_client.patch(
+            f'/api/courses/lessons/{lesson.id}/',
+            {'unit': unit_b.id},
+        )
+        assert response.status_code == status.HTTP_200_OK
+        lesson.refresh_from_db()
+        assert lesson.unit_id == unit_b.id
+
 
 # ---------------------------------------------------------------------------
 # Phase 23: Learning-mode pagination + comprehension-quiz gating
@@ -1699,44 +1848,19 @@ class TestLessonCompletionGating:
         assert lesson.requires_quiz is False
 
 
-@pytest.mark.django_db
-class TestRequiresQuizMigration:
-    """Phase 54: `0020` seeds `requires_quiz` from existing questions and clears
-    the retired `required_quiz` FK."""
-
-    def test_seed_and_clear(self, instructor, course, unit):
-        import importlib
-        from django.apps import apps as global_apps
-        migration = importlib.import_module(
-            'courses.migrations.0020_lesson_requires_quiz'
-        )
-        seed_requires_quiz_and_clear_required_quiz = (
-            migration.seed_requires_quiz_and_clear_required_quiz
-        )
-        from quizzes.models import Quiz
-
-        quiz = Quiz.objects.create(unit=unit, title='Legacy Gate')
-
-        # Lesson with questions → should become requires_quiz=True.
-        with_q = Lesson.objects.create(unit=unit, title='Has Q', order=0)
-        LessonQuestion.objects.create(lesson=with_q, text='Q?', order=1)
-
-        # Lesson with no questions → stays False.
-        no_q = Lesson.objects.create(unit=unit, title='No Q', order=1)
-
-        # Lesson carrying a retired required_quiz FK → cleared.
-        with_fk = Lesson.objects.create(
-            unit=unit, title='Has FK', order=2, required_quiz=quiz
-        )
-
-        seed_requires_quiz_and_clear_required_quiz(global_apps, None)
-
-        with_q.refresh_from_db()
-        no_q.refresh_from_db()
-        with_fk.refresh_from_db()
-        assert with_q.requires_quiz is True
-        assert no_q.requires_quiz is False
-        assert with_fk.required_quiz_id is None
+# Phase 55 (C4): TestRequiresQuizMigration is retired alongside the column.
+#
+# It called 0020's data function with the *current* app registry to prove it
+# seeded `requires_quiz` from existing questions and cleared the retired
+# `required_quiz` FK. Migration 0021 drops `required_quiz` from the schema, so
+# the column no longer exists in the test database and no registry trick can
+# resurrect it — the function is only runnable against historical state that a
+# head-migrated test DB does not have.
+#
+# 0020 is already applied everywhere that matters (production 2026-07-23), so
+# what needs ongoing protection is not the one-time backfill but the *rule* it
+# established: a lesson gates on its quiz iff it has questions. That is now
+# pinned forward by TestSeedingGateMatchesProduction.
 
 
 # ---------------------------------------------------------------------------
@@ -2165,11 +2289,14 @@ class TestLessonQuizSession:
         assert progress.status_code == status.HTTP_200_OK
         assert progress.data['completed'] is True
 
-    def test_attempt_cap_ignored(self, api_client, student, lesson, enrollment):
-        """max_quiz_attempts is retired: prior completed attempts never block."""
+    def test_prior_attempts_never_block(self, api_client, student, lesson, enrollment):
+        """Prior completed attempts never block a new one.
+
+        Phase 32 retired the attempt cap (mastery re-queues until passed, so a
+        pass is guaranteed) and phase 55 (C4) dropped the `max_quiz_attempts`
+        column outright. This pins the guarantee that replaced it.
+        """
         _add_comprehension_quiz(lesson)
-        lesson.max_quiz_attempts = 1
-        lesson.save()
         LessonQuizAttempt.objects.create(
             user=student, lesson=lesson, attempt_number=1,
             score=0, total_questions=2, passed=False,
@@ -2339,23 +2466,6 @@ class TestCourseMap:
         assert boss_node['best_score'] == 85.0
         assert data['current_node_id'] == f"lesson-{map_course['lesson_b1'].id}"
         assert data['completed_nodes'] == 3
-
-    def test_required_quiz_unlocks_with_its_lesson(self, api_client, student, map_course):
-        """Deadlock exception: a lesson's required_quiz is unlocked while the
-        lesson is still incomplete (not locked behind its completion)."""
-        map_course['lesson_a2'].required_quiz = map_course['boss_a']
-        map_course['lesson_a2'].save()
-        Enrollment.objects.create(user=student, course=map_course['course'])
-        LessonProgress.objects.create(
-            user=student, lesson=map_course['lesson_a1'], completed=True
-        )
-        api_client.force_authenticate(user=student)
-
-        data = api_client.get(self.URL).data
-        nodes = self.flat_nodes(data)
-        assert nodes[1]['state'] == 'current'   # A2 (the gated lesson)
-        assert nodes[2]['state'] == 'unlocked'  # Boss A: unlocked, not current
-        assert nodes[3]['state'] == 'locked'    # B1 untouched by the exception
 
     def test_permission_boundaries(self, api_client, student, instructor, map_course):
         """Unenrolled student 403; course instructor 200; anonymous 401."""
@@ -3124,91 +3234,12 @@ class TestYouTubeVideoIdExtraction:
         assert extract_youtube_video_id(value) is None
 
 
-@pytest.mark.django_db
-class TestLessonVideoValidation:
-    def test_lesson_update_with_shorts_url_stores_bare_id(
-            self, api_client, instructor, lesson):
-        api_client.force_authenticate(user=instructor)
-        response = api_client.patch(
-            f'/api/courses/lessons/{lesson.id}/',
-            {'video_type': 'youtube',
-             'video_id': 'https://www.youtube.com/shorts/dQw4w9WgXcQ'},
-            format='json',
-        )
-        assert response.status_code == status.HTTP_200_OK
-        lesson.refresh_from_db()
-        assert lesson.video_id == 'dQw4w9WgXcQ'
-        assert lesson.video_type == 'youtube'
-
-    def test_lesson_update_with_long_share_url_stores_bare_id(
-            self, api_client, instructor, lesson):
-        # Regression: a valid share URL longer than the 50-char column must be
-        # extracted, not rejected for length. DRF runs the model-derived
-        # max_length validator before validate(), so without an input-length
-        # override this 63-char URL 400s on max_length instead of normalizing.
-        url = 'https://www.youtube.com/watch?v=dQw4w9WgXcQ&si=aB3dEfGhIjKlMnOp'
-        assert len(url) > 50
-        api_client.force_authenticate(user=instructor)
-        response = api_client.patch(
-            f'/api/courses/lessons/{lesson.id}/',
-            {'video_type': 'youtube', 'video_id': url},
-            format='json',
-        )
-        assert response.status_code == status.HTTP_200_OK
-        lesson.refresh_from_db()
-        assert lesson.video_id == 'dQw4w9WgXcQ'
-
-    def test_lesson_update_oversized_video_id_rejected(
-            self, api_client, instructor, lesson):
-        # The input-length override is bounded (255) so oversized junk is still
-        # rejected before extraction runs.
-        api_client.force_authenticate(user=instructor)
-        response = api_client.patch(
-            f'/api/courses/lessons/{lesson.id}/',
-            {'video_type': 'youtube', 'video_id': 'x' * 5000},
-            format='json',
-        )
-        assert response.status_code == status.HTTP_400_BAD_REQUEST
-        assert 'video_id' in response.data
-
-    def test_lesson_update_unparseable_returns_field_error(
-            self, api_client, instructor, lesson):
-        api_client.force_authenticate(user=instructor)
-        response = api_client.patch(
-            f'/api/courses/lessons/{lesson.id}/',
-            {'video_type': 'youtube', 'video_id': 'https://example.com'},
-            format='json',
-        )
-        assert response.status_code == status.HTTP_400_BAD_REQUEST
-        assert 'video_id' in response.data
-        lesson.refresh_from_db()
-        assert lesson.video_id == ''
-
-    def test_lesson_vimeo_choice_rejected(self, api_client, instructor, lesson):
-        api_client.force_authenticate(user=instructor)
-        response = api_client.patch(
-            f'/api/courses/lessons/{lesson.id}/',
-            {'video_type': 'vimeo', 'video_id': '123456789'},
-            format='json',
-        )
-        assert response.status_code == status.HTTP_400_BAD_REQUEST
-        assert 'video_type' in response.data
-
-    def test_lesson_video_type_none_forces_empty_video_id(
-            self, api_client, instructor, lesson):
-        lesson.video_type = 'youtube'
-        lesson.video_id = 'dQw4w9WgXcQ'
-        lesson.save()
-        api_client.force_authenticate(user=instructor)
-        response = api_client.patch(
-            f'/api/courses/lessons/{lesson.id}/',
-            {'video_type': 'none', 'video_id': 'dQw4w9WgXcQ'},
-            format='json',
-        )
-        assert response.status_code == status.HTTP_200_OK
-        lesson.refresh_from_db()
-        assert lesson.video_type == 'none'
-        assert lesson.video_id == ''
+# Phase 55 (C5): TestLessonVideoValidation is gone — lesson-level
+# `video_type`/`video_id` became read-only, so there is no write path left to
+# validate. Video lives on LessonSection (phase 53), and the three cases that
+# class covered uniquely (the >50-char share URL that regressed in phase 52,
+# the 255-char input bound, and video_type=none forcing an empty id) are
+# retargeted onto sections below so the coverage survives the move.
 
 
 @pytest.mark.django_db
@@ -3265,6 +3296,58 @@ class TestSectionVideoValidation:
         )
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert 'video_type' in response.data
+
+    def test_section_long_share_url_stores_bare_id(
+            self, api_client, instructor, lesson):
+        # Regression (phase 52): a valid share URL longer than the 50-char
+        # column must be extracted, not rejected for length. DRF runs the
+        # model-derived max_length validator before validate(), so without
+        # VideoFieldsValidationMixin's input-length override this 63-char URL
+        # 400s on max_length instead of normalizing.
+        url = 'https://www.youtube.com/watch?v=dQw4w9WgXcQ&si=aB3dEfGhIjKlMnOp'
+        assert len(url) > 50
+        api_client.force_authenticate(user=instructor)
+        response = api_client.post(
+            f'/api/courses/lessons/{lesson.id}/sections/',
+            {'title': 'Long url', 'content': '',
+             'video_type': 'youtube', 'video_id': url},
+            format='json',
+        )
+        assert response.status_code == status.HTTP_201_CREATED
+        assert response.data['video_id'] == 'dQw4w9WgXcQ'
+
+    def test_section_oversized_video_id_rejected(
+            self, api_client, instructor, lesson):
+        # The input-length override is bounded (255) so oversized junk is still
+        # rejected before extraction runs.
+        api_client.force_authenticate(user=instructor)
+        response = api_client.post(
+            f'/api/courses/lessons/{lesson.id}/sections/',
+            {'title': 'Huge', 'content': '',
+             'video_type': 'youtube', 'video_id': 'x' * 5000},
+            format='json',
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert 'video_id' in response.data
+
+    def test_section_video_type_none_forces_empty_video_id(
+            self, api_client, instructor, lesson):
+        section = LessonSection.objects.create(
+            lesson=lesson, title='Has video', content='', order=1,
+            video_type='youtube', video_id='dQw4w9WgXcQ',
+        )
+        api_client.force_authenticate(user=instructor)
+        # The section detail route takes a full PUT, not a PATCH.
+        response = api_client.put(
+            f'/api/courses/lessons/{lesson.id}/sections/{section.id}/',
+            {'title': 'Has video', 'content': '', 'order': 1,
+             'video_type': 'none', 'video_id': 'dQw4w9WgXcQ'},
+            format='json',
+        )
+        assert response.status_code == status.HTTP_200_OK
+        section.refresh_from_db()
+        assert section.video_type == 'none'
+        assert section.video_id == ''
 
 
 @pytest.mark.django_db
@@ -3398,29 +3481,10 @@ class TestConsolidateContentIntoSectionsMigration:
 
 
 @pytest.mark.django_db
-class TestRequiredQuizRetired:
-    """Phase 54: the cross-course `required_quiz` gate (System A) is retired.
-
-    The FK is no longer a writable serializer field, so any attempt to set it via
-    the API is silently ignored (the column stays dormant). This supersedes the
-    Phase-53 IDOR-scoping tests — with no writable field there is no IDOR surface.
-    """
-
-    def test_setting_required_quiz_via_api_is_ignored(
-        self, api_client, instructor, unit, lesson
-    ):
-        from quizzes.models import Quiz
-        quiz = Quiz.objects.create(unit=unit, title='Some Quiz')
-
-        api_client.force_authenticate(user=instructor)
-        resp = api_client.patch(
-            f'/api/courses/lessons/{lesson.id}/',
-            {'required_quiz': quiz.id}, format='json')
-
-        # Accepted (unknown write field ignored), but the FK is not set.
-        assert resp.status_code == status.HTTP_200_OK
-        lesson.refresh_from_db()
-        assert lesson.required_quiz_id is None
+class TestRequiresQuizIsTheOnlyGate:
+    """Phase 54 retired the cross-course `required_quiz` gate (System A);
+    phase 55 (C4) dropped the column. `requires_quiz` is the only per-lesson
+    gate left, and it is writable."""
 
     def test_requires_quiz_is_writable(self, api_client, instructor, lesson):
         api_client.force_authenticate(user=instructor)
@@ -3431,3 +3495,170 @@ class TestRequiredQuizRetired:
         assert resp.status_code == status.HTTP_200_OK
         lesson.refresh_from_db()
         assert lesson.requires_quiz is True
+
+
+# ---------------------------------------------------------------------------
+# Phase 55 (C1): seeded gating must match the production gating rule
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.django_db
+class TestSeedingGateMatchesProduction:
+    """The seed commands must produce the gate production actually runs.
+
+    Migration 0020 set `requires_quiz` True on every production lesson that had
+    questions (40 of 40). But the seed commands never wrote the field and the
+    model default is False, so a freshly seeded local or CI database exercised
+    the *ungated* completion path while production exercised the gated one —
+    the exact distinction phase 54 was built to make explicit.
+
+    The invariant: a seeded lesson gates on its quiz if and only if it has
+    comprehension questions.
+    """
+
+    def _assert_gate_matches_questions(self, lessons):
+        mismatched = [
+            (lesson.title, lesson.requires_quiz, lesson.questions.count())
+            for lesson in lessons
+            if lesson.requires_quiz != lesson.questions.exists()
+        ]
+        assert mismatched == [], (
+            'seeded lessons whose requires_quiz disagrees with whether they '
+            f'have questions: {mismatched}'
+        )
+
+    def test_populate_java_course_gates_lessons_that_have_questions(self):
+        from django.core.management import call_command
+
+        # The command looks the course owner up by name and bails out quietly
+        # if it is missing, so create it before seeding.
+        User.objects.create_user(
+            email='cesar@test.com', password='testpass123',
+            first_name='Cesar', last_name='Villarreal', is_instructor=True,
+        )
+        call_command('populate_java_course')
+
+        lessons = list(
+            Lesson.objects.filter(unit__course__code='JAVA101')
+            .prefetch_related('questions')
+        )
+        assert lessons, 'populate_java_course seeded no lessons'
+        assert any(lesson.questions.exists() for lesson in lessons)
+        self._assert_gate_matches_questions(lessons)
+
+    def test_seed_data_gates_lessons_that_have_questions(self):
+        from django.core.management import call_command
+
+        call_command('seed_data')
+
+        lessons = list(Lesson.objects.prefetch_related('questions'))
+        assert lessons, 'seed_data seeded no lessons'
+        assert any(lesson.questions.exists() for lesson in lessons)
+        self._assert_gate_matches_questions(lessons)
+
+
+# ---------------------------------------------------------------------------
+# Phase 55 (C7): per-lesson completion on the course-detail payload
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.django_db
+class TestCourseDetailPerLessonCompletion:
+    """The course-detail payload reports completion per lesson.
+
+    Before this, the course page had only a course-wide progress percentage and
+    *estimated* which lesson was next by spreading that percentage across the
+    lesson list. Any student who completed lessons out of order was pointed at
+    the wrong lesson.
+    """
+
+    @pytest.fixture
+    def three_lessons(self, unit):
+        return [
+            Lesson.objects.create(unit=unit, title=f'L{i}', order=i)
+            for i in range(1, 4)
+        ]
+
+    def _completion_map(self, response):
+        return {
+            lesson['title']: lesson['is_completed']
+            for u in response.data['units'] for lesson in u['lessons']
+        }
+
+    def test_out_of_order_completion_is_reported_exactly(
+        self, api_client, student, course, enrollment, three_lessons
+    ):
+        """Complete lessons 1 and 3 — the payload must say so, not 'the first
+        two', which is what an overall-percentage estimate would have said."""
+        for lesson in (three_lessons[0], three_lessons[2]):
+            LessonProgress.objects.create(
+                user=student, lesson=lesson, completed=True
+            )
+
+        api_client.force_authenticate(user=student)
+        response = api_client.get(f'/api/courses/courses/{course.code}/')
+
+        assert response.status_code == status.HTTP_200_OK
+        assert self._completion_map(response) == {
+            'L1': True, 'L2': False, 'L3': True,
+        }
+
+    def test_completion_is_per_user(
+        self, api_client, student, instructor, course, enrollment, three_lessons
+    ):
+        """One student's progress must not leak into another's payload."""
+        other = User.objects.create_user(
+            email='other-student@test.com', password='testpass123'
+        )
+        Enrollment.objects.create(user=other, course=course)
+        LessonProgress.objects.create(
+            user=other, lesson=three_lessons[0], completed=True
+        )
+
+        api_client.force_authenticate(user=student)
+        response = api_client.get(f'/api/courses/courses/{course.code}/')
+        assert set(self._completion_map(response).values()) == {False}
+
+    def test_incomplete_progress_row_is_not_completion(
+        self, api_client, student, course, enrollment, three_lessons
+    ):
+        """A started-but-unfinished lesson is not complete."""
+        LessonProgress.objects.create(
+            user=student, lesson=three_lessons[0], completed=False
+        )
+
+        api_client.force_authenticate(user=student)
+        response = api_client.get(f'/api/courses/courses/{course.code}/')
+        assert self._completion_map(response)['L1'] is False
+
+    def test_completion_costs_one_query_for_any_number_of_lessons(
+        self, api_client, student, course, enrollment, unit
+    ):
+        """The lookup is resolved once per response, not once per lesson.
+
+        LessonListSerializer already carries several per-lesson count fields (a
+        known N+1, recorded as a follow-up); `is_completed` must not join them.
+        Counts the LessonProgress queries directly rather than inferring from a
+        total, so the assertion means what it says.
+        """
+        from django.db import connection
+        from django.test.utils import CaptureQueriesContext
+
+        for i in range(1, 13):
+            Lesson.objects.create(unit=unit, title=f'L{i}', order=i)
+
+        api_client.force_authenticate(user=student)
+        with CaptureQueriesContext(connection) as ctx:
+            response = api_client.get(f'/api/courses/courses/{course.code}/')
+
+        assert response.status_code == status.HTTP_200_OK
+        assert len(response.data['units'][0]['lessons']) == 12
+
+        progress_queries = [
+            q['sql'] for q in ctx.captured_queries
+            if 'courses_lessonprogress' in q['sql'].lower()
+        ]
+        assert len(progress_queries) == 1, (
+            f'expected one LessonProgress query for 12 lessons, got '
+            f'{len(progress_queries)}'
+        )

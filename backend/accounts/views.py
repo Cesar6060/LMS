@@ -1,5 +1,6 @@
 from django.conf import settings
 from dj_rest_auth.views import PasswordResetView
+from PIL import Image
 from rest_framework import status
 from rest_framework.decorators import (
     api_view, permission_classes, parser_classes, throttle_classes,
@@ -131,6 +132,11 @@ def user_settings(request):
 def upload_avatar(request):
     """
     Upload or update user avatar.
+
+    The file is validated on size, extension, content type, and actual image
+    bytes before it is stored — ImageField's own validation only runs through
+    full_clean(), which save() skips, so an .svg or a renamed .html would
+    otherwise land in media and be served same-origin under DEBUG.
     """
     preferences, _ = UserPreferences.objects.get_or_create(user=request.user)
 
@@ -148,11 +154,76 @@ def upload_avatar(request):
             status=status.HTTP_400_BAD_REQUEST
         )
 
+    # Allowed image extensions (whitelist). svg is deliberately excluded: it can
+    # carry inline scripts and media is served same-origin under DEBUG, so an
+    # uploaded .svg is a stored-XSS vector. Same rationale as lesson attachments.
+    ALLOWED_EXTENSIONS = {'png', 'jpg', 'jpeg', 'gif', 'webp'}
+    ALLOWED_CONTENT_TYPES = {
+        'image/png', 'image/jpeg', 'image/gif', 'image/webp',
+    }
+
+    file_ext = (
+        avatar_file.name.rsplit('.', 1)[-1].lower()
+        if '.' in (avatar_file.name or '') else ''
+    )
+    if not file_ext or file_ext not in ALLOWED_EXTENSIONS:
+        return Response(
+            {'error': f'Avatar type ".{file_ext}" is not allowed. '
+                      f'Allowed types: {", ".join(sorted(ALLOWED_EXTENSIONS))}'},
+            status=status.HTTP_400_BAD_REQUEST
+        )
+
+    if (avatar_file.content_type or '').lower() not in ALLOWED_CONTENT_TYPES:
+        return Response(
+            {'error': 'Avatar must be a PNG, JPEG, GIF, or WebP image.'},
+            status=status.HTTP_400_BAD_REQUEST
+        )
+
+    # Extension and content type are both client-supplied, so confirm the bytes
+    # really are an image. Pillow's verify() raises a broad, undocumented set of
+    # exceptions on malformed input (OSError, SyntaxError, DecompressionBomb,
+    # struct errors from plugins), so catch Exception rather than guess.
+    #
+    # verify() alone is NOT enough: it accepts anything Pillow can decode, so
+    # TIFF/BMP/PPM bytes named ".png" with content_type "image/png" sail
+    # through and the allowlist above buys nothing. That matters because the
+    # allowlist's real job is bounding which Pillow *decoders* untrusted bytes
+    # can reach — the less-common codecs are where most of the ~20 CVEs behind
+    # this phase's Pillow bump live. So pin the detected format too.
+    #
+    # `.format` must be read BEFORE verify(), which leaves the Image unusable.
+    EXTENSION_FORMATS = {
+        'png': {'PNG'},
+        'jpg': {'JPEG'},
+        'jpeg': {'JPEG'},
+        'gif': {'GIF'},
+        'webp': {'WEBP'},
+    }
+    try:
+        image = Image.open(avatar_file)
+        detected_format = image.format
+        image.verify()
+    except Exception:
+        return Response(
+            {'error': 'Avatar is not a valid image file.'},
+            status=status.HTTP_400_BAD_REQUEST
+        )
+
+    if detected_format not in EXTENSION_FORMATS[file_ext]:
+        return Response(
+            {'error': f'Avatar contents are {detected_format or "an unknown format"}, '
+                      f'which does not match its ".{file_ext}" extension.'},
+            status=status.HTTP_400_BAD_REQUEST
+        )
+
+    # verify() consumes the file and leaves it unusable — rewind before saving.
+    avatar_file.seek(0)
+
     # Delete old avatar if exists
     if preferences.avatar:
         preferences.avatar.delete(save=False)
 
-    preferences.avatar = request.FILES['avatar']
+    preferences.avatar = avatar_file
     preferences.save()
 
     serializer = UserPreferencesSerializer(preferences, context={'request': request})

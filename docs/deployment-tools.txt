@@ -47,14 +47,18 @@ repos, and it was already where the code lived.
 ---------------------------
 What it is: a platform-as-a-service — you point it at a repo, it builds
 and runs your server code on its machines. Our Django API lives at
-https://stemquest-api.onrender.com.
+https://stemquest-api-va.onrender.com.
 
 What it does here: on every push to main it runs the build command
 (pip install + collectstatic), then starts the app with gunicorn. Config
-lives in render.yaml (a "blueprint"), so hosting settings are versioned
-in the repo instead of living only in a dashboard. It injects env vars
-(secrets like DATABASE_URL and SENTRY_DSN are set in the dashboard, not
-committed) and gates each deploy on /api/health/ answering 200.
+is SPLIT: the service shape (plan, region, build/start commands, health
+check path) lives in render.yaml (a "blueprint") and is live-synced to
+Render on every push to main, so those settings are versioned in the
+repo. ENV VARS are dashboard-only — render.yaml deliberately carries no
+envVars: block (Phase 48), so every var (DATABASE_URL, SENTRY_DSN, and
+the rest) is hand-entered in the Render dashboard, which is the sole
+source of truth for them. Each deploy is gated on /api/health/
+answering 200.
 
 Why we use it: free tier that runs a real always-on-ish Python process
 with almost zero ops work — no servers to patch, TLS and deploys
@@ -249,7 +253,7 @@ SUPPORTING CAST (small but load-bearing)
   (config('SENTRY_DSN', default='')). The reason the whole "inert
   unless its env var is set" pattern is one-liners.
 - pillow: image processing for avatar uploads (validation/resizing).
-- pytest + pytest-django: the backend test suite (376 tests) that CI
+- pytest + pytest-django: the backend test suite (~555 tests) that CI
   and /verify-stack run; the merge gate that keeps main deployable.
 - ESLint + TypeScript (tsc): the frontend's equivalent gates.
 

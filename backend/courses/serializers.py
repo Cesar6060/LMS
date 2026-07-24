@@ -6,6 +6,7 @@ from .models import (
     LessonAttachment, LessonSection, InstructorReminder, CourseInvite
 )
 from accounts.serializers import UserSerializer
+from .permissions import require_course_instructor
 from .video import extract_youtube_video_id
 
 
@@ -100,7 +101,7 @@ class LessonSectionBulkCreateSerializer(serializers.Serializer):
     sections = LessonSectionCreateSerializer(many=True, min_length=1, max_length=50)
 
 
-class LessonSerializer(VideoFieldsValidationMixin, serializers.ModelSerializer):
+class LessonSerializer(serializers.ModelSerializer):
     """Serializer for Lesson model."""
     question_count = serializers.SerializerMethodField()
     attachments = LessonAttachmentSerializer(many=True, read_only=True)
@@ -113,14 +114,69 @@ class LessonSerializer(VideoFieldsValidationMixin, serializers.ModelSerializer):
         # Phase 54: `required_quiz` (System A) retired — not writable/readable.
         # `requires_quiz` is the single per-lesson gate over the lesson's own
         # comprehension questions.
+        #
+        # Phase 55 (C5): `content`/`video_type`/`video_id` are read-only. They
+        # are dormant on Lesson — content and video live on LessonSection since
+        # phase 53, and migration 0019 blanked every lesson-level value — but
+        # they stayed writable, so a client could still put data somewhere
+        # nothing renders. Kept readable while old clients still deserialize
+        # them; the column drop is a later change.
+        # VideoFieldsValidationMixin is deliberately gone with them: it exists
+        # to normalize a writable video_id, and LessonSection still uses it.
         fields = [
             'id', 'unit', 'title', 'content', 'order',
             'video_type', 'video_id', 'requires_quiz',
-            'max_quiz_attempts', 'question_count', 'attachments',
+            'question_count', 'attachments',
             'sections', 'section_count', 'has_video',
             'created_at', 'updated_at'
         ]
-        read_only_fields = ['id', 'created_at', 'updated_at']
+        read_only_fields = [
+            'id', 'created_at', 'updated_at',
+            'content', 'video_type', 'video_id',
+        ]
+
+    def validate_unit(self, value):
+        """Refuse a PATCH that would move the lesson into another course.
+
+        `unit` is writable so an instructor can move a lesson between units,
+        but `IsEnrolledOrInstructor.has_object_permission` resolves the course
+        from `obj.unit.course` — the *source* course only. Without this check a
+        plain `PATCH {"unit": <unit in another course>}` moves the lesson out of
+        its course with nothing validating the destination.
+
+        Mirrors the guard `LessonViewSet.reorder` already applies to its own
+        optional `unit` argument: same-course only, and the instructor is
+        re-checked against the target's course.
+
+        That second check cannot fire through the API today — by the time it
+        runs the target is known to be in the same course, which `get_object()`
+        already checked the caller owns. It is kept as belt-and-braces so it
+        becomes load-bearing if the same-course restriction is ever relaxed,
+        matching what `reorder` does.
+
+        It fails *closed* when the serializer has no request in its context.
+        Every current call site is a DRF view, which always supplies one, but
+        skipping the ownership check for a context-less caller (a management
+        command, a shell session, a future bulk import) would make this guard
+        quietly optional — the opposite of what it is for.
+        """
+        if self.instance is None:
+            return value
+
+        if value.course_id != self.instance.unit.course_id:
+            raise serializers.ValidationError(
+                'Target unit must belong to the same course.'
+            )
+
+        request = self.context.get('request')
+        if request is None:
+            raise serializers.ValidationError(
+                'Cannot change a lesson\'s unit without a request context to '
+                'check course ownership against.'
+            )
+        require_course_instructor(request.user, value.course)
+
+        return value
 
     def get_question_count(self, obj):
         return obj.questions.count()
@@ -133,13 +189,18 @@ class LessonSerializer(VideoFieldsValidationMixin, serializers.ModelSerializer):
         return obj.sections.filter(video_type='youtube').exclude(video_id='').exists()
 
 
-class LessonCreateSerializer(VideoFieldsValidationMixin, serializers.ModelSerializer):
-    """Serializer for creating lessons (unit set in view)."""
+class LessonCreateSerializer(serializers.ModelSerializer):
+    """Serializer for creating lessons (unit set in view).
+
+    Phase 55 (C5): `content`/`video_type`/`video_id` are read-only here too — a
+    new lesson starts empty and gains its content as LessonSections. They stay
+    in `fields` so the create response keeps its shape for existing clients.
+    """
 
     class Meta:
         model = Lesson
-        fields = ['id', 'title', 'content', 'order', 'video_type', 'video_id', 'requires_quiz', 'max_quiz_attempts']
-        read_only_fields = ['id']
+        fields = ['id', 'title', 'content', 'order', 'video_type', 'video_id', 'requires_quiz']
+        read_only_fields = ['id', 'content', 'video_type', 'video_id']
 
 
 class LessonListSerializer(serializers.ModelSerializer):
@@ -148,14 +209,45 @@ class LessonListSerializer(serializers.ModelSerializer):
     attachment_count = serializers.SerializerMethodField()
     section_count = serializers.SerializerMethodField()
     has_video = serializers.SerializerMethodField()
+    is_completed = serializers.SerializerMethodField()
 
     class Meta:
         model = Lesson
         fields = [
             'id', 'title', 'order', 'video_type', 'video_id', 'content',
-            'requires_quiz', 'max_quiz_attempts', 'question_count',
-            'attachment_count', 'section_count', 'has_video'
+            'requires_quiz', 'question_count',
+            'attachment_count', 'section_count', 'has_video', 'is_completed'
         ]
+
+    def _completed_lesson_ids(self):
+        """The requesting user's completed lesson ids — resolved once per response.
+
+        Cached in the serializer context, which nested serializers share with
+        the root, so a course-detail payload with 40 lessons costs one query
+        rather than 40. Phase 55 (C7).
+        """
+        if 'completed_lesson_ids' not in self.context:
+            request = self.context.get('request')
+            if request is not None and request.user.is_authenticated:
+                completed = frozenset(
+                    LessonProgress.objects.filter(
+                        user=request.user, completed=True
+                    ).values_list('lesson_id', flat=True)
+                )
+            else:
+                completed = frozenset()
+            self.context['completed_lesson_ids'] = completed
+        return self.context['completed_lesson_ids']
+
+    def get_is_completed(self, obj):
+        """Whether the requesting user has completed this lesson.
+
+        Added in phase 55 (C7): the course-detail page had no per-lesson
+        completion, so it *estimated* which lesson was next by spreading the
+        overall progress percentage across the lesson list. That pointed at the
+        wrong lesson for anyone who completed lessons out of order.
+        """
+        return obj.id in self._completed_lesson_ids()
 
     def get_attachment_count(self, obj):
         return obj.attachments.count()
@@ -613,30 +705,6 @@ class LessonQuestionAnswerSerializer(serializers.ModelSerializer):
         model = LessonQuestionAnswer
         fields = ['id', 'question', 'question_text', 'selected_choice', 'selected_choice_text', 'is_correct', 'answered_at']
         read_only_fields = ['id', 'is_correct', 'answered_at']
-
-
-class AnswerQuestionSerializer(serializers.Serializer):
-    """Serializer for answering a lesson question."""
-    question_id = serializers.IntegerField()
-    choice_id = serializers.IntegerField()
-
-    def validate(self, data):
-        question_id = data['question_id']
-        choice_id = data['choice_id']
-
-        try:
-            question = LessonQuestion.objects.get(id=question_id)
-        except LessonQuestion.DoesNotExist:
-            raise serializers.ValidationError({'question_id': 'Question not found.'})
-
-        try:
-            choice = LessonQuestionChoice.objects.get(id=choice_id, question=question)
-        except LessonQuestionChoice.DoesNotExist:
-            raise serializers.ValidationError({'choice_id': 'Choice not found for this question.'})
-
-        data['question'] = question
-        data['choice'] = choice
-        return data
 
 
 class LessonQuestionsStatusSerializer(serializers.Serializer):

@@ -21,6 +21,7 @@ from allauth.account.models import EmailAddress
 from accounts.models import User
 from accounts.serializers import UserSerializer
 from core.email import send_course_invite_link_email, send_emails_async
+from core.pagination import RosterPagination
 from core.throttling import (
     ClientIPScopedRateThrottle, ClientIPScopedWriteRateThrottle,
 )
@@ -33,7 +34,7 @@ from .serializers import (
     LessonProgressUpdateSerializer, AnnouncementSerializer,
     AnnouncementListSerializer, AnnouncementCreateSerializer,
     StudentRosterSerializer, LessonQuestionSerializer, LessonQuestionStudentSerializer,
-    LessonQuestionCreateSerializer, AnswerQuestionSerializer, LessonAttachmentSerializer,
+    LessonQuestionCreateSerializer, LessonAttachmentSerializer,
     LessonSectionSerializer, LessonSectionCreateSerializer,
     LessonSectionBulkCreateSerializer, CourseMapSerializer, CourseInviteSerializer
 )
@@ -218,7 +219,7 @@ class UnitViewSet(viewsets.ModelViewSet):
                 Unit.objects.filter(pk=item.pk).update(order=index)
 
         unit.refresh_from_db()
-        return Response(UnitSerializer(unit).data)
+        return Response(UnitSerializer(unit, context={'request': request}).data)
 
 
 class CourseUnitsView(generics.ListCreateAPIView):
@@ -358,7 +359,7 @@ class LessonViewSet(viewsets.ModelViewSet):
                 Lesson.objects.filter(pk=item.pk).update(unit=target_unit, order=index)
 
         lesson.refresh_from_db()
-        return Response(LessonSerializer(lesson).data)
+        return Response(LessonSerializer(lesson, context={'request': request}).data)
 
 
 class UnitLessonsView(generics.ListCreateAPIView):
@@ -418,6 +419,30 @@ class EnrollmentViewSet(viewsets.ModelViewSet):
             EnrollmentSerializer(enrollment).data,
             status=status.HTTP_201_CREATED
         )
+
+    def destroy(self, request, *args, **kwargs):
+        """Self-unenroll — soft delete, and never for the demo account.
+
+        Two problems with the inherited ModelViewSet.destroy (Phase 55, A4):
+
+        1. It hard-deleted the row, cascading the student's progress away,
+           where the instructor-side `remove_student` soft-deletes precisely to
+           preserve grades. Same operation, two different outcomes.
+        2. Every demo visitor shares one account, so a single visitor could
+           un-enroll `jdoe@demo.com` for everybody until an operator re-ran
+           `seed_demo_account`. Refusing outright matches the rest of the demo
+           lockdown (see accounts.serializers.ProtectedPasswordChangeSerializer).
+        """
+        enrollment = self.get_object()
+
+        if request.user.email == settings.DEMO_ACCOUNT_EMAIL:
+            raise PermissionDenied(
+                'The demo account cannot un-enroll from its course.'
+            )
+
+        enrollment.is_active = False
+        enrollment.save(update_fields=['is_active'])
+        return Response(status=status.HTTP_204_NO_CONTENT)
 
 
 class LessonProgressView(generics.RetrieveUpdateAPIView):
@@ -1195,8 +1220,14 @@ def student_roster(request, course_code):
         is_active=True
     ).select_related('user').order_by('user__last_name', 'user__first_name')
 
-    serializer = StudentRosterSerializer(enrollments, many=True)
-    return Response(serializer.data)
+    # Paginated in Phase 55 (A6): the roster had no ceiling, and each row costs
+    # a serializer pass over activity data. The roster page has no paging UI —
+    # the client walks `next` — so this bounds the response size without
+    # changing what an instructor sees.
+    paginator = RosterPagination()
+    page = paginator.paginate_queryset(enrollments, request)
+    serializer = StudentRosterSerializer(page, many=True)
+    return paginator.get_paginated_response(serializer.data)
 
 
 # ==================== Instructor Analytics (Phase 31) ====================
@@ -2160,49 +2191,6 @@ def lesson_question_detail(request, lesson_id, question_id):
         return Response(status=status.HTTP_204_NO_CONTENT)
 
 
-@api_view(['POST'])
-@perm_classes([IsAuthenticated])
-def answer_lesson_question(request, lesson_id):
-    """
-    Submit an answer to a lesson question.
-    Returns whether the answer was correct and the correct answer.
-    """
-    lesson = get_object_or_404(Lesson, pk=lesson_id)
-    course = lesson.unit.course
-
-    require_course_access(request.user, course, "You must be enrolled in this course.")
-
-    serializer = AnswerQuestionSerializer(data=request.data)
-    if not serializer.is_valid():
-        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
-
-    question = serializer.validated_data['question']
-    choice = serializer.validated_data['choice']
-
-    # Verify question belongs to this lesson
-    if question.lesson_id != lesson.id:
-        return Response(
-            {'error': 'Question does not belong to this lesson.'},
-            status=status.HTTP_400_BAD_REQUEST
-        )
-
-    # Create or update the answer
-    answer, created = LessonQuestionAnswer.objects.update_or_create(
-        user=request.user,
-        question=question,
-        defaults={'selected_choice': choice}
-    )
-
-    # Find the correct choice to return in response
-    correct_choice = question.choices.filter(is_correct=True).first()
-
-    return Response({
-        'is_correct': answer.is_correct,
-        'correct_choice_id': correct_choice.id if correct_choice else None,
-        'correct_choice_text': correct_choice.text if correct_choice else None,
-    })
-
-
 @api_view(['GET'])
 @perm_classes([IsAuthenticated])
 def lesson_questions_status(request, lesson_id):
@@ -2266,134 +2254,6 @@ def lesson_questions_status(request, lesson_id):
         'can_attempt': True,
         'has_passed': has_passed,
     })
-
-
-@api_view(['POST'])
-@perm_classes([IsAuthenticated])
-def submit_lesson_quiz(request, lesson_id):
-    """
-    Submit all answers for a lesson quiz at once.
-    Creates an attempt record and stores all answers.
-    """
-    lesson = get_object_or_404(Lesson, pk=lesson_id)
-    course = lesson.unit.course
-
-    require_course_access(request.user, course, "You must be enrolled in this course.")
-
-    # Check if quiz has questions
-    questions = lesson.questions.prefetch_related('choices').all()
-    total_questions = questions.count()
-
-    if total_questions == 0:
-        return Response(
-            {'error': 'This lesson has no quiz questions.'},
-            status=status.HTTP_400_BAD_REQUEST
-        )
-
-    # Check attempt limits (completed sessions only — an abandoned in-progress
-    # mastery session must not inflate the cap or the attempt number)
-    max_attempts = lesson.max_quiz_attempts
-    current_attempts = LessonQuizAttempt.objects.filter(
-        user=request.user,
-        lesson=lesson,
-        status=LessonQuizAttempt.STATUS_COMPLETED,
-    ).count()
-
-    if max_attempts > 0 and current_attempts >= max_attempts:
-        return Response(
-            {'error': f'You have reached the maximum number of attempts ({max_attempts}).'},
-            status=status.HTTP_400_BAD_REQUEST
-        )
-
-    # Validate answers format
-    answers = request.data.get('answers', {})
-    if not isinstance(answers, dict):
-        return Response(
-            {'error': 'Answers must be a dictionary of question_id: choice_id'},
-            status=status.HTTP_400_BAD_REQUEST
-        )
-
-    # Process answers
-    correct_count = 0
-    results = []
-
-    for question in questions:
-        choice_id = answers.get(str(question.id))
-
-        if choice_id is None:
-            results.append({
-                'question_id': question.id,
-                'is_correct': False,
-                'selected_choice_id': None,
-                'correct_choice_id': question.choices.filter(is_correct=True).first().id if question.choices.filter(is_correct=True).exists() else None,
-            })
-            continue
-
-        try:
-            choice = question.choices.get(id=choice_id)
-        except LessonQuestionChoice.DoesNotExist:
-            results.append({
-                'question_id': question.id,
-                'is_correct': False,
-                'selected_choice_id': choice_id,
-                'correct_choice_id': question.choices.filter(is_correct=True).first().id if question.choices.filter(is_correct=True).exists() else None,
-            })
-            continue
-
-        is_correct = choice.is_correct
-        if is_correct:
-            correct_count += 1
-
-        # Save the answer
-        LessonQuestionAnswer.objects.update_or_create(
-            user=request.user,
-            question=question,
-            defaults={'selected_choice': choice}
-        )
-
-        correct_choice = question.choices.filter(is_correct=True).first()
-        results.append({
-            'question_id': question.id,
-            'is_correct': is_correct,
-            'selected_choice_id': choice.id,
-            'correct_choice_id': correct_choice.id if correct_choice else None,
-        })
-
-    # Create attempt record (number from Max over ALL rows so an in-progress
-    # session row can't collide with the unique attempt_number)
-    passed = correct_count == total_questions
-    last_number = LessonQuizAttempt.objects.filter(
-        user=request.user, lesson=lesson
-    ).aggregate(Max('attempt_number'))['attempt_number__max'] or 0
-    attempt = LessonQuizAttempt.objects.create(
-        user=request.user,
-        lesson=lesson,
-        attempt_number=last_number + 1,
-        score=correct_count,
-        total_questions=total_questions,
-        passed=passed,
-        completed_at=timezone.now()
-    )
-
-    # Calculate remaining attempts
-    attempts_remaining = None
-    if max_attempts > 0:
-        attempts_remaining = max(0, max_attempts - (current_attempts + 1))
-
-    response_data = {
-        'attempt_number': attempt.attempt_number,
-        'score': correct_count,
-        'total_questions': total_questions,
-        'percentage': attempt.percentage,
-        'passed': passed,
-        'results': results,
-        'attempts_remaining': attempts_remaining,
-        'can_complete_lesson': passed,
-    }
-    if passed:
-        from gamification.services import award_lesson_quiz_pass
-        response_data['gamification'] = award_lesson_quiz_pass(request.user, lesson).as_dict()
-    return Response(response_data)
 
 
 # ============================================
@@ -3088,9 +2948,8 @@ def course_map(request, course_code):
     describes state; nothing new is enforced anywhere.
 
     States: a node is unlocked if it is first in the sequence or the previous
-    node is completed; a quiz that is some lesson's required_quiz unlocks
-    together with that lesson (else the pair would deadlock); `current` is the
-    first unlocked-but-incomplete node. Everything else incomplete is locked.
+    node is completed; `current` is the first unlocked-but-incomplete node.
+    Everything else incomplete is locked.
     """
     from quizzes.models import QuizAttempt
 
@@ -3142,20 +3001,6 @@ def course_map(request, course_code):
     # Base unlock rule: first node, or previous node completed.
     for i, node in enumerate(nodes):
         node['unlocked'] = i == 0 or nodes[i - 1]['completed']
-
-    # Deadlock exception: a quiz required by a lesson unlocks with that lesson
-    # (the lesson can't complete until the quiz passes, so the quiz must never
-    # wait on the lesson's completion).
-    required_unlocked_quiz_ids = {
-        node['obj'].required_quiz_id
-        for node in nodes
-        if node['node_type'] == 'lesson'
-        and node['unlocked']
-        and node['obj'].required_quiz_id
-    }
-    for node in nodes:
-        if node['node_type'] == 'quiz' and node['obj'].id in required_unlocked_quiz_ids:
-            node['unlocked'] = True
 
     # Current = first unlocked-but-incomplete node in the sequence.
     current_node_id = None

@@ -1,5 +1,27 @@
 # Deployment track overview — Phases 36–40
 
+> ***Superseded as of Phase 55 — historical snapshot, not current state.** This
+> page is the plan as written at the 2026-07-20 scoping interview; the shipped
+> stack diverged from it in five ways, and phases 41–54 moved on again. Read it
+> as a record of what was intended, not as a description of production. For the
+> current stack see the "Production Architecture" section of `README.md`,
+> `docs/deployment-tools.txt` (what each service is and why), and the live
+> runbooks in `docs/runbooks/`. Known divergences, on top of the Phase 47/48
+> addenda already inline below:*
+>
+> - ***Cloudflare Pages → assets-only Worker.** Cloudflare retired the Pages
+>   git-connect flow for new projects mid-Phase 39, so the frontend ships as a
+>   static-assets Worker (`frontend/wrangler.jsonc`). Same files, same CDN.*
+> - ***Grafana Cloud never shipped.** Phase 40 delivered Sentry (two projects)
+>   + UptimeRobot instead of OTel → Grafana; there is no `config/otel.py`.*
+> - ***"No custom domain" is stale.** Phase 51 shipped `stemquests.com` (see
+>   `docs/specs/phase-51-*`); the `*.workers.dev` URL still serves too.*
+> - ***`frontend/public/_redirects` was never used.** SPA fallback comes from
+>   `not_found_handling` in `wrangler.jsonc`; the only file in
+>   `frontend/public/` is `_headers`.*
+> - ***Deploys ARE gated on CI now.** A red GitHub Actions run blocks the merge
+>   (`README.md`), rather than merge discipline being the only gate.*
+
 STEM Quest moves from local-only docker-compose to a live deployment:
 **Cloudflare Pages** (frontend) + **Render** (Django API) + **Neon**
 (Postgres) + **Cloudflare R2** (media) + **Grafana Cloud** (observability via

@@ -12,16 +12,19 @@ gunicorn==23.0.0
 whitenoise[brotli]==6.8.2
 
 # Authentication
-django-allauth==65.3.0
+django-allauth==65.14.1
 dj-rest-auth==7.0.1
-djangorestframework-simplejwt==5.5.0
-requests>=2.31.0
+djangorestframework-simplejwt==5.5.1
+# Transitive via simplejwt, pinned explicitly so it can't drift back below the
+# advisory line (7 advisories against < 2.13.0).
+pyjwt==2.13.0
+requests==2.34.2
 
 # Security headers
 django-csp==4.0
 
 # Files & Images
-pillow==11.1.0
+pillow==12.3.0
 django-storages[s3]==1.14.6
 
 # Environment variables
@@ -33,8 +36,3 @@ sentry-sdk[django]==2.19.2
 # Testing
 pytest-django==4.9.0
 pytest-cov==6.0.0
-
-# Phase 5 - WebSocket Support (uncomment when needed)
-# channels[daphne]==4.2.0
-# channels-redis==4.2.1
-# redis==5.2.1

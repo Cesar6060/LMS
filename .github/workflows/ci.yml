@@ -65,7 +65,36 @@ jobs:
         env:
           DB_HOST: localhost
           SECRET_KEY: ci-test-secret-key-not-for-production
+          # TRUST_CF_HEADERS defaults to `not DEBUG`, and DEBUG is deliberately
+          # unset above — which would silently flip it ON for the whole CI run,
+          # the opposite of the dev/test default the setting documents. Pinned
+          # off so tests exercise the same trust boundary they do locally;
+          # the trusted path is opted into per-test with override_settings.
+          TRUST_CF_HEADERS: 'False'
         run: pytest
+
+      # Phase 55 (A8). The audit that opened this phase found CVEs in
+      # django-allauth, simplejwt, pyjwt and pillow that had been patched
+      # upstream for months, because nothing was checking. This is that check.
+      #
+      # Scoped to requirements.txt rather than the whole environment on
+      # purpose: auditing the environment also reports the CI runner's own
+      # `pip`, which is not an application dependency and whose advisories we
+      # cannot act on from here.
+      #
+      # Note this is STRICTER than the spec's "fail on HIGH": pip-audit has no
+      # severity filter, so this fails on any known advisory of any severity in
+      # a declared dependency. That is the intended bar for a 5-user app with
+      # fully pinned requirements, but it does mean one new LOW advisory reds
+      # every PR — hence the allowlist slot below, mirroring the npm side.
+      - name: Audit backend dependencies
+        working-directory: backend
+        run: |
+          pip install pip-audit
+          # Reviewed exceptions go here as repeated --ignore-vuln flags, each
+          # with a comment saying why and when to remove it. Empty today.
+          #   e.g. --ignore-vuln GHSA-xxxx-xxxx-xxxx \
+          pip-audit --requirement requirements.txt
 
   frontend:
     name: Frontend (tsc, lint, build)
@@ -91,6 +120,61 @@ jobs:
       - name: Lint
         working-directory: frontend
         run: npm run lint
+
+      - name: Test
+        working-directory: frontend
+        run: npm test
+
+      # Phase 55 (A8). `--omit=dev` scopes this to what actually ships to a
+      # browser; the remaining dev-only advisories (the eslint -> minimatch /
+      # brace-expansion chain) are build-time tooling with no runtime exposure
+      # and are tracked in the phase 55 spec's follow-ups.
+      #
+      # ACCEPTED_ADVISORIES is a deliberate, reviewed exception list — the
+      # point is that CI stays green while the debt stays visible, not that
+      # the finding disappears. Anything high or critical that is NOT on this
+      # list fails the build. Removing an entry is how the debt gets paid.
+      - name: Audit frontend dependencies
+        working-directory: frontend
+        run: |
+          # GHSA-qwww-vcr4-c8h2 — React Router RSC-mode CSRF. Fixed only in
+          # react-router 8.3.0, which requires React >=19.2.7; this app is on
+          # React 18, so the fix is a React major, deferred to phase 56b. Not
+          # reachable here regardless: this is a declarative SPA with no RSC,
+          # no server rendering and no router actions.
+          ACCEPTED_ADVISORIES="GHSA-qwww-vcr4-c8h2"
+          export ACCEPTED_ADVISORIES
+          npm audit --omit=dev --json > audit.json || true
+          node -e '
+            const accepted = new Set(process.env.ACCEPTED_ADVISORIES.split(/\s+/).filter(Boolean));
+            const report = require("./audit.json");
+            // `npm audit ... || true` above masks the exit code so a real
+            // report with findings does not kill the step. That also means a
+            // registry outage or auth failure yields {"error": ...} with no
+            // `vulnerabilities` key, which would otherwise scan clean and pass.
+            // A supply-chain gate that goes green on infrastructure failure is
+            // not a gate, so require a usable report first.
+            if (!report.metadata || !report.auditReportVersion) {
+              console.error("npm audit did not produce a usable report:",
+                JSON.stringify(report.error || report).slice(0, 500));
+              process.exit(1);
+            }
+            const unexpected = [];
+            for (const [name, vuln] of Object.entries(report.vulnerabilities || {})) {
+              if (!["high", "critical"].includes(vuln.severity)) continue;
+              for (const via of vuln.via) {
+                if (typeof via === "string") continue;
+                const id = (via.url || "").split("/").pop();
+                if (!accepted.has(id)) unexpected.push(`${name}: ${via.title} (${via.url})`);
+              }
+            }
+            if (unexpected.length) {
+              console.error("Unaccepted high/critical advisories:");
+              for (const line of unexpected) console.error("  - " + line);
+              process.exit(1);
+            }
+            console.log("No unaccepted high/critical runtime advisories.");
+          '
 
       - name: Production build
         working-directory: frontend
