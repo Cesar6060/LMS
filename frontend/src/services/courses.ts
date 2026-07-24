@@ -30,6 +30,8 @@ export interface LessonListItem {
   section_count?: number;
   /** Phase 53 — true if any section has a playable YouTube video. */
   has_video?: boolean;
+  /** Phase 55 — whether the requesting user has completed this lesson. */
+  is_completed?: boolean;
 }
 
 export interface UnitWithLessons {
@@ -416,41 +418,13 @@ export const courseService = {
   },
 
   // Course with progress (for course player)
-  async getCourseWithProgress(courseCode: string): Promise<CourseDetail & {
-    units: Array<UnitWithLessons & {
-      lessons: Array<LessonListItem & { is_completed?: boolean }>;
-    }>;
-  }> {
-    // Get course details
-    const courseData = await this.getCourse(courseCode);
-
-    // Get all lesson progress for this course (in parallel for performance)
-    const lessonProgressMap = new Map<number, boolean>();
-    const allLessons = courseData.units.flatMap(unit => unit.lessons);
-
-    const progressResults = await Promise.all(
-      allLessons.map(lesson =>
-        this.getLessonProgress(lesson.id)
-          .then(progress => ({ id: lesson.id, completed: progress.completed }))
-          .catch(() => ({ id: lesson.id, completed: false }))
-      )
-    );
-
-    for (const { id, completed } of progressResults) {
-      lessonProgressMap.set(id, completed);
-    }
-
-    // Merge progress into course data
-    return {
-      ...courseData,
-      units: courseData.units.map(unit => ({
-        ...unit,
-        lessons: unit.lessons.map(lesson => ({
-          ...lesson,
-          is_completed: lessonProgressMap.get(lesson.id) || false
-        }))
-      }))
-    };
+  //
+  // Phase 55 (C7): `is_completed` now comes down on the course-detail payload
+  // itself, resolved server-side in one query. This used to fan out one
+  // getLessonProgress request *per lesson* — 40 HTTP requests on every course
+  // player load — purely to reconstruct a field the API can just send.
+  async getCourseWithProgress(courseCode: string): Promise<CourseDetail> {
+    return this.getCourse(courseCode);
   },
 
   // Lesson Questions (Mini Comprehension Quizzes)

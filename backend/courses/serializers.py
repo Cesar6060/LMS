@@ -193,14 +193,45 @@ class LessonListSerializer(serializers.ModelSerializer):
     attachment_count = serializers.SerializerMethodField()
     section_count = serializers.SerializerMethodField()
     has_video = serializers.SerializerMethodField()
+    is_completed = serializers.SerializerMethodField()
 
     class Meta:
         model = Lesson
         fields = [
             'id', 'title', 'order', 'video_type', 'video_id', 'content',
             'requires_quiz', 'question_count',
-            'attachment_count', 'section_count', 'has_video'
+            'attachment_count', 'section_count', 'has_video', 'is_completed'
         ]
+
+    def _completed_lesson_ids(self):
+        """The requesting user's completed lesson ids — resolved once per response.
+
+        Cached in the serializer context, which nested serializers share with
+        the root, so a course-detail payload with 40 lessons costs one query
+        rather than 40. Phase 55 (C7).
+        """
+        if 'completed_lesson_ids' not in self.context:
+            request = self.context.get('request')
+            if request is not None and request.user.is_authenticated:
+                completed = frozenset(
+                    LessonProgress.objects.filter(
+                        user=request.user, completed=True
+                    ).values_list('lesson_id', flat=True)
+                )
+            else:
+                completed = frozenset()
+            self.context['completed_lesson_ids'] = completed
+        return self.context['completed_lesson_ids']
+
+    def get_is_completed(self, obj):
+        """Whether the requesting user has completed this lesson.
+
+        Added in phase 55 (C7): the course-detail page had no per-lesson
+        completion, so it *estimated* which lesson was next by spreading the
+        overall progress percentage across the lesson list. That pointed at the
+        wrong lesson for anyone who completed lessons out of order.
+        """
+        return obj.id in self._completed_lesson_ids()
 
     def get_attachment_count(self, obj):
         return obj.attachments.count()

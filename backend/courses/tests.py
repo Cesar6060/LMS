@@ -3478,3 +3478,110 @@ class TestSeedingGateMatchesProduction:
         assert lessons, 'seed_data seeded no lessons'
         assert any(lesson.questions.exists() for lesson in lessons)
         self._assert_gate_matches_questions(lessons)
+
+
+# ---------------------------------------------------------------------------
+# Phase 55 (C7): per-lesson completion on the course-detail payload
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.django_db
+class TestCourseDetailPerLessonCompletion:
+    """The course-detail payload reports completion per lesson.
+
+    Before this, the course page had only a course-wide progress percentage and
+    *estimated* which lesson was next by spreading that percentage across the
+    lesson list. Any student who completed lessons out of order was pointed at
+    the wrong lesson.
+    """
+
+    @pytest.fixture
+    def three_lessons(self, unit):
+        return [
+            Lesson.objects.create(unit=unit, title=f'L{i}', order=i)
+            for i in range(1, 4)
+        ]
+
+    def _completion_map(self, response):
+        return {
+            lesson['title']: lesson['is_completed']
+            for u in response.data['units'] for lesson in u['lessons']
+        }
+
+    def test_out_of_order_completion_is_reported_exactly(
+        self, api_client, student, course, enrollment, three_lessons
+    ):
+        """Complete lessons 1 and 3 — the payload must say so, not 'the first
+        two', which is what an overall-percentage estimate would have said."""
+        for lesson in (three_lessons[0], three_lessons[2]):
+            LessonProgress.objects.create(
+                user=student, lesson=lesson, completed=True
+            )
+
+        api_client.force_authenticate(user=student)
+        response = api_client.get(f'/api/courses/courses/{course.code}/')
+
+        assert response.status_code == status.HTTP_200_OK
+        assert self._completion_map(response) == {
+            'L1': True, 'L2': False, 'L3': True,
+        }
+
+    def test_completion_is_per_user(
+        self, api_client, student, instructor, course, enrollment, three_lessons
+    ):
+        """One student's progress must not leak into another's payload."""
+        other = User.objects.create_user(
+            email='other-student@test.com', password='testpass123'
+        )
+        Enrollment.objects.create(user=other, course=course)
+        LessonProgress.objects.create(
+            user=other, lesson=three_lessons[0], completed=True
+        )
+
+        api_client.force_authenticate(user=student)
+        response = api_client.get(f'/api/courses/courses/{course.code}/')
+        assert set(self._completion_map(response).values()) == {False}
+
+    def test_incomplete_progress_row_is_not_completion(
+        self, api_client, student, course, enrollment, three_lessons
+    ):
+        """A started-but-unfinished lesson is not complete."""
+        LessonProgress.objects.create(
+            user=student, lesson=three_lessons[0], completed=False
+        )
+
+        api_client.force_authenticate(user=student)
+        response = api_client.get(f'/api/courses/courses/{course.code}/')
+        assert self._completion_map(response)['L1'] is False
+
+    def test_completion_costs_one_query_for_any_number_of_lessons(
+        self, api_client, student, course, enrollment, unit
+    ):
+        """The lookup is resolved once per response, not once per lesson.
+
+        LessonListSerializer already carries several per-lesson count fields (a
+        known N+1, recorded as a follow-up); `is_completed` must not join them.
+        Counts the LessonProgress queries directly rather than inferring from a
+        total, so the assertion means what it says.
+        """
+        from django.db import connection
+        from django.test.utils import CaptureQueriesContext
+
+        for i in range(1, 13):
+            Lesson.objects.create(unit=unit, title=f'L{i}', order=i)
+
+        api_client.force_authenticate(user=student)
+        with CaptureQueriesContext(connection) as ctx:
+            response = api_client.get(f'/api/courses/courses/{course.code}/')
+
+        assert response.status_code == status.HTTP_200_OK
+        assert len(response.data['units'][0]['lessons']) == 12
+
+        progress_queries = [
+            q['sql'] for q in ctx.captured_queries
+            if 'courses_lessonprogress' in q['sql'].lower()
+        ]
+        assert len(progress_queries) == 1, (
+            f'expected one LessonProgress query for 12 lessons, got '
+            f'{len(progress_queries)}'
+        )
