@@ -255,12 +255,12 @@ def test_block_follows_the_demo_account_email_setting():
 
 @pytest.mark.django_db
 @locmem_email
-def test_block_is_an_exact_email_match():
-    # Documented limitation, not an endorsement: the comparison is a plain
-    # `==`, so an account differing only in case would not be blocked. Safe
-    # today because the email column is unique and the demo account is
-    # provisioned with exactly settings.DEMO_ACCOUNT_EMAIL — but any future
-    # move to case-insensitive logins must revisit this check.
+def test_block_is_case_insensitive():
+    # This used to pin the opposite: the comparison was a plain `==`, so an
+    # account differing only in case slipped through, documented as a
+    # limitation to revisit if logins ever went case-insensitive. Phase 56
+    # moved the comparison into core.demo.is_demo_email, which normalizes —
+    # so a case-variant of the demo address is now blocked too.
     local, _, domain = settings.DEMO_ACCOUNT_EMAIL.partition('@')
     lookalike_email = f'{local.swapcase()}@{domain}'
     assert lookalike_email != settings.DEMO_ACCOUNT_EMAIL
@@ -275,8 +275,8 @@ def test_block_is_an_exact_email_match():
         triggered_by=lookalike,
     )
 
-    assert sent is True
-    assert len(mail.outbox) == 1
+    assert sent is False
+    assert mail.outbox == []
 
 
 # --- context and failure handling ---------------------------------------

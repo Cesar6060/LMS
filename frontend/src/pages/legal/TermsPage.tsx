@@ -83,7 +83,7 @@ export function TermsPage() {
             <h2 className="text-2xl font-semibold mb-3">The demo course</h2>
             <p>
               The public &quot;Try the demo&quot; account is shared by all
-              visitors and is reset regularly. Anything you do there can be
+              visitors and is reset nightly. Anything you do there can be
               seen by other visitors and will be wiped.
             </p>
           </section>

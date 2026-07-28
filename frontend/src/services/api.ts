@@ -61,6 +61,34 @@ function clearTokensAndRedirect(): void {
   }
 }
 
+// --- Demo-account write blocking (phase 56) -------------------------------
+// The backend rejects writes from the shared demo account with
+// 403 {"detail": "...", "code": "demo_blocked"}. Detection and the friendly
+// message live here so individual pages don't need bespoke handling.
+
+/** Friendly message shown when the shared demo account attempts a blocked write. */
+export const DEMO_BLOCKED_MESSAGE = 'Not available in the demo.';
+
+/** True when the error is the backend's demo-account write block. */
+export function isDemoBlocked(error: unknown): boolean {
+  return (
+    axios.isAxiosError(error) &&
+    error.response?.status === 403 &&
+    (error.response.data as { code?: string } | undefined)?.code === 'demo_blocked'
+  );
+}
+
+type DemoBlockedListener = (message: string) => void;
+let demoBlockedListener: DemoBlockedListener | null = null;
+
+/**
+ * Register the UI surface (ToastProvider) that announces blocked demo writes.
+ * A module-level bridge because the axios interceptor runs outside React.
+ */
+export function setDemoBlockedListener(listener: DemoBlockedListener | null): void {
+  demoBlockedListener = listener;
+}
+
 // Response interceptor to handle auth errors
 api.interceptors.response.use(
   (response) => response,
@@ -82,6 +110,15 @@ api.interceptors.response.use(
           },
         });
       }
+    }
+
+    // A blocked demo write: replace axios's raw "Request failed with status
+    // code 403" so any page that shows err.message gets friendly copy, and
+    // announce it centrally (toast) so pages need no bespoke handling.
+    if (isDemoBlocked(error)) {
+      (error as AxiosError).message = DEMO_BLOCKED_MESSAGE;
+      demoBlockedListener?.(DEMO_BLOCKED_MESSAGE);
+      return Promise.reject(error);
     }
 
     if (error.response?.status === 401) {

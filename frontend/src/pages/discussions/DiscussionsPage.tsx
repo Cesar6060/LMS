@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useParams, Link } from 'react-router';
+import { useAuth } from '@/contexts/useAuth';
 import { Card, CardContent } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
@@ -33,6 +34,10 @@ function relativeTime(dateStr: string): string {
 
 export function DiscussionsPage() {
   const { code } = useParams<{ code: string }>();
+  const { user } = useAuth();
+  // Phase 56: discussions are read-only for the shared demo account — the
+  // backend blocks writes, so don't offer a composer that would just 403.
+  const isDemo = !!user?.is_demo;
 
   const [course, setCourse] = useState<CourseDetail | null>(null);
   const [threads, setThreads] = useState<ThreadListItem[]>([]);
@@ -151,10 +156,12 @@ export function DiscussionsPage() {
             <p className="text-muted-foreground">{course.code} - {course.title}</p>
           </div>
 
-          <Button onClick={() => setShowModal(true)}>
-            <Plus className="h-4 w-4 mr-2" />
-            New Thread
-          </Button>
+          {!isDemo && (
+            <Button onClick={() => setShowModal(true)}>
+              <Plus className="h-4 w-4 mr-2" />
+              New Thread
+            </Button>
+          )}
         </div>
       </div>
 
@@ -167,10 +174,12 @@ export function DiscussionsPage() {
             <p className="text-muted-foreground">
               Be the first to start a conversation in this course.
             </p>
-            <Button className="mt-4" onClick={() => setShowModal(true)}>
-              <Plus className="h-4 w-4 mr-2" />
-              New Thread
-            </Button>
+            {!isDemo && (
+              <Button className="mt-4" onClick={() => setShowModal(true)}>
+                <Plus className="h-4 w-4 mr-2" />
+                New Thread
+              </Button>
+            )}
           </CardContent>
         </Card>
       ) : (
@@ -215,7 +224,7 @@ export function DiscussionsPage() {
       )}
 
       {/* Create Thread Modal */}
-      <Dialog open={showModal} onOpenChange={setShowModal}>
+      <Dialog open={showModal && !isDemo} onOpenChange={setShowModal}>
         <DialogContent className="max-w-2xl">
           <DialogHeader>
             <DialogTitle>New Thread</DialogTitle>

@@ -12,6 +12,8 @@ export interface User {
   first_name: string;
   last_name: string;
   is_instructor: boolean;
+  /** True only for the shared public demo account (phase 56). */
+  is_demo: boolean;
   created_at: string;
   preferences?: UserPreferences;
 }

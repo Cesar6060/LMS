@@ -20,6 +20,7 @@ from datetime import timedelta
 from allauth.account.models import EmailAddress
 from accounts.models import User
 from accounts.serializers import UserSerializer
+from core.demo import is_demo_email, require_not_demo
 from core.email import send_course_invite_link_email, send_emails_async
 from core.pagination import RosterPagination
 from core.throttling import (
@@ -88,6 +89,10 @@ class CourseViewSet(viewsets.ModelViewSet):
     @action(detail=True, methods=['post'], permission_classes=[IsAuthenticated])
     def enroll(self, request, code=None):
         """Enroll in a course using enrollment code."""
+        # The demo account lives in DEMO101 only — with a leaked enrollment
+        # code it must not be able to join a real course and see a real
+        # roster. Mirrors the destroy() guard below (both directions closed).
+        require_not_demo(request.user)
         course = get_object_or_404(Course, code=code, is_active=True)
 
         # Verify enrollment code matches
@@ -412,6 +417,8 @@ class EnrollmentViewSet(viewsets.ModelViewSet):
 
     def create(self, request, *args, **kwargs):
         """Enroll using enrollment code."""
+        # Same guard as CourseViewSet.enroll — this is the second join path.
+        require_not_demo(request.user)
         serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         enrollment = serializer.save()
@@ -419,6 +426,16 @@ class EnrollmentViewSet(viewsets.ModelViewSet):
             EnrollmentSerializer(enrollment).data,
             status=status.HTTP_201_CREATED
         )
+
+    def update(self, request, *args, **kwargs):
+        """PUT/PATCH — inert today (every field is read-only), guarded anyway.
+
+        create() and destroy() both refuse the demo account; without this the
+        one remaining mutating action would silently inherit demo write
+        access the moment any field on EnrollmentSerializer becomes writable.
+        """
+        require_not_demo(request.user)
+        return super().update(request, *args, **kwargs)
 
     def destroy(self, request, *args, **kwargs):
         """Self-unenroll — soft delete, and never for the demo account.
@@ -434,11 +451,7 @@ class EnrollmentViewSet(viewsets.ModelViewSet):
            lockdown (see accounts.serializers.ProtectedPasswordChangeSerializer).
         """
         enrollment = self.get_object()
-
-        if request.user.email == settings.DEMO_ACCOUNT_EMAIL:
-            raise PermissionDenied(
-                'The demo account cannot un-enroll from its course.'
-            )
+        require_not_demo(request.user)
 
         enrollment.is_active = False
         enrollment.save(update_fields=['is_active'])
@@ -1654,7 +1667,7 @@ def course_invites(request, course_code):
 
         # The shared demo account and the instructor's own address can never
         # meaningfully accept an invite.
-        if email in (settings.DEMO_ACCOUNT_EMAIL, course.instructor.email):
+        if is_demo_email(email) or email == course.instructor.email:
             results.append({'email': email, 'status': 'invalid'})
             continue
 

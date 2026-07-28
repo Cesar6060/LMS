@@ -1,5 +1,5 @@
 from django.conf import settings
-from dj_rest_auth.views import PasswordResetView
+from dj_rest_auth.views import PasswordResetView, UserDetailsView
 from PIL import Image
 from rest_framework import status
 from rest_framework.decorators import (
@@ -9,6 +9,8 @@ from rest_framework.parsers import MultiPartParser, FormParser, JSONParser
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 from rest_framework_simplejwt.tokens import RefreshToken
+from core.demo import require_not_demo
+from core.permissions import NotDemoAccountForWrites
 from core.throttling import ClientIPScopedRateThrottle
 from .models import User, UserPreferences
 from .serializers import UserSerializer, UserPreferencesSerializer
@@ -65,6 +67,17 @@ def demo_login(request):
 demo_login.cls.throttle_scope = 'demo_login'
 
 
+class DemoSafeUserDetailsView(UserDetailsView):
+    """dj-rest-auth's /api/auth/user/ with demo writes blocked.
+
+    The route uses the same UserSerializer as /api/auth/profile/, so without
+    this shadow a demo visitor blocked on the profile endpoint could rename
+    the shared account through this one instead. Mounted in accounts.urls
+    ahead of the dj_rest_auth include.
+    """
+    permission_classes = [IsAuthenticated, NotDemoAccountForWrites]
+
+
 class ThrottledPasswordResetView(PasswordResetView):
     """dj-rest-auth's password reset with its own scoped rate limit.
 
@@ -91,6 +104,8 @@ def user_profile(request):
         return Response(serializer.data)
 
     elif request.method in ['PUT', 'PATCH']:
+        # The demo profile is shared by every visitor — no renaming Jordan Doe.
+        require_not_demo(user)
         partial = request.method == 'PATCH'
         serializer = UserSerializer(user, data=request.data, partial=partial, context={'request': request})
         if serializer.is_valid():
@@ -113,6 +128,7 @@ def user_settings(request):
         return Response(serializer.data)
 
     elif request.method in ['PUT', 'PATCH']:
+        require_not_demo(request.user)
         partial = request.method == 'PATCH'
         serializer = UserPreferencesSerializer(
             preferences,
@@ -138,6 +154,7 @@ def upload_avatar(request):
     full_clean(), which save() skips, so an .svg or a renamed .html would
     otherwise land in media and be served same-origin under DEBUG.
     """
+    require_not_demo(request.user)
     preferences, _ = UserPreferences.objects.get_or_create(user=request.user)
 
     if 'avatar' not in request.FILES:
@@ -236,6 +253,7 @@ def delete_avatar(request):
     """
     Delete user avatar.
     """
+    require_not_demo(request.user)
     preferences, _ = UserPreferences.objects.get_or_create(user=request.user)
 
     if preferences.avatar:

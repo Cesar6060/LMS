@@ -60,8 +60,11 @@ export function ThreadDetailPage() {
   const [editingReplyContent, setEditingReplyContent] = useState('');
   const [deleteReplyId, setDeleteReplyId] = useState<number | null>(null);
 
-  const isCourseOwner = user?.id != null && user.id === instructorId;
-  const isThreadAuthor = user?.id != null && user.id === thread?.author.id;
+  // Phase 56: discussions are read-only for the shared demo account — the
+  // backend blocks all thread/reply writes, so hide the dead controls.
+  const isDemo = !!user?.is_demo;
+  const isCourseOwner = !isDemo && user?.id != null && user.id === instructorId;
+  const isThreadAuthor = !isDemo && user?.id != null && user.id === thread?.author.id;
 
   const loadData = useCallback(async () => {
     try {
@@ -223,7 +226,7 @@ export function ThreadDetailPage() {
     );
   }
 
-  const canReply = !thread.is_locked || isCourseOwner;
+  const canReply = !isDemo && (!thread.is_locked || isCourseOwner);
 
   return (
     <PageContainer maxWidth="max-w-3xl">
@@ -319,7 +322,7 @@ export function ThreadDetailPage() {
 
       <div className="space-y-4 mb-8">
         {thread.replies.map((reply) => {
-          const isReplyAuthor = user?.id != null && user.id === reply.author.id;
+          const isReplyAuthor = !isDemo && user?.id != null && user.id === reply.author.id;
           return (
             <Card key={reply.id}>
               <CardContent className="py-4">
@@ -413,7 +416,9 @@ export function ThreadDetailPage() {
         <Card>
           <CardContent className="py-6 text-center text-muted-foreground flex items-center justify-center gap-2">
             <Lock className="h-4 w-4" />
-            This thread is locked. New replies are disabled.
+            {isDemo
+              ? 'Posting is not available in the shared demo.'
+              : 'This thread is locked. New replies are disabled.'}
           </CardContent>
         </Card>
       )}
