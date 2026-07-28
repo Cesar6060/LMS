@@ -135,6 +135,22 @@ class FrontendPasswordResetForm(AllAuthPasswordResetForm):
                 )
                 continue
 
+            # Accounts that never had a password must not be able to gain one
+            # by reset. allauth's ResetPasswordForm selects users with
+            # filter_users_by_email(...) and, unlike Django's own
+            # PasswordResetForm.get_users(), does NOT exclude unusable
+            # passwords — so instructor@demo.com (created by
+            # clone_course_for_demo with set_unusable_password, and owner of
+            # DEMO101) would be mailed a working link at a demo.com mailbox
+            # nobody here controls. Whoever read it would hold an instructor
+            # account: every course, every roster, every grade.
+            if not user.has_usable_password():
+                logger.warning(
+                    'Refusing to send password-reset email to %s: '
+                    'the account has no usable password.', user.pk,
+                )
+                continue
+
             uid = user_pk_to_url_str(user)
             token = token_generator.make_token(user)
             context = {

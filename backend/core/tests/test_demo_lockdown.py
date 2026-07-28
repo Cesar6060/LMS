@@ -315,6 +315,42 @@ class TestDemoPasswordIsFixedOnEveryPath:
 
 
 @pytest.mark.django_db
+class TestPasswordlessAccountsCannotBeResetInto:
+    """The demo instructor (clone_course_for_demo, owner of DEMO101) has an
+    unusable password, so nobody can log into it — but allauth's reset form
+    does not exclude such users the way Django's own does, so a reset would
+    have mailed a working link to a demo.com mailbox nobody here controls.
+    Found while auditing production accounts during phase 56."""
+
+    def test_no_reset_email_for_unusable_password(self, api_client, settings):
+        from django.core import mail
+
+        settings.DEMO_ACCOUNT_EMAIL = 'demo@test.com'
+        passwordless = User.objects.create_user(
+            email='instructor@demo.test', password=None, is_instructor=True)
+        passwordless.set_unusable_password()
+        passwordless.save(update_fields=['password'])
+        mail.outbox = []
+
+        response = api_client.post(
+            '/api/auth/password/reset/', {'email': 'instructor@demo.test'})
+
+        # 200 either way — never leak which addresses are resettable.
+        assert response.status_code == status.HTTP_200_OK
+        assert mail.outbox == []
+
+    def test_normal_user_still_gets_reset_email(self, api_client, student):
+        from django.core import mail
+
+        mail.outbox = []
+        response = api_client.post(
+            '/api/auth/password/reset/', {'email': student.email})
+
+        assert response.status_code == status.HTTP_200_OK
+        assert len(mail.outbox) == 1
+
+
+@pytest.mark.django_db
 class TestOptionalSlashShadowsHold:
     """dj-rest-auth mounts several views with an optional trailing slash
     (r'…/?$'). A path() shadow captures only one spelling, so the bare one
