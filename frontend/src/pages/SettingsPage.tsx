@@ -22,6 +22,9 @@ export function SettingsPage() {
   const { user, refreshUser } = useAuth();
   const [searchParams] = useSearchParams();
   const isInstructor = !!user?.is_instructor;
+  // Phase 56: the shared demo account is read-only for identity writes —
+  // disable the forms with a note instead of letting them 403 on submit.
+  const isDemo = !!user?.is_demo;
 
   const [activeTab, setActiveTab] = useState<TabType>('profile');
   const [isLoading, setIsLoading] = useState(true);
@@ -240,7 +243,7 @@ export function SettingsPage() {
                     variant="outline"
                     size="sm"
                     onClick={() => fileInputRef.current?.click()}
-                    disabled={isUploadingAvatar}
+                    disabled={isUploadingAvatar || isDemo}
                   >
                     <Camera className="h-4 w-4 mr-2" />
                     Upload Photo
@@ -250,13 +253,14 @@ export function SettingsPage() {
                       variant="ghost"
                       size="sm"
                       onClick={handleDeleteAvatar}
-                      disabled={isUploadingAvatar}
+                      disabled={isUploadingAvatar || isDemo}
                       className="text-destructive hover:text-destructive"
                     >
                       <Trash2 className="h-4 w-4 mr-2" />
                       Remove
                     </Button>
                   )}
+                  {isDemo && <DemoEditNote />}
                 </div>
               </div>
             </CardContent>
@@ -275,6 +279,7 @@ export function SettingsPage() {
                     value={firstName}
                     onChange={(e) => setFirstName(e.target.value)}
                     placeholder="First name"
+                    disabled={isDemo}
                   />
                 </div>
                 <div>
@@ -283,6 +288,7 @@ export function SettingsPage() {
                     value={lastName}
                     onChange={(e) => setLastName(e.target.value)}
                     placeholder="Last name"
+                    disabled={isDemo}
                   />
                 </div>
               </div>
@@ -294,7 +300,7 @@ export function SettingsPage() {
                 </p>
               </div>
               <div className="flex items-center gap-4">
-                <Button onClick={handleSaveProfile} disabled={isSaving}>
+                <Button onClick={handleSaveProfile} disabled={isSaving || isDemo}>
                   {isSaving ? (
                     <Loader2 className="h-4 w-4 mr-2 animate-spin" />
                   ) : (
@@ -302,6 +308,7 @@ export function SettingsPage() {
                   )}
                   Save Changes
                 </Button>
+                {isDemo && <DemoEditNote />}
                 {saveMessage && (
                   <span className={`text-sm ${saveMessage.includes('Failed') ? 'text-destructive' : 'text-green-600'}`}>
                     {saveMessage}
@@ -382,13 +389,24 @@ export function SettingsPage() {
                 description="Receive email notifications when instructors post announcements"
                 checked={preferences.email_announcements}
                 onChange={(v) => handleUpdatePreference('email_announcements', v)}
+                disabled={isDemo}
               />
             </div>
+            {isDemo && <DemoEditNote />}
           </CardContent>
         </Card>
       )}
 
     </PageContainer>
+  );
+}
+
+// Inline note shown next to controls the shared demo account can't use.
+function DemoEditNote() {
+  return (
+    <p className="text-sm font-medium text-amber-300" role="note">
+      The demo account can&apos;t be edited.
+    </p>
   );
 }
 
@@ -398,11 +416,13 @@ function ToggleSetting({
   description,
   checked,
   onChange,
+  disabled = false,
 }: {
   label: string;
   description: string;
   checked: boolean;
   onChange: (checked: boolean) => void;
+  disabled?: boolean;
 }) {
   return (
     <div className="flex items-center justify-between py-3 border-b last:border-0">
@@ -413,8 +433,9 @@ function ToggleSetting({
       <button
         role="switch"
         aria-checked={checked}
+        disabled={disabled}
         onClick={() => onChange(!checked)}
-        className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
+        className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors disabled:opacity-50 disabled:cursor-not-allowed ${
           checked ? 'bg-primary' : 'bg-muted'
         }`}
       >

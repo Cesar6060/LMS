@@ -221,9 +221,10 @@ REST_FRAMEWORK = {
     # Throttle anonymous (pre-login) traffic by IP. This is the brute-force guard
     # for /api/auth/login|registration|password/reset. Off by default (rate=None
     # => unlimited) so tests and local dev are unaffected; set THROTTLE_ANON in
-    # production, e.g. '30/min'. Authenticated demo traffic is never throttled
-    # (AnonRateThrottle only applies to anonymous requests), so a shared demo
-    # login isn't collectively rate-limited.
+    # production, e.g. '30/min'. Authenticated demo traffic is under the 'user'
+    # throttle like everyone else, but keyed per client IP rather than per
+    # user id — every visitor shares one account, and a pk-keyed bucket would
+    # let one visitor exhaust the whole demo's allowance (core/throttling.py).
     # ClientIPAnonRateThrottle (not the stock AnonRateThrottle): production
     # sits behind Cloudflare, whose rotating edge IP in X-Forwarded-For gives
     # every request a fresh throttle bucket under DRF's default ident. The
@@ -389,6 +390,11 @@ REST_AUTH = {
     # Sends the branded reset email whose link points at the frontend's
     # /reset-password page instead of Django's backend-relative reset view.
     'PASSWORD_RESET_SERIALIZER': 'accounts.serializers.PasswordResetSerializer',
+    # The demo account's password is fixed on BOTH write paths — change and
+    # reset-confirm. Leaving this at the stock serializer left the reset path
+    # unguarded (phase 56 adversarial finding).
+    'PASSWORD_RESET_CONFIRM_SERIALIZER':
+        'accounts.serializers.ProtectedPasswordResetConfirmSerializer',
 }
 
 SIMPLE_JWT = {

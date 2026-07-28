@@ -4,6 +4,7 @@ from rest_framework.exceptions import PermissionDenied
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 
+from core.demo import require_not_demo
 from .avatar_catalog import SLOTS, get_item
 from .models import GameProfile, Badge, UserBadge
 from .serializers import BadgeSerializer
@@ -58,6 +59,8 @@ def update_avatar(request):
     user = request.user
     if user.is_instructor:
         raise PermissionDenied('Avatar customization is only available to students.')
+    # The mascot name is free text on a profile every visitor shares.
+    require_not_demo(user)
 
     profile, _ = GameProfile.objects.get_or_create(user=user)
     update_fields = []

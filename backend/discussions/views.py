@@ -6,6 +6,7 @@ from django.shortcuts import get_object_or_404
 from django.db.models import Count, Max
 from django.db.models.functions import Coalesce
 
+from core.demo import require_not_demo
 from courses.models import Course
 from courses.permissions import is_course_instructor, can_access_course as can_access
 from notifications.models import Notification
@@ -38,7 +39,10 @@ def course_threads(request, course_code):
         serializer = ThreadListSerializer(threads, many=True, context={'request': request})
         return Response(serializer.data)
 
-    # POST — instructor or enrolled student creates a thread
+    # POST — instructor or enrolled student creates a thread. The demo
+    # account reads discussions but never writes: anything it posted would be
+    # visitor-authored content shown to every other visitor.
+    require_not_demo(request.user)
     serializer = ThreadCreateSerializer(data=request.data)
     if serializer.is_valid():
         thread = serializer.save(course=course, author=request.user)
@@ -66,7 +70,10 @@ def thread_detail(request, thread_id):
         serializer = ThreadDetailSerializer(thread, context={'request': request})
         return Response(serializer.data)
 
-    # Edit = author only; delete = author or course instructor
+    # Edit = author only; delete = author or course instructor — and never
+    # the demo account (it can't create threads, but could otherwise edit or
+    # delete seeded ones it "authored").
+    require_not_demo(request.user)
     is_author = thread.author == request.user
     is_instructor = is_course_instructor(request.user, course)
 
@@ -141,6 +148,8 @@ def create_reply(request, thread_id):
             status=status.HTTP_403_FORBIDDEN
         )
 
+    require_not_demo(request.user)
+
     # Locked threads block replies from everyone except the course instructor
     if thread.is_locked and not is_course_instructor(request.user, course):
         return Response(
@@ -174,6 +183,7 @@ def create_reply(request, thread_id):
 def reply_detail(request, reply_id):
     """Update (author only) or delete (author or course instructor) a reply."""
     reply = get_object_or_404(Reply, id=reply_id)
+    require_not_demo(request.user)
     course = reply.thread.course
     is_author = reply.author == request.user
     is_instructor = is_course_instructor(request.user, course)

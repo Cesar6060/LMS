@@ -7,6 +7,8 @@ from django.core.mail import EmailMultiAlternatives
 from django.template.loader import render_to_string
 from django.utils.html import strip_tags
 
+from core.demo import is_demo_user
+
 logger = logging.getLogger(__name__)
 
 
@@ -36,10 +38,7 @@ def send_templated_email(
     # cause outbound email. Today it's a student and can't reach the
     # instructor-only invite/announcement endpoints, but this holds even if a
     # demo instructor is ever added.
-    if (
-        triggered_by is not None
-        and triggered_by.email == settings.DEMO_ACCOUNT_EMAIL
-    ):
+    if is_demo_user(triggered_by):
         logger.warning(
             f"Refusing to send email to {recipient_list}: "
             "triggered by the demo account."

@@ -1,0 +1,67 @@
+# Phase 56: nightly demo-sandbox reset.
+#
+# Runs `manage.py seed_demo_account --reset` against production (Neon):
+# wipes visitor-authored data (threads/replies, quiz attempts, progress,
+# notifications, XP, stray enrollments), re-asserts the demo account
+# (student flags, password, verified email), and re-applies the baseline
+# progress. The Terms page tells visitors the demo resets nightly — this
+# workflow is what makes that true.
+#
+# Scheduled ~30 minutes AFTER db-backup.yml (08:17 UTC): the morning backup
+# always captures pre-reset state, so a misbehaving reset is recoverable
+# from the same day's dump.
+#
+# Required repo secrets:
+#   NEON_DATABASE_URL        full postgres:// URL (shared with db-backup.yml)
+#   DEMO_ACCOUNT_PASSWORD    same value as the Render env var. The reset
+#                            re-asserts the demo password from this setting;
+#                            left unset it would fall back to the published
+#                            local default and silently un-rotate the prod
+#                            password (Phase 44). The guard step below fails
+#                            the run instead.
+
+name: demo-reset
+
+on:
+  schedule:
+    - cron: '47 8 * * *'
+  workflow_dispatch: {}
+
+permissions: {}
+
+jobs:
+  reset:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - name: Refuse to run without the demo password secret
+        env:
+          DEMO_ACCOUNT_PASSWORD: ${{ secrets.DEMO_ACCOUNT_PASSWORD }}
+        run: |
+          if [ -z "$DEMO_ACCOUNT_PASSWORD" ]; then
+            echo "::error::DEMO_ACCOUNT_PASSWORD secret is not set — the reset would revert the production demo password to the published default."
+            exit 1
+          fi
+
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+          cache-dependency-path: backend/requirements.txt
+
+      - name: Install backend dependencies
+        run: pip install --quiet -r backend/requirements.txt
+
+      - name: Reset the demo sandbox
+        working-directory: backend
+        env:
+          DATABASE_URL: ${{ secrets.NEON_DATABASE_URL }}
+          DEMO_ACCOUNT_PASSWORD: ${{ secrets.DEMO_ACCOUNT_PASSWORD }}
+          # manage.py needs a SECRET_KEY to boot; nothing in the reset signs
+          # or verifies anything, so a throwaway value is fine and the real
+          # key stays in Render.
+          SECRET_KEY: ephemeral-demo-reset-key
+          DEBUG: 'false'
+        run: python manage.py seed_demo_account --reset

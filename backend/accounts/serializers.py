@@ -10,8 +10,10 @@ from dj_rest_auth.forms import AllAuthPasswordResetForm
 from dj_rest_auth.registration.serializers import RegisterSerializer as BaseRegisterSerializer
 from dj_rest_auth.serializers import (
     PasswordChangeSerializer as BasePasswordChangeSerializer,
+    PasswordResetConfirmSerializer as BasePasswordResetConfirmSerializer,
     PasswordResetSerializer as BasePasswordResetSerializer,
 )
+from core.demo import is_demo_user, require_not_demo
 from .models import User, UserPreferences
 
 logger = logging.getLogger(__name__)
@@ -42,6 +44,10 @@ class UserPreferencesSerializer(serializers.ModelSerializer):
 class UserSerializer(serializers.ModelSerializer):
     """Serializer for the User model."""
     preferences = UserPreferencesSerializer(read_only=True)
+    # Lets the frontend know it's rendering the shared demo session (banner,
+    # disabled forms). Enforcement never trusts this field — it's derived
+    # server-side and read-only.
+    is_demo = serializers.SerializerMethodField()
 
     class Meta:
         model = User
@@ -51,6 +57,7 @@ class UserSerializer(serializers.ModelSerializer):
             'first_name',
             'last_name',
             'is_instructor',
+            'is_demo',
             'created_at',
             'preferences',
         ]
@@ -59,6 +66,9 @@ class UserSerializer(serializers.ModelSerializer):
         # logged-in user (including the shared demo student) promote themselves to
         # instructor. Role changes happen only via Django admin.
         read_only_fields = ['id', 'email', 'is_instructor', 'created_at']
+
+    def get_is_demo(self, obj):
+        return is_demo_user(obj)
 
 
 class RegisterSerializer(BaseRegisterSerializer):
@@ -109,7 +119,7 @@ class FrontendPasswordResetForm(AllAuthPasswordResetForm):
             # password is operator-managed — never email a working reset link
             # for it. Silently skipping keeps the endpoint's response identical
             # to the unknown-email case (no account enumeration).
-            if user.email == settings.DEMO_ACCOUNT_EMAIL:
+            if is_demo_user(user):
                 logger.warning(
                     'Refusing to send password-reset email for the demo account.'
                 )
@@ -170,12 +180,35 @@ class ProtectedPasswordChangeSerializer(BasePasswordChangeSerializer):
     The demo credentials are published, so without this any visitor could change
     the password and lock everyone else out of the demo. All other users change
     their password normally.
+
+    Denies with the standard demo_blocked 403 (phase 56) rather than a 400
+    validation error, so the frontend's central handler shows the same
+    friendly message here as on every other blocked demo write.
     """
 
     def validate(self, attrs):
         user = getattr(self, 'user', None) or self.context['request'].user
-        if user and user.email == settings.DEMO_ACCOUNT_EMAIL:
-            raise serializers.ValidationError(
-                "The demo account's password is fixed and cannot be changed."
-            )
+        require_not_demo(user)
         return super().validate(attrs)
+
+
+class ProtectedPasswordResetConfirmSerializer(BasePasswordResetConfirmSerializer):
+    """Reset-confirm that refuses to touch the demo account's password.
+
+    The sibling of ProtectedPasswordChangeSerializer, and the same
+    invariant: no request may change the shared demo password, or one
+    visitor locks out every other until an operator re-runs
+    seed_demo_account. FrontendPasswordResetForm already declines to *email*
+    the demo account a reset link, but that only closes the delivery path —
+    this closes the write itself, so any token that reaches this endpoint by
+    another route (log leak, a future admin "resend link" tool, a reused
+    SECRET_KEY) still can't land. Found by the phase-56 adversarial pass.
+    """
+
+    def validate(self, attrs):
+        # super().validate() resolves self.user from the uid; run it first so
+        # an invalid uid/token still fails as a bad token rather than
+        # revealing anything about the demo account.
+        attrs = super().validate(attrs)
+        require_not_demo(self.user)
+        return attrs

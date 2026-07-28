@@ -163,7 +163,11 @@ class TestAuthEndpoints:
             'new_password1': 'BrandNewPass!123',
             'new_password2': 'BrandNewPass!123',
         })
-        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        # Phase 56 unified the denial onto the demo_blocked 403 contract
+        # (was a 400 validation error) so the frontend shows the same
+        # friendly message here as on every other blocked demo write.
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+        assert response.json()['code'] == 'demo_blocked'
         demo.refresh_from_db()
         assert demo.check_password('testpass123')
 

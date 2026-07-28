@@ -25,6 +25,8 @@ from rest_framework.throttling import (
     AnonRateThrottle, ScopedRateThrottle, UserRateThrottle,
 )
 
+from core.demo import is_demo_user
+
 
 class ClientIPIdentMixin:
     """Prefer Cloudflare's CF-Connecting-IP header as the throttle ident.
@@ -50,8 +52,20 @@ class ClientIPUserRateThrottle(ClientIPIdentMixin, UserRateThrottle):
 
     Anonymous requests fall back to the IP ident, but in practice they're
     covered by ClientIPAnonRateThrottle's separate 'anon' bucket.
+
+    The shared demo account is keyed on client IP instead of pk: every
+    visitor authenticates as the same user, so a pk key would pool all demo
+    traffic into one bucket — one hammering visitor exhausts the rate for
+    everyone (and can do so deliberately).
     """
-    pass
+
+    def get_cache_key(self, request, view):
+        if is_demo_user(request.user):
+            return self.cache_format % {
+                'scope': self.scope,
+                'ident': f'demo:{self.get_ident(request)}',
+            }
+        return super().get_cache_key(request, view)
 
 
 class ClientIPScopedRateThrottle(ClientIPIdentMixin, ScopedRateThrottle):
