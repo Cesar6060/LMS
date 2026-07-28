@@ -1,0 +1,99 @@
+PHASE 57 — API CUSTOM DOMAIN (api.stemquests.com) — DASHBOARD STEPS
+====================================================================
+
+Why: school/workplace web filters block generic onrender.com hosts, which
+made login fail with a fake "CORS" error. Serving the API from
+api.stemquests.com fixes that. The CNAME must stay DNS-ONLY (grey cloud):
+proxying it through Cloudflare would make Render's edge stamp
+CF-Connecting-IP with Cloudflare egress IPs and collapse every per-IP
+throttle onto a few shared addresses.
+
+Do the steps in this order. Steps 1-2 can sit overnight waiting for the
+certificate; nothing breaks in the meantime because the old host keeps
+working throughout.
+
+
+STEP 1 — RENDER: ADD THE CUSTOM DOMAIN
+--------------------------------------
+1. Render dashboard -> service "stemquest-api-va"
+   (srv-d9go1em1a83c73f50r2g) -> Settings -> Custom Domains.
+2. Add domain: api.stemquests.com
+3. Render shows the CNAME target to point at (normally
+   stemquest-api-va.onrender.com). Leave this tab open for step 2.
+
+
+STEP 2 — CLOUDFLARE: CREATE THE DNS RECORD (GREY CLOUD)
+-------------------------------------------------------
+1. Cloudflare dashboard -> stemquests.com zone -> DNS -> Records.
+2. Add record:
+      Type:   CNAME
+      Name:   api
+      Target: stemquest-api-va.onrender.com
+      Proxy status: DNS only (GREY cloud — click the orange cloud off)
+3. Save. Back in Render, wait until the domain shows "Certificate
+   issued" / verified. Usually minutes; can take up to an hour.
+
+CHECK:  curl -sS https://api.stemquests.com/api/health/
+        -> expect {"status": ...} with a valid certificate.
+
+
+STEP 3 — RENDER: EXTEND ALLOWED_HOSTS
+-------------------------------------
+1. Render dashboard -> stemquest-api-va -> Environment.
+2. Edit ALLOWED_HOSTS: append ",api.stemquests.com" to the existing
+   value. Comma-separated, no spaces. Do NOT remove the existing
+   stemquest-api-va.onrender.com entry.
+3. Save; Render restarts the service automatically.
+
+CHECK:  curl -sS -X POST https://api.stemquests.com/api/auth/demo-login/ \
+          -H "Origin: https://stemquests.com" -H "Content-Type: application/json" -d "{}"
+        -> expect 200 with tokens (NOT a 400 Bad Request/DisallowedHost).
+
+
+STEP 4 — CLOUDFLARE: FLIP THE FRONTEND BUILD VARIABLE
+-----------------------------------------------------
+1. Cloudflare dashboard -> Workers & Pages -> worker "stemquest"
+   -> Settings -> Build -> Variables and secrets.
+2. Set VITE_API_URL = https://api.stemquests.com/api
+   (was https://stemquest-api-va.onrender.com/api).
+3. Trigger a new build/deploy (Deployments -> retry latest, or push to
+   main). This same build picks up the new _headers CSP with
+   worker-src and the api.stemquests.com connect-src entry.
+
+CHECK:  curl -sS -D - -o /dev/null https://stemquests.com/ | grep -i content-security
+        -> header must contain "worker-src 'self' blob:" and
+           "https://api.stemquests.com".
+        Then in a browser: log in on https://stemquests.com, DevTools
+        Network tab shows requests going to api.stemquests.com, console
+        has zero CSP violations.
+
+
+STEP 5 — CLOUDFLARE: DISABLE WEB ANALYTICS AUTO-INJECTION
+---------------------------------------------------------
+The console error about static.cloudflareinsights.com/beacon.min.js
+comes from a dashboard toggle, not our code. We keep Sentry instead.
+
+1. Cloudflare dashboard -> stemquests.com zone -> Analytics & Logs
+   -> Web Analytics.
+2. Find the automatic setup / "inject JavaScript beacon" toggle for
+   stemquests.com and turn it OFF (or remove the site from Web
+   Analytics entirely).
+
+CHECK:  reload https://stemquests.com with DevTools open — no
+        cloudflareinsights.com request and no CSP violation for it.
+
+
+STEP 6 — UPTIMEROBOT: MONITOR THE NEW HOST
+------------------------------------------
+1. Add a new HTTPS monitor: https://api.stemquests.com/api/health/
+   (same cadence/alerts as the existing API monitor).
+2. KEEP the existing stemquest-api-va.onrender.com monitor — it watches
+   the real Render host and stays the fallback.
+
+
+STEP 7 — FINAL PROOF (SCHOOL NETWORK)
+-------------------------------------
+On the school device, on school wifi: open https://stemquests.com and
+log in (demo login is enough). Success closes the last open item of
+phase 57. If it still fails, capture the DevTools console + network tab
+and check the stemquest-react Sentry project for the event.

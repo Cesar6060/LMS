@@ -64,12 +64,15 @@ INSTALLED_APPS = [
 ]
 
 MIDDLEWARE = [
+    # First so every early response — including SECURE_SSL_REDIRECT 301s
+    # from SecurityMiddleware — still carries CORS headers; without them
+    # the browser reports an opaque CORS failure instead of the redirect.
+    'corsheaders.middleware.CorsMiddleware',
     'django.middleware.security.SecurityMiddleware',
     # Must sit directly after SecurityMiddleware so a static hit is served
     # before anything downstream can short-circuit the request.
     'whitenoise.middleware.WhiteNoiseMiddleware',
     'django.contrib.sessions.middleware.SessionMiddleware',
-    'corsheaders.middleware.CorsMiddleware',
     'django.middleware.common.CommonMiddleware',
     'django.middleware.csrf.CsrfViewMiddleware',
     'django.contrib.auth.middleware.AuthenticationMiddleware',

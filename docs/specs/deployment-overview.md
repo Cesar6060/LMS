@@ -15,7 +15,10 @@
 > - ***Grafana Cloud never shipped.** Phase 40 delivered Sentry (two projects)
 >   + UptimeRobot instead of OTel → Grafana; there is no `config/otel.py`.*
 > - ***"No custom domain" is stale.** Phase 51 shipped `stemquests.com` (see
->   `docs/specs/phase-51-*`); the `*.workers.dev` URL still serves too.*
+>   `docs/specs/phase-51-*`); the `*.workers.dev` URL still serves too.
+>   Phase 57 added `api.stemquests.com` for the API (DNS-only CNAME to
+>   Render — school/workplace filters block generic `onrender.com` hosts);
+>   the `stemquest-api-va.onrender.com` host remains a valid fallback.*
 > - ***`frontend/public/_redirects` was never used.** SPA fallback comes from
 >   `not_found_handling` in `wrangler.jsonc`; the only file in
 >   `frontend/public/` is `_headers`.*
