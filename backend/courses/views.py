@@ -1667,7 +1667,7 @@ def course_invites(request, course_code):
 
         # The shared demo account and the instructor's own address can never
         # meaningfully accept an invite.
-        if is_demo_email(email) or email == course.instructor.email:
+        if is_demo_email(email) or email == course.instructor.email.strip().lower():
             results.append({'email': email, 'status': 'invalid'})
             continue
 

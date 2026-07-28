@@ -510,6 +510,21 @@ class TestNormalUsersUnaffected:
         )
         assert reply.status_code == status.HTTP_201_CREATED
 
+    @pytest.mark.parametrize(
+        'url', ['/api/auth/profile/', '/api/auth/user/', '/api/auth/user'])
+    def test_student_can_still_write_every_profile_route(
+            self, api_client, student, url):
+        """Enforcement lives in UserSerializer.update(), which every profile
+        route shares — so a guard keyed on the wrong subject would lock out
+        real users here rather than only blocking the demo."""
+        api_client.force_authenticate(user=student)
+
+        response = api_client.patch(url, {'first_name': 'Renamed'})
+
+        assert response.status_code == status.HTTP_200_OK
+        student.refresh_from_db()
+        assert student.first_name == 'Renamed'
+
     def test_student_can_edit_profile_and_settings(self, api_client, student):
         api_client.force_authenticate(user=student)
 
@@ -591,6 +606,25 @@ class TestDemoThrottleKeying:
         key_b = throttle.get_cache_key(
             self._request_for(demo_user, '203.0.113.1'), view=None)
         assert key_a == key_b
+
+    def test_demo_keying_honours_the_cf_trust_gate(self, demo_user, settings):
+        """The per-IP demo key derives from get_ident(), so it must inherit
+        the CF-Connecting-IP trust gate rather than quietly re-opening it: an
+        untrusted header must not let one visitor mint unlimited buckets.
+        (Cloudflare's edge also rejects requests carrying that header before
+        they reach us — verified in prod — but the gate is the code-side
+        guarantee.)"""
+        settings.TRUST_CF_HEADERS = False
+        throttle = ClientIPUserRateThrottle()
+
+        keys = set()
+        for spoof in ('203.0.113.10', '203.0.113.11', '203.0.113.12'):
+            request = APIRequestFactory().get(
+                '/', REMOTE_ADDR='198.51.100.7', HTTP_CF_CONNECTING_IP=spoof)
+            request.user = demo_user
+            keys.add(throttle.get_cache_key(request, view=None))
+
+        assert len(keys) == 1
 
     def test_normal_user_keyed_on_pk_not_ip(self, student):
         throttle = ClientIPUserRateThrottle()

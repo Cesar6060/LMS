@@ -2,16 +2,37 @@
 
 ## Current state
 
-Phase 56 complete. **PR #74 open, not merged**:
-https://github.com/Cesar6060/LMS/pull/74
-Branch `feat/phase-56-demo-sandbox-security`, 2 commits, 21 files.
-All spec checklist items done except the four that are post-merge by
-nature (manual click-through, reset-workflow dispatch, prod rollout).
-`docs/specs/phase-56-demo-sandbox-security.md` has an "Outcome" section
-and a `B2b` section recording every finding fixed mid-phase.
+Phase 56 complete, **merged and deployed**. PR #74 merged as `afa91de`;
+Render auto-deployed from `main` and the new build is confirmed live.
+`docs/specs/phase-56-demo-sandbox-security.md` has "Outcome", a `B2b`
+section for findings fixed mid-phase, and a "Production incident" section.
 
-`/verify-stack` PASS: **609 backend tests** (was 569), **57 frontend
+`/verify-stack` PASS: **615 backend tests** (was 569), **57 frontend
 tests** (was 50), `tsc` 0 errors, `eslint` 0 errors, coverage 94%.
+
+**Verified against production after the deploy** (not just locally):
+`PATCH /api/auth/profile/`, `/api/auth/user/`, and the bare
+`/api/auth/user` all return `403 demo_blocked`; `GET /api/auth/user/`
+200; the shared account is intact as "Jordan Doe" with `is_demo: true`;
+`/api/health/?deep=1` 200 with `database: ok`; stemquests.com serves.
+
+## Production incident found and closed during rollout
+
+`DEMO_ACCOUNT_PASSWORD` was **absent from Render entirely**, so prod was
+running the committed `Admin123!` default and raw login with
+`jdoe@demo.com / Admin123!` returned 200 with a JWT pair. Phase 44's
+rotation had been lost, most likely in the phase-49 region move. Fixed:
+variable set on Render + as a GitHub secret, `seed_demo_account` run as a
+Render one-off job. Old password now **400**, demo-login still **200**.
+
+Nothing in the deploy pipeline re-seeds (`render.yaml:42-43` is pip
+install → collectstatic → gunicorn), so redeploying can never rotate the
+password — only the management command does.
+
+The account audit that phase 42 deferred is now done: 5 users, 2
+instructors (the operator, and `instructor@demo.com` which owns DEMO101
+and has **no usable password**). That audit surfaced a separate hole,
+fixed in `9462109` — see Gotchas.
 
 Landed: central `core/demo.py` + `core/permissions.py` with the five
 legacy `email ==` sites refactored onto it; identity/shared-surface
@@ -23,46 +44,39 @@ traffic; registration sub-path stubs; `is_demo` on `UserSerializer`;
 nightly reset workflow; demo banner + central blocked-write toast +
 disabled controls on the frontend.
 
-## Blocking prerequisite before the reset workflow can run
-
-**Add a `DEMO_ACCOUNT_PASSWORD` repo secret to `Cesar6060/LMS`** (remote
-`lms`), set to the same value as the Render env var. Confirmed absent —
-`gh secret list` shows only `NEON_DATABASE_URL` and the four R2 secrets.
-
-Why it matters: `seed_demo_account` re-asserts the demo password from
-`settings.DEMO_ACCOUNT_PASSWORD`, which falls back to the published
-`Admin123!` default when unset. An unconfigured nightly run would
-silently un-rotate the production demo password and undo phase 44. The
-workflow's first step hard-fails with a clear error until the secret
-exists — loud, not silent, but it does mean every scheduled run fails
-until someone adds it.
-
 ## In progress / not done
 
-- **Manual click-through not performed** (local or prod). The flow is in
-  the spec's Verification section. Most worth doing by hand: the demo
-  banner on a real demo login, one blocked write showing the friendly
-  toast rather than a raw error, and confirming a normal student can
-  still post a reply and edit their profile.
-- **Reset workflow never executed.** Dispatch it once via
-  `workflow_dispatch` after the secret exists and the PR is merged, and
-  confirm it exits 0 with DEMO101 enrollment intact and Unit 1 complete.
+- **`demo-reset.yml` has never executed.** It is registered on `main` and
+  both required secrets exist, so it is ready — but nobody has run it.
+  Deliberately left for a human: `--reset` deletes visitor-generated
+  production data, which is not something to fire off as a verification
+  step. Dispatch it once via `workflow_dispatch` and confirm it exits 0
+  with DEMO101 enrollment intact and Unit 1 complete. Until then the
+  nightly cron will do the first run unattended at 08:47 UTC.
+- **Browser click-through not performed.** The API-level behavior is
+  verified against production (above), but nobody has looked at the demo
+  banner, the blocked-write toast, or the disabled Settings controls in
+  an actual browser.
 - **47 merged remote `lms/*` branches still unpruned** — carried over
   from phase 55, still deliberate.
 
 ## Next steps
 
-1. Add the `DEMO_ACCOUNT_PASSWORD` secret (see above).
-2. Merge PR #74, let Render deploy. **No migrations this phase**, so the
-   deploy order is boring — no repeat of phase 55's subtractive-migration
-   ordering trap.
-3. Dispatch `demo-reset.yml` once, confirm green.
-4. Click through the live demo on stemquests.com: banner visible, one
-   blocked write, one allowed write.
-5. Phase 57: Django 4.2 → 5.2 LTS (4.2 is past EOL; 4.2.30 is its final
+1. Dispatch `demo-reset.yml` once and confirm green — the last unchecked
+   verification item.
+2. Click through the live demo on stemquests.com: banner visible, one
+   blocked write showing the friendly toast, one allowed write.
+3. Phase 57: Django 4.2 → 5.2 LTS (4.2 is past EOL; 4.2.30 is its final
    patch). This is the item phase 55 had slotted as 56.
-6. Phase 57b (or fold in): react-router 7 → 8, needs React 18 → 19.
-7. Dependabot PRs still need triage — carried from phase 55.
+4. Phase 57b (or fold in): react-router 7 → 8, needs React 18 → 19.
+5. Dependabot PRs still need triage — carried from phase 55.
+6. Consider an origin-lock between Cloudflare and Render (IP allowlist or
+   a shared secret header verified in `ClientIPIdentMixin`). Every
+   throttle depends on `CF-Connecting-IP` being unspoofable, which today
+   rests entirely on Cloudflare fronting every request. Verified still
+   true this session (a request carrying that header to the API is
+   rejected at the edge with `error code: 1000` / 403), but it is an
+   infra assumption with no code-side enforcement.
 
 ## Decisions made
 
@@ -106,7 +120,21 @@ until someone adds it.
   `PASSWORD_CHANGE_SERIALIZER` and `PASSWORD_RESET_CONFIRM_SERIALIZER`.
 - **`seed_demo_account` re-asserts the password on every run**, so any
   automation running it must supply `DEMO_ACCOUNT_PASSWORD` or it
-  silently reverts prod to the published default.
+  silently reverts prod to the published default. This is not
+  hypothetical — it is exactly how prod ended up back on `Admin123!`.
+- **allauth's `ResetPasswordForm` does not exclude accounts with unusable
+  passwords**, unlike Django's own `PasswordResetForm.get_users()`. So an
+  account created with `set_unusable_password()` — meant to be
+  un-loggable — could be handed a working password by reset. That applied
+  to `instructor@demo.com`, whose mail would go to a `demo.com` mailbox
+  nobody here controls, yielding an instructor account with every course,
+  roster, and grade. Fixed in `9462109`; if social auth or a "set your
+  password via reset" onboarding is ever added, revisit that skip.
+- **`render ssh` cannot be scripted** ("can only be used in interactive
+  mode"). To run a management command on prod non-interactively use
+  `render jobs create <srv-id> --start-command "..."` and read output
+  with `render logs -r <job-id>`. The service is
+  `srv-d9go1em1a83c73f50r2g`, `rootDir: backend`.
 - **A guard on a viewset's `create`/`destroy` is not a guard on
   `update`.** `EnrollmentViewSet.update` was unguarded and returned 200
   as a silent no-op — invisible today because every field is read-only,

@@ -315,7 +315,12 @@ ALLOW_REGISTRATION = config('ALLOW_REGISTRATION', default=False, cast=bool)
 # /api/auth/demo-login/ endpoint (tokens issued server-side), so the password is
 # never shown to them — but changing it is still forbidden, otherwise a visitor
 # could break the seed baseline until an operator re-runs seed_demo_account.
-DEMO_ACCOUNT_EMAIL = config('DEMO_ACCOUNT_EMAIL', default='jdoe@demo.com')
+#
+# Normalized once here so the write guards (core.demo.is_demo_email, which
+# compares case-insensitively) and the exact-match lookups (demo_login,
+# seed_demo_account) can never disagree about which row is the demo account.
+DEMO_ACCOUNT_EMAIL = config(
+    'DEMO_ACCOUNT_EMAIL', default='jdoe@demo.com').strip().lower()
 # Password used by seed_demo_account when (re)creating the demo user. The
 # default keeps local dev and tests working with no extra setup; production
 # sets a generated secret so raw-credential login is impossible for visitors.

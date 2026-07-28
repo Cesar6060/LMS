@@ -192,9 +192,10 @@ phase-55 handoff shifts to phase 57.
 
 ## Verification
 
-- [ ] `/verify-stack` PASS (backend pytest, `tsc --noEmit` 0 errors, eslint 0
-      errors) — frontend checks run in the container (`.npmrc` pins
-      `os=linux`; host npm breaks on missing darwin rollup binary).
+- [x] `/verify-stack` PASS — **611 backend tests**, `tsc` 0 errors, eslint 0
+      errors, **57 vitest tests**, coverage 94%. Frontend checks run in the
+      container (`.npmrc` pins `os=linux`; host npm breaks on missing darwin
+      rollup binary).
 - [x] Backend test names to exist and pass (indicative, one per enforcement
       point): demo blocked on enrollment-create (both paths), profile PATCH,
       auth/user PUT, settings PATCH, avatar upload, avatar delete,
@@ -210,7 +211,12 @@ phase-55 handoff shifts to phase 57.
       `test_block_is_case_insensitive` — it had pinned the case-sensitive
       gap as a documented limitation "to revisit if logins ever go
       case-insensitive", which is exactly what happened.
-- [ ] Manual flow (local stack, seeded): click "Try the demo" → banner
+- [x] **API-level flow verified against production** after the merge deploy
+      (2026-07-28): `PATCH /api/auth/profile/`, `/api/auth/user/`, and the
+      bare `/api/auth/user` all return `403 demo_blocked`; `GET
+      /api/auth/user/` 200; the shared account is still "Jordan Doe" with
+      `is_demo: true`.
+- [ ] **Browser click-through still pending** (local or prod): click "Try the demo" → banner
       visible on dashboard → complete a lesson section and answer a lesson
       quiz (works) → open a discussion thread (readable, no composer) → open
       profile and settings (forms disabled with note) → attempt avatar upload
@@ -220,7 +226,10 @@ phase-55 handoff shifts to phase 57.
       against Neon; confirm it exits 0 and the demo account's visitor data is
       wiped / baseline restored (spot-check: demo login still 200, DEMO101
       enrollment intact, Unit 1 complete).
-- [ ] Prod rollout order is boring this phase (no migrations): merge → Render
+- [x] Prod rollout done 2026-07-28: PR #74 merged as `afa91de`, Render
+      auto-deployed from `main`, new build confirmed live by the presence of
+      `is_demo` in the demo-login payload. No migrations, so no ordering
+      trap. Original plan, for the record: merge → Render
       deploys → dispatch the reset workflow once → click through the live
       demo banner + one blocked write + one allowed write on stemquests.com.
 
@@ -236,6 +245,39 @@ phase-55 handoff shifts to phase 57.
   without `--reset` (`seed_demo_account.py:92-96`) — after B2 blocks
   enrollment creation, that line becomes belt-and-braces, not the only
   defense.
+
+## Production incident found and fixed during rollout (2026-07-28)
+
+While setting up the `DEMO_ACCOUNT_PASSWORD` secret this phase requires, the
+variable turned out to be **absent from Render entirely** — so production was
+running on the committed `Admin123!` default and
+`POST /api/auth/login/` with `jdoe@demo.com / Admin123!` returned **200 with
+a full JWT pair**. The phase-44 rotation had been lost, most likely during
+the phase-49 region move when the service was recreated as
+`stemquest-api-va` and its environment re-entered by hand. Nothing in the
+deploy pipeline (`render.yaml:42-43` — pip install, collectstatic, gunicorn)
+re-seeds, so it stayed that way silently.
+
+Fixed by setting the variable on Render + as a GitHub secret and running
+`seed_demo_account` as a Render one-off job. Verified: old password now
+**400**, demo-login still **200**.
+
+This is also the strongest argument for B6's guard step. Without it the
+nightly reset would have kept re-asserting `Admin123!` on schedule, turning
+a lost setting into a permanent one.
+
+**Account audit** (the check phase 42 deferred and nobody had run):
+production has 5 users, 2 instructors — the real operator account, and
+`instructor@demo.com` (DEMO101 owner, created by `clone_course_for_demo`).
+The demo instructor has `has_usable_password() == False`, so `Admin123!` was
+never a way in. But allauth's `ResetPasswordForm` selects users via
+`filter_users_by_email(...)` and, unlike Django's own
+`PasswordResetForm.get_users()`, does **not** exclude unusable passwords — a
+reset request for that address would have mailed a working link to a
+`demo.com` mailbox nobody here controls, handing over an instructor account
+with every course, roster, and grade. Closed in `9462109`: the reset form now
+skips any account without a usable password, silently, so the response is
+unchanged and nothing is revealed about which addresses are resettable.
 
 ## Outcome (implementation session, 2026-07-27)
 
@@ -265,7 +307,7 @@ Deliberate deviations and findings, in the phase-55 tradition:
   message, so the frontend interceptor covers it too. The phase-55 test
   asserts only the 403 + row intact, so it still passes unmodified.
 - **All demo-policy tests live in one cross-app file**,
-  `backend/core/tests/test_demo_lockdown.py` (32 tests: blocked writes with
+  `backend/core/tests/test_demo_lockdown.py` (46 tests: blocked writes with
   the exact-body pin, allowed learning writes, normal-user regression,
   `is_demo` field, throttle keying, registration sub-path stubs), rather than
   scattered per-app — the file states the whole policy in one place.
