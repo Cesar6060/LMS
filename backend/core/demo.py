@@ -14,7 +14,8 @@ from rest_framework.exceptions import PermissionDenied
 # The 'code' key is a contract with the frontend: its API error handling
 # detects demo_blocked on any 403 and shows a friendly "not available in
 # the demo" message instead of the raw detail. Pinned by
-# accounts.tests.TestDemoLockdown.test_demo_blocked_body_shape.
+# core.tests.test_demo_lockdown.TestDemoBlockedWrites
+# .test_body_shape_is_the_frontend_contract.
 DEMO_BLOCKED_BODY = {
     'detail': 'This action is not available in the shared demo.',
     'code': 'demo_blocked',
@@ -29,9 +30,11 @@ def is_demo_email(email) -> bool:
     past the guard with a different case. Normalizing here rather than at
     each call site means no future caller has to remember to.
     """
-    if not isinstance(email, str):
+    if not isinstance(email, str) or not settings.DEMO_ACCOUNT_EMAIL:
+        # An empty DEMO_ACCOUNT_EMAIL must match nothing, not every blank
+        # address — otherwise misconfiguration silently locks real users out.
         return False
-    return email.strip().lower() == (settings.DEMO_ACCOUNT_EMAIL or '').lower()
+    return email.strip().lower() == settings.DEMO_ACCOUNT_EMAIL.strip().lower()
 
 
 def is_demo_user(user) -> bool:

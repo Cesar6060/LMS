@@ -1,5 +1,5 @@
 from django.conf import settings
-from django.urls import path, include
+from django.urls import include, path, re_path
 from . import views
 
 # Registration is gated by ALLOW_REGISTRATION. When off (the default, and how the
@@ -26,13 +26,21 @@ urlpatterns = [
 
     # Throttled password reset — mounted before the dj_rest_auth include so it
     # shadows the package's unthrottled view at the same path.
-    path('password/reset/', views.ThrottledPasswordResetView.as_view(),
-         name='rest_password_reset'),
+    #
+    # These shadows use re_path with an optional trailing slash on purpose:
+    # dj_rest_auth mounts its own views as r'password/reset/?$' and
+    # r'user/?$', so a path() shadow only captures the trailing-slash
+    # spelling and the bare one falls through to the unshadowed original —
+    # skipping the throttle here, and (until phase 56 caught it) the demo
+    # write guard below.
+    re_path(r'^password/reset/?$', views.ThrottledPasswordResetView.as_view(),
+            name='rest_password_reset'),
 
     # /api/auth/user/ with demo writes blocked — shadows dj-rest-auth's
     # UserDetailsView, which shares UserSerializer with profile/ below.
-    path('user/', views.DemoSafeUserDetailsView.as_view(),
-         name='rest_user_details'),
+    # Defence-in-depth: UserSerializer.update() also refuses the demo account.
+    re_path(r'^user/?$', views.DemoSafeUserDetailsView.as_view(),
+            name='rest_user_details'),
 
     # dj-rest-auth endpoints
     path('', include('dj_rest_auth.urls')),

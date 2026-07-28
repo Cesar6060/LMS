@@ -167,12 +167,15 @@ class TestDemoBlockedWrites:
         demo_user.refresh_from_db()
         assert demo_user.first_name == 'Jordan'
 
-    def test_rest_auth_user_update_blocked(self, demo_client, demo_user):
+    # Both spellings on purpose: dj-rest-auth mounts UserDetailsView as
+    # r'user/?$', so before phase 56's re_path fix the bare '/api/auth/user'
+    # routed around the guarded shadow and the rename landed with a 200.
+    @pytest.mark.parametrize('url', ['/api/auth/user/', '/api/auth/user'])
+    def test_rest_auth_user_update_blocked(self, demo_client, demo_user, url):
         # Same serializer, different route (dj-rest-auth's /api/auth/user/).
         for method in ('put', 'patch'):
             response = getattr(demo_client, method)(
-                '/api/auth/user/',
-                {'first_name': 'Hacked', 'last_name': 'Name'},
+                url, {'first_name': 'Hacked', 'last_name': 'Name'},
             )
             assert_demo_blocked(response)
         demo_user.refresh_from_db()
@@ -309,6 +312,33 @@ class TestDemoPasswordIsFixedOnEveryPath:
         assert response.status_code == status.HTTP_200_OK
         student.refresh_from_db()
         assert student.check_password('RealReset!123')
+
+
+@pytest.mark.django_db
+class TestOptionalSlashShadowsHold:
+    """dj-rest-auth mounts several views with an optional trailing slash
+    (r'…/?$'). A path() shadow captures only one spelling, so the bare one
+    silently falls through to the unshadowed original — which cost us both
+    the demo write guard on /api/auth/user and the password-reset throttle.
+    Pin every shadow against both spellings."""
+
+    def test_reset_shadow_wins_both_spellings(self):
+        from django.urls import resolve
+
+        from accounts.views import ThrottledPasswordResetView
+
+        for url in ('/api/auth/password/reset/', '/api/auth/password/reset'):
+            match = resolve(url)
+            assert match.func.cls is ThrottledPasswordResetView, url
+            assert match.func.cls.throttle_scope == 'password_reset'
+
+    def test_user_details_shadow_wins_both_spellings(self):
+        from django.urls import resolve
+
+        from accounts.views import DemoSafeUserDetailsView
+
+        for url in ('/api/auth/user/', '/api/auth/user'):
+            assert resolve(url).func.cls is DemoSafeUserDetailsView, url
 
 
 @pytest.mark.django_db

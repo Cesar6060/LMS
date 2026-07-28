@@ -53,8 +53,11 @@ phase-55 handoff shifts to phase 57.
       The response must carry a machine-readable marker the frontend can key
       on (DRF renders `code` into the exception; verify the JSON shape in a
       test and pin it — the frontend depends on it).
-- [x] Refactor the five existing call sites to use `is_demo_user()` —
-      behavior unchanged, verified by the existing tests:
+- [x] Refactor the five existing call sites to use `is_demo_user()`. Two
+      deliberately changed behavior (see Outcome): the password-change
+      denial moved 400 → 403 `demo_blocked`, and email matching became
+      case-insensitive, which also tightened `course_invites`. The other
+      three are unchanged, verified by the existing tests:
       `backend/courses/views.py:438` (unenroll refuse),
       `backend/accounts/serializers.py:167-181` (password change),
       `backend/accounts/serializers.py:107-116` (reset-email skip),
@@ -92,6 +95,27 @@ phase-55 handoff shifts to phase 57.
       (`courses/views.py:2301-2369`), unit-quiz submit + session
       (`quizzes/views.py:166-462`), notification read/mark-all-read
       (`notifications/views.py:29-53`), logout.
+
+### B2b. Findings from the adversarial + review passes (added mid-phase)
+
+- [x] `POST /api/auth/password/reset/confirm/` changed the shared demo
+      password with no guard — the sibling write path to `password/change/`,
+      which phase 42 protected. Closed with
+      `PASSWORD_RESET_CONFIRM_SERIALIZER`; regression test uses a genuinely
+      valid server-signed token.
+- [x] `PATCH /api/auth/user` (**no trailing slash**) bypassed the guarded
+      shadow entirely and renamed the demo account with a 200: dj-rest-auth
+      mounts its views as `r'user/?$'`, so a `path()` shadow captures only
+      the slash spelling. Fixed at the shared choke point
+      (`UserSerializer.update`) plus `re_path(r'^user/?$')`. The identical
+      root cause was also skipping the `password_reset` throttle on
+      `/api/auth/password/reset` (pre-existing since phase 51) — fixed in
+      the same edit, both spellings pinned by a URL-resolution test.
+- [x] `EnrollmentViewSet.update/partial_update` had no demo guard — inert
+      today (all fields read-only) but would silently reopen demo write
+      access the moment any field became writable.
+- [x] `is_demo_email` is case-insensitive and refuses to match on an empty
+      `DEMO_ACCOUNT_EMAIL`.
 
 ### B3. `is_demo` in the API payload [P]
 
@@ -179,8 +203,13 @@ phase-55 handoff shifts to phase 57.
       unit-quiz submit, notification read; `demo_blocked` code present in the
       403 body; per-IP demo throttle keying; registration sub-paths 403;
       `is_demo` serializer field.
-- [x] All pre-existing demo tests still green (password change, unenroll
-      refuse, email suppression, invite invalid-mark) after the B1 refactor.
+- [x] All pre-existing demo tests still green after the B1 refactor, with
+      two updated to assert the deliberately stronger behavior: the
+      password-change test now expects 403 `demo_blocked` (was 400), and
+      `test_block_is_an_exact_email_match` became
+      `test_block_is_case_insensitive` — it had pinned the case-sensitive
+      gap as a documented limitation "to revisit if logins ever go
+      case-insensitive", which is exactly what happened.
 - [ ] Manual flow (local stack, seeded): click "Try the demo" → banner
       visible on dashboard → complete a lesson section and answer a lesson
       quiz (works) → open a discussion thread (readable, no composer) → open
@@ -213,7 +242,11 @@ phase-55 handoff shifts to phase 57.
 Deliberate deviations and findings, in the phase-55 tradition:
 
 - **New GitHub repo secret required before the reset workflow may run:
-  `DEMO_ACCOUNT_PASSWORD`** (same value as the Render env var). Discovered
+  `DEMO_ACCOUNT_PASSWORD`** on `Cesar6060/LMS` (remote `lms`), same value as
+  the Render env var. Confirmed absent — `gh secret list` shows only
+  `NEON_DATABASE_URL` and the four R2 secrets, so **every scheduled run
+  fails until an operator adds it**. That is the intended failure mode, not
+  a bug: it is loud instead of silent. Discovered
   during B6: `seed_demo_account` re-asserts the demo password from
   `settings.DEMO_ACCOUNT_PASSWORD`, which falls back to the published
   `Admin123!` when unset — an unconfigured nightly run would silently

@@ -70,6 +70,16 @@ class UserSerializer(serializers.ModelSerializer):
     def get_is_demo(self, obj):
         return is_demo_user(obj)
 
+    def update(self, instance, validated_data):
+        # The choke point every profile-write route shares. Guarding the
+        # views alone was not enough: dj-rest-auth mounts UserDetailsView
+        # with an optional-slash regex, so /api/auth/user (no slash) routed
+        # around the guarded shadow and renamed the shared demo account.
+        # Enforcing here means any future route reusing this serializer
+        # inherits the block.
+        require_not_demo(instance)
+        return super().update(instance, validated_data)
+
 
 class RegisterSerializer(BaseRegisterSerializer):
     """Custom registration serializer with first/last name support.

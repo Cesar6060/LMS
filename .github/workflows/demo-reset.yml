@@ -19,6 +19,11 @@
 #                            local default and silently un-rotate the prod
 #                            password (Phase 44). The guard step below fails
 #                            the run instead.
+#
+# DEMO_ACCOUNT_EMAIL is deliberately NOT passed: neither Render nor this
+# workflow sets it, so both sides use the jdoe@demo.com default. If Render
+# ever sets it, set the identical value here too — otherwise the reset
+# seeds a second demo account instead of resetting the live one.
 
 name: demo-reset
 
@@ -27,7 +32,15 @@ on:
     - cron: '47 8 * * *'
   workflow_dispatch: {}
 
-permissions: {}
+permissions:
+  contents: read
+
+# A manual dispatch overlapping the nightly cron would run two resets at
+# once. Both are atomic so it's noise rather than corruption, but serialize
+# anyway.
+concurrency:
+  group: demo-reset
+  cancel-in-progress: false
 
 jobs:
   reset:
