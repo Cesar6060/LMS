@@ -67,6 +67,9 @@ MIDDLEWARE = [
     # First so every early response — including SECURE_SSL_REDIRECT 301s
     # from SecurityMiddleware — still carries CORS headers; without them
     # the browser reports an opaque CORS failure instead of the redirect.
+    # Side effect, by design: CORS preflights short-circuit here, above the
+    # security-header middlewares, so OPTIONS responses carry only CORS
+    # headers (browsers never render or follow a preflight body anyway).
     'corsheaders.middleware.CorsMiddleware',
     'django.middleware.security.SecurityMiddleware',
     # Must sit directly after SecurityMiddleware so a static hit is served

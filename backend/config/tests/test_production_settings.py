@@ -10,6 +10,7 @@ deploy gate can reach it.
 import dj_database_url
 import pytest
 from django.conf import settings
+from django.test import override_settings
 from django.db import connection
 from django.urls import reverse
 from rest_framework.test import APIClient
@@ -173,3 +174,26 @@ def test_cors_middleware_precedes_security_middleware():
         'django.middleware.security.SecurityMiddleware')
 
     assert cors < security
+
+
+def test_https_redirect_carries_cors_header_for_allowed_origin(client):
+    # The behavioral contract behind the ordering test above: a filtered
+    # network seeing our SSL redirect must still get CORS headers, or the
+    # browser reports an opaque CORS failure instead of following it.
+    with override_settings(SECURE_SSL_REDIRECT=True,
+                           CORS_ALLOWED_ORIGINS=['https://stemquests.com']):
+        response = client.get('/api/health/',
+                              HTTP_ORIGIN='https://stemquests.com')
+
+    assert response.status_code == 301
+    assert response['Access-Control-Allow-Origin'] == 'https://stemquests.com'
+
+
+def test_https_redirect_no_cors_header_for_evil_origin(client):
+    with override_settings(SECURE_SSL_REDIRECT=True,
+                           CORS_ALLOWED_ORIGINS=['https://stemquests.com']):
+        response = client.get('/api/health/',
+                              HTTP_ORIGIN='https://evil.example')
+
+    assert response.status_code == 301
+    assert 'Access-Control-Allow-Origin' not in response

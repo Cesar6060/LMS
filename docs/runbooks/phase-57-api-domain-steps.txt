@@ -8,21 +8,34 @@ proxying it through Cloudflare would make Render's edge stamp
 CF-Connecting-IP with Cloudflare egress IPs and collapse every per-IP
 throttle onto a few shared addresses.
 
-Do the steps in this order. Steps 1-2 can sit overnight waiting for the
-certificate; nothing breaks in the meantime because the old host keeps
-working throughout.
+Do the steps in this order. Step 1 comes FIRST on purpose: until
+api.stemquests.com is in ALLOWED_HOSTS, Django answers it with a 400
+(DisallowedHost), so extending the env var before the DNS record exists
+means the hostname works the moment the certificate lands. Steps 2-3 can
+sit overnight waiting for the certificate; nothing breaks in the
+meantime because the old host keeps working throughout.
 
 
-STEP 1 — RENDER: ADD THE CUSTOM DOMAIN
---------------------------------------
+STEP 1 — RENDER: EXTEND ALLOWED_HOSTS
+-------------------------------------
 1. Render dashboard -> service "stemquest-api-va"
-   (srv-d9go1em1a83c73f50r2g) -> Settings -> Custom Domains.
+   (srv-d9go1em1a83c73f50r2g) -> Environment.
+2. Edit ALLOWED_HOSTS: append ",api.stemquests.com" to the existing
+   value. Comma-separated, no spaces. Do NOT remove the existing
+   stemquest-api-va.onrender.com entry.
+3. Save; Render restarts the service automatically. Harmless while the
+   new name doesn't resolve yet.
+
+
+STEP 2 — RENDER: ADD THE CUSTOM DOMAIN
+--------------------------------------
+1. Same service -> Settings -> Custom Domains.
 2. Add domain: api.stemquests.com
 3. Render shows the CNAME target to point at (normally
-   stemquest-api-va.onrender.com). Leave this tab open for step 2.
+   stemquest-api-va.onrender.com). Leave this tab open for step 3.
 
 
-STEP 2 — CLOUDFLARE: CREATE THE DNS RECORD (GREY CLOUD)
+STEP 3 — CLOUDFLARE: CREATE THE DNS RECORD (GREY CLOUD)
 -------------------------------------------------------
 1. Cloudflare dashboard -> stemquests.com zone -> DNS -> Records.
 2. Add record:
@@ -34,20 +47,12 @@ STEP 2 — CLOUDFLARE: CREATE THE DNS RECORD (GREY CLOUD)
    issued" / verified. Usually minutes; can take up to an hour.
 
 CHECK:  curl -sS https://api.stemquests.com/api/health/
-        -> expect {"status": ...} with a valid certificate.
-
-
-STEP 3 — RENDER: EXTEND ALLOWED_HOSTS
--------------------------------------
-1. Render dashboard -> stemquest-api-va -> Environment.
-2. Edit ALLOWED_HOSTS: append ",api.stemquests.com" to the existing
-   value. Comma-separated, no spaces. Do NOT remove the existing
-   stemquest-api-va.onrender.com entry.
-3. Save; Render restarts the service automatically.
+        -> expect {"status": "ok"} with a valid certificate.
+        (A 400 here means step 1 was skipped: DisallowedHost.)
 
 CHECK:  curl -sS -X POST https://api.stemquests.com/api/auth/demo-login/ \
           -H "Origin: https://stemquests.com" -H "Content-Type: application/json" -d "{}"
-        -> expect 200 with tokens (NOT a 400 Bad Request/DisallowedHost).
+        -> expect 200 with tokens.
 
 
 STEP 4 — CLOUDFLARE: FLIP THE FRONTEND BUILD VARIABLE

@@ -47,7 +47,9 @@ repos, and it was already where the code lived.
 ---------------------------
 What it is: a platform-as-a-service — you point it at a repo, it builds
 and runs your server code on its machines. Our Django API lives at
-https://stemquest-api-va.onrender.com.
+https://api.stemquests.com (a DNS-only CNAME onto the underlying Render
+host, https://stemquest-api-va.onrender.com, which still works too —
+added in phase 57 because school/work web filters block onrender.com).
 
 What it does here: on every push to main it runs the build command
 (pip install + collectstatic), then starts the app with gunicorn. Config
