@@ -226,6 +226,11 @@ phase-55 handoff shifts to phase 57.
       against Neon; confirm it exits 0 and the demo account's visitor data is
       wiped / baseline restored (spot-check: demo login still 200, DEMO101
       enrollment intact, Unit 1 complete).
+- [x] Migrations: none added by this phase. A close-out `migrate --check`
+      against production nonetheless failed on
+      `token_blacklist.0013_alter_blacklistedtoken_options_and_more`, left
+      over from phase 55's simplejwt bump — state-only (`AlterModelOptions`,
+      no SQL), applied 2026-07-28, `migrate --check` now exits 0.
 - [x] Prod rollout done 2026-07-28: PR #74 merged as `afa91de`, Render
       auto-deployed from `main`, new build confirmed live by the presence of
       `is_demo` in the demo-login payload. No migrations, so no ordering

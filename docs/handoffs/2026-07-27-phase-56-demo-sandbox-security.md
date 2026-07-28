@@ -44,6 +44,29 @@ traffic; registration sub-path stubs; `is_demo` on `UserSerializer`;
 nightly reset workflow; demo banner + central blocked-write toast +
 disabled controls on the frontend.
 
+## Migrations — production is now fully applied
+
+Phase 56 added **no migrations of its own**. But a `migrate --check`
+against production during close-out **failed**: one migration was
+outstanding, `token_blacklist.0013_alter_blacklistedtoken_options_and_more`.
+
+It arrived with phase 55's simplejwt 5.5.1 bump (A1) and was missed
+because that deploy only applied the `courses` migration anyone had
+thought about. It is purely `AlterModelOptions` (verbose names and
+`ordering`), so it emits **no SQL** and its absence had zero runtime
+effect — Meta options come from the installed package's models.py, not
+from migration state. The only real consequence was that `migrate
+--check` failed and any future `token_blacklist` migration would have
+been blocked behind it.
+
+Applied 2026-07-28 via a Render one-off job; `migrate --check` now exits
+0. `makemigrations --check --dry-run` is also clean locally.
+
+**Lesson worth keeping:** a dependency bump can introduce third-party
+migrations. `pip-audit` and the test suite both stay green while they sit
+unapplied. Run `migrate --check` against Neon after any requirements
+change, not just after writing your own migration.
+
 ## In progress / not done
 
 - **`demo-reset.yml` has never executed.** It is registered on `main` and
