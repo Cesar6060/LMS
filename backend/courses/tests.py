@@ -3662,3 +3662,177 @@ class TestCourseDetailPerLessonCompletion:
             f'expected one LessonProgress query for 12 lessons, got '
             f'{len(progress_queries)}'
         )
+
+
+# ---------------------------------------------------------------------------
+# Phase 58: ROB101 populate command
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.django_db
+class TestPopulateRoboticsCourse:
+    """The populate_robotics_course command seeds a complete, idempotent,
+    TEKS-aligned ROB101 course and touches nothing else.
+
+    Mirrors the JAVA101 populate coverage plus phase-58 requirements:
+    idempotency across runs, six units each capped by a unit quiz, the
+    phase-55 requires_quiz invariant, dormant Lesson.content/video_id kept
+    empty, and every TEKS Robotics I strand (c)(1)-(c)(11) cited somewhere
+    in the seeded section content.
+    """
+
+    def _seed_instructor(self):
+        return User.objects.create_user(
+            email='cesar@test.com', password='testpass123',
+            first_name='Cesar', last_name='Villarreal', is_instructor=True,
+        )
+
+    def _run(self):
+        from django.core.management import call_command
+        call_command('populate_robotics_course')
+
+    def _counts(self):
+        from quizzes.models import Question, Quiz
+        return {
+            'units': Unit.objects.filter(course__code='ROB101').count(),
+            'lessons': Lesson.objects.filter(unit__course__code='ROB101').count(),
+            'sections': LessonSection.objects.filter(
+                lesson__unit__course__code='ROB101').count(),
+            'lesson_questions': LessonQuestion.objects.filter(
+                lesson__unit__course__code='ROB101').count(),
+            'quizzes': Quiz.objects.filter(unit__course__code='ROB101').count(),
+            'quiz_questions': Question.objects.filter(
+                quiz__unit__course__code='ROB101').count(),
+        }
+
+    def test_command_creates_rob101(self):
+        self._seed_instructor()
+        self._run()
+
+        course = Course.objects.get(code='ROB101')
+        assert course.title == 'Robotics 1'
+        counts = self._counts()
+        assert counts['units'] == 6
+        assert counts['lessons'] >= 20
+        assert counts['sections'] >= 2 * counts['lessons']
+        assert counts['quizzes'] == 6
+
+    def test_six_units_each_with_a_unit_quiz(self):
+        self._seed_instructor()
+        self._run()
+
+        units = Unit.objects.filter(course__code='ROB101')
+        assert units.count() == 6
+        for unit in units:
+            assert unit.quizzes.count() >= 1, (
+                f'unit "{unit.title}" has no unit quiz'
+            )
+            for quiz in unit.quizzes.all():
+                assert quiz.passing_score == 70
+                assert quiz.points == 20
+                assert 4 <= quiz.questions.count() <= 6
+
+    def test_running_twice_is_idempotent(self):
+        self._seed_instructor()
+        self._run()
+        course_pk = Course.objects.get(code='ROB101').pk
+        first = self._counts()
+
+        student = User.objects.create_user(
+            email='rob-student@test.com', password='testpass123',
+            first_name='Rob', last_name='Student',
+        )
+        Enrollment.objects.create(user=student, course_id=course_pk)
+
+        self._run()
+
+        assert Course.objects.get(code='ROB101').pk == course_pk
+        assert self._counts() == first
+        assert Enrollment.objects.filter(
+            user=student, course_id=course_pk).exists(), (
+            'enrollment did not survive a re-run'
+        )
+
+    def test_requires_quiz_matches_question_presence(self):
+        self._seed_instructor()
+        self._run()
+
+        lessons = list(
+            Lesson.objects.filter(unit__course__code='ROB101')
+            .prefetch_related('questions')
+        )
+        assert lessons
+        mismatched = [
+            (lesson.title, lesson.requires_quiz, lesson.questions.count())
+            for lesson in lessons
+            if lesson.requires_quiz != lesson.questions.exists()
+        ]
+        assert mismatched == []
+
+    def test_dormant_lesson_fields_stay_empty(self):
+        self._seed_instructor()
+        self._run()
+
+        offenders = list(
+            Lesson.objects.filter(unit__course__code='ROB101')
+            .exclude(content='', video_id='')
+            .values_list('title', flat=True)
+        )
+        assert offenders == [], (
+            f'lessons wrote the dormant content/video_id fields: {offenders}'
+        )
+        assert not LessonSection.objects.filter(
+            lesson__unit__course__code='ROB101').exclude(
+            video_type='none').exists()
+
+    def test_every_question_has_exactly_one_correct_choice(self):
+        from quizzes.models import Question
+        self._seed_instructor()
+        self._run()
+
+        for question in LessonQuestion.objects.filter(
+                lesson__unit__course__code='ROB101').prefetch_related('choices'):
+            correct = [c for c in question.choices.all() if c.is_correct]
+            assert len(correct) == 1, f'lesson question "{question.text}"'
+        for question in Question.objects.filter(
+                quiz__unit__course__code='ROB101').prefetch_related('choices'):
+            correct = [c for c in question.choices.all() if c.is_correct]
+            assert len(correct) == 1, f'quiz question "{question.text}"'
+
+    def test_all_eleven_teks_strands_cited(self):
+        self._seed_instructor()
+        self._run()
+
+        contents = list(
+            LessonSection.objects.filter(
+                lesson__unit__course__code='ROB101'
+            ).values_list('content', flat=True)
+        )
+        blob = '\n'.join(contents)
+        missing = [
+            n for n in range(1, 12)
+            if f'§127.749(c)({n})' not in blob
+        ]
+        assert missing == [], (
+            f'TEKS strands not cited in any lesson section: (c){missing}'
+        )
+
+    def test_touches_no_other_course(self):
+        self._seed_instructor()
+        other = Course.objects.create(
+            code='OTHER1', title='Other',
+            instructor=User.objects.get(email='cesar@test.com'),
+        )
+        other_unit = Unit.objects.create(course=other, title='U', order=0)
+        Lesson.objects.create(unit=other_unit, title='L', order=0)
+
+        self._run()
+
+        assert Course.objects.filter(code='OTHER1').exists()
+        assert Unit.objects.filter(course=other).count() == 1
+        assert Lesson.objects.filter(unit__course=other).count() == 1
+
+    def test_seed_data_no_longer_creates_rob201(self):
+        from django.core.management import call_command
+        call_command('seed_data')
+        assert not Course.objects.filter(code='ROB201').exists()
