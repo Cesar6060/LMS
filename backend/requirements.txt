@@ -5,7 +5,7 @@ django-cors-headers==4.9.0
 
 # Database
 psycopg[binary,pool]==3.3.4
-dj-database-url==2.3.0
+dj-database-url==3.1.2
 
 # Production serving
 gunicorn==23.0.0
