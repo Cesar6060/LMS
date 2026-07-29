@@ -3,7 +3,11 @@
 # public/ into dist/ verbatim.
 #
 # Hosts that must stay in sync with reality:
-# - connect-src: the Render API host, plus Sentry ingest (VITE_SENTRY_DSN).
+# - connect-src: the API at api.stemquests.com (DNS-only CNAME to Render;
+#   Phase 57) with the raw Render host kept as fallback, plus Sentry
+#   ingest (VITE_SENTRY_DSN).
+# - worker-src: Sentry Session Replay spawns its compression worker from a
+#   blob: URL; without this directive script-src blocks it on every load.
 # - img-src: R2 presigned URLs are served from <account>.r2.cloudflarestorage.com
 #   (avatars render in <img> tags). data: covers inline icons.
 # - script-src/frame-src: the YouTube iframe player API
@@ -11,7 +15,7 @@
 #   its widget script from https://s.ytimg.com).
 # - style-src/font-src: Google Fonts (@import in index.css).
 /*
-  Content-Security-Policy: default-src 'self'; script-src 'self' https://www.youtube.com https://s.ytimg.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: https://*.r2.cloudflarestorage.com https://i.ytimg.com; connect-src 'self' https://stemquest-api-va.onrender.com https://*.ingest.sentry.io https://*.ingest.us.sentry.io; frame-src https://www.youtube.com https://www.youtube-nocookie.com; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'
+  Content-Security-Policy: default-src 'self'; script-src 'self' https://www.youtube.com https://s.ytimg.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: https://*.r2.cloudflarestorage.com https://i.ytimg.com; connect-src 'self' https://api.stemquests.com https://stemquest-api-va.onrender.com https://*.ingest.sentry.io https://*.ingest.us.sentry.io; worker-src 'self' blob:; frame-src https://www.youtube.com https://www.youtube-nocookie.com; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'
   Permissions-Policy: camera=(), microphone=(), geolocation=()
   X-Content-Type-Options: nosniff
   Referrer-Policy: same-origin

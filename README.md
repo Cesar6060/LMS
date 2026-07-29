@@ -5,7 +5,8 @@
 A full-stack Learning Management System for Computer Science education, deployed and running in production. Students work through paginated lessons in an immersive learning mode, pass mastery-style comprehension quizzes, and earn XP and badges; instructors build courses, grade, and track their roster.
 
 **Live app:** <https://stemquests.com>
-**API:** <https://stemquest-api-va.onrender.com>
+**API:** <https://api.stemquests.com> (DNS-only CNAME to
+`stemquest-api-va.onrender.com`, which remains valid as a fallback host)
 
 ### Try it
 
