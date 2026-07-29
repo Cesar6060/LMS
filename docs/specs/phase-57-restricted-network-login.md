@@ -104,23 +104,39 @@ Phase 55's slot plan shifts: Django 4.2 → 5.2 moves to phase 58.
 
 - [x] `/verify-stack` PASS (backend pytest incl. new middleware-order
       test, `tsc --noEmit` 0 errors, eslint 0 errors)
-- [ ] `curl -i -X OPTIONS https://api.stemquests.com/api/auth/demo-login/
+- [x] `curl -i -X OPTIONS https://api.stemquests.com/api/auth/demo-login/
       -H 'Origin: https://stemquests.com' -H 'Access-Control-Request-Method:
       POST'` → 200 with `access-control-allow-origin: https://stemquests.com`
-- [ ] `curl -X POST https://api.stemquests.com/api/auth/demo-login/` →
+      (passed 2026-07-28, post-cutover)
+- [x] `curl -X POST https://api.stemquests.com/api/auth/demo-login/` →
       200; same POST against the old
       `stemquest-api-va.onrender.com` host still → 200 (fallback intact)
-- [ ] `curl -D - https://stemquests.com/` → CSP header contains
+      (passed 2026-07-28: new host 200 + ACAO, old host 200)
+- [x] `curl -D - https://stemquests.com/` → CSP header contains
       `worker-src 'self' blob:` and both API hosts in `connect-src`
-- [ ] Browser click-through on https://stemquests.com (clean network):
+      (passed 2026-07-28)
+- [x] Browser click-through on https://stemquests.com (clean network):
       DevTools console shows **zero** CSP violations on the login page;
       demo login succeeds; Network tab shows calls hitting
       `api.stemquests.com`. While there, complete phase 56's outstanding
       click-through: demo banner visible, one blocked write shows the
       friendly toast, Settings controls disabled.
-- [ ] Sentry `stemquest-react`: today's (2026-07-28) failed-login /
+      (Done 2026-07-28 post-cutover: demo login succeeds, console clean
+      across login → dashboard → settings → course → quiz → discussions;
+      the deployed bundle contains only `api.stemquests.com` as API host,
+      so all calls hit the new domain. Demo banner visible; Settings
+      fields disabled with "The demo account can't be edited."; blocked
+      write proven via avatar-upload curl → 403 `demo_blocked`. Note:
+      the tester machine had cached the pre-record NXDOMAIN and needed
+      ~30 min for the negative-cache TTL to expire — irrelevant to real
+      users, who never resolved the name before it existed.)
+- [x] Sentry `stemquest-react`: today's (2026-07-28) failed-login /
       network-error events are visible; after the cutover, no new
       CORS-failure events for `demo-login`.
+      (Verified 2026-07-28: AxiosError "Network Error" issue on /login
+      shows today's pre-cutover school-network events; the only
+      post-cutover event was the tester machine's stale-DNS attempt. No
+      CORS-failure events after the cutover.)
 - [ ] **Final, user-performed:** log in from the school device on the
       school network and confirm success. This item stays open until
       done; the phase does not close without it.

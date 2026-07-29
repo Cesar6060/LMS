@@ -216,16 +216,29 @@ phase-55 handoff shifts to phase 57.
       bare `/api/auth/user` all return `403 demo_blocked`; `GET
       /api/auth/user/` 200; the shared account is still "Jordan Doe" with
       `is_demo: true`.
-- [ ] **Browser click-through still pending** (local or prod): click "Try the demo" → banner
+- [x] **Browser click-through** (done 2026-07-28 on prod, post phase-57
+      cutover): demo login works; banner visible; lesson quiz attempt +
+      answer accepted (learning write OK); discussions list renders with
+      no composer for the demo user; Settings/profile fields disabled
+      with "The demo account can't be edited."; avatar upload via curl
+      with demo token → 403 `demo_blocked`. Remaining sub-item for a
+      human: normal-student regression (post a reply, edit profile,
+      upload avatar with a real account) — requires real credentials.
+      Original item: click "Try the demo" → banner
       visible on dashboard → complete a lesson section and answer a lesson
       quiz (works) → open a discussion thread (readable, no composer) → open
       profile and settings (forms disabled with note) → attempt avatar upload
       via curl with the demo token (403 `demo_blocked`) → log in as a normal
       student → post a reply, edit profile, upload avatar (all still work).
-- [ ] Reset workflow (post-merge): trigger `demo-reset.yml` via `workflow_dispatch` once
+- [x] Reset workflow (post-merge): trigger `demo-reset.yml` via `workflow_dispatch` once
       against Neon; confirm it exits 0 and the demo account's visitor data is
       wiped / baseline restored (spot-check: demo login still 200, DEMO101
       enrollment intact, Unit 1 complete).
+      (Done 2026-07-28: the nightly `schedule` run — run 30353105264, 11:01
+      UTC — was the first execution and concluded **success**, so no manual
+      dispatch was needed. Post-state spot-checked via API the same day:
+      demo login 200, DEMO101 enrollment intact, first unit "Getting
+      Started" 4/4 lessons complete, all later units reset to 0.)
 - [x] Migrations: none added by this phase. A close-out `migrate --check`
       against production nonetheless failed on
       `token_blacklist.0013_alter_blacklistedtoken_options_and_more`, left
