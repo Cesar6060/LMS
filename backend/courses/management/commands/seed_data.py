@@ -52,11 +52,9 @@ class Command(BaseCommand):
 
         # Create additional courses (minimal content for demo variety)
         cs_course = self.create_cs_course(instructor)
-        robotics_course = self.create_robotics_course(instructor)
 
         # Enroll some students in additional courses
         self.enroll_students(students[:3], cs_course)  # First 3 students
-        self.enroll_students(students[1:4], robotics_course)  # Students 2-4
 
         self.stdout.write(self.style.SUCCESS('\nDatabase seeded successfully!'))
         self.stdout.write('')
@@ -74,7 +72,6 @@ class Command(BaseCommand):
         self.stdout.write(f'\nCourses:')
         self.stdout.write(f'  {course.code}: {course.title}')
         self.stdout.write(f'  {cs_course.code}: {cs_course.title}')
-        self.stdout.write(f'  {robotics_course.code}: {robotics_course.title}')
         self.stdout.write('='*50)
 
     def clear_data(self):
@@ -241,57 +238,6 @@ Students interested in understanding how computers work and how to think like a 
                     defaults={
                         'title': f'Introduction to {title}',
                         'content': f'# {title}\n\nThis lesson covers the basics of {title.lower()}.',
-                        'video_type': 'none',
-                    }
-                )
-        else:
-            self.stdout.write(f'  Course exists: {course.code}')
-        return course
-
-    def create_robotics_course(self, instructor):
-        """Create Robotics Engineering course."""
-        course, created = Course.objects.get_or_create(
-            code='ROB201',
-            defaults={
-                'title': 'Robotics Engineering',
-                'description': '''Learn the fundamentals of robotics including mechanical design, electronics, and programming.
-
-## What You'll Build
-- Line-following robot
-- Obstacle avoidance system
-- Remote-controlled vehicle
-- Autonomous navigation project
-
-## Prerequisites
-- Basic understanding of physics
-- Intro programming helpful but not required''',
-                'instructor': instructor,
-                'is_active': True,
-            }
-        )
-        if created:
-            self.stdout.write(f'  Created course: {course.code}')
-            CourseGradingConfig.objects.create(
-                course=course,
-                quizzes_weight=60,
-                participation_weight=40,
-            )
-            # Create units
-            units_data = [
-                ('Robotics Fundamentals', 1),
-                ('Sensors & Actuators', 2),
-                ('Programming Robots', 3),
-            ]
-            for title, order in units_data:
-                unit, _ = Unit.objects.get_or_create(
-                    course=course, order=order, defaults={'title': title}
-                )
-                # Add a simple lesson to each unit
-                Lesson.objects.get_or_create(
-                    unit=unit, order=1,
-                    defaults={
-                        'title': f'Understanding {title}',
-                        'content': f'# {title}\n\nThis lesson introduces {title.lower()} concepts.',
                         'video_type': 'none',
                     }
                 )
