@@ -3799,6 +3799,31 @@ class TestPopulateRoboticsCourse:
             correct = [c for c in question.choices.all() if c.is_correct]
             assert len(correct) == 1, f'quiz question "{question.text}"'
 
+    def test_correct_choices_are_not_all_first(self):
+        """The quiz player renders choices in stored order, so the seed must
+        not leave every correct answer at position 0 (authors write the
+        correct choice first; the command rotates deterministically)."""
+        from quizzes.models import Choice
+        self._seed_instructor()
+        self._run()
+
+        lesson_positions = set(
+            LessonQuestionChoice.objects.filter(
+                question__lesson__unit__course__code='ROB101', is_correct=True
+            ).values_list('order', flat=True)
+        )
+        quiz_positions = set(
+            Choice.objects.filter(
+                question__quiz__unit__course__code='ROB101', is_correct=True
+            ).values_list('order', flat=True)
+        )
+        assert len(lesson_positions) > 1, (
+            f'all lesson-question answers at position {lesson_positions}'
+        )
+        assert len(quiz_positions) > 1, (
+            f'all quiz answers at position {quiz_positions}'
+        )
+
     def test_all_eleven_teks_strands_cited(self):
         self._seed_instructor()
         self._run()

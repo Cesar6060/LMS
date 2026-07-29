@@ -15,6 +15,8 @@ This command is NON-DESTRUCTIVE:
    (units -> lessons -> paginated sections + comprehension quizzes, plus a unit
    quiz per unit)
 """
+import hashlib
+
 from django.core.management.base import BaseCommand
 from django.contrib.auth import get_user_model
 from courses.models import (
@@ -4724,6 +4726,17 @@ Go build something, break it on purpose, and write down what it taught you. That
 
 
     # ================== Helper Methods ==================
+    def _stable_choice_order(self, question_text, choices):
+        """Rotate a question's choices by a deterministic offset.
+
+        Content is authored with the correct choice first, and the quiz player
+        renders choices in stored order — without this every answer would be
+        option 1. Hashing the question text keeps the rotation stable across
+        re-runs, preserving the command's idempotency.
+        """
+        offset = int(hashlib.md5(question_text.encode()).hexdigest(), 16) % len(choices)
+        return choices[offset:] + choices[:offset]
+
     def _create_sections(self, lesson, sections_data):
         """Create lesson sections from a list of dictionaries."""
         for i, section in enumerate(sections_data):
@@ -4753,7 +4766,8 @@ Go build something, break it on purpose, and write down what it taught you. That
                 text=q['text'],
                 order=i
             )
-            for j, (choice_text, is_correct) in enumerate(q['choices']):
+            choices = self._stable_choice_order(q['text'], q['choices'])
+            for j, (choice_text, is_correct) in enumerate(choices):
                 LessonQuestionChoice.objects.create(
                     question=question,
                     text=choice_text,
@@ -4773,7 +4787,8 @@ Go build something, break it on purpose, and write down what it taught you. That
                 text=q['text'],
                 order=i
             )
-            for j, (choice_text, is_correct) in enumerate(q['choices']):
+            choices = self._stable_choice_order(q['text'], q['choices'])
+            for j, (choice_text, is_correct) in enumerate(choices):
                 Choice.objects.create(
                     question=question,
                     text=choice_text,

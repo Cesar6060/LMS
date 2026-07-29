@@ -106,11 +106,18 @@ lesson = 2–5 markdown `LessonSection`s + 2–4 `LessonQuestion`s (with
       twice locally → second run reports idempotent update, counts unchanged.
       (Run 2: "refreshed", pk stable, 6 units / 24 lessons / 116 sections /
       96 lesson questions / 6 quizzes / 36 quiz questions both runs.)
-- [ ] Manual click-through (local): instructor sees ROB101 outline in
+- [x] Manual click-through (local): instructor sees ROB101 outline in
       ManageCoursePage; student account enrolls via code, quest map at
       `/courses/ROB101/map` renders ~26 nodes with 6 boss nodes, complete
       lesson 1 (sections render markdown correctly), answer its lesson
-      questions, then attempt the Unit 1 boss quiz.
+      questions, then attempt the Unit 1 boss quiz. (Done via browser
+      automation with local demo accounts: outline showed all 6 units /
+      24 lessons / 6 unit quizzes; student1 enrolled via code; map header
+      0/30 nodes (blueprint yields 24 lessons, not ~20, so 30 nodes);
+      lesson 1 markdown + TEKS blockquote rendered; comprehension check
+      mastered 4/4; Unit 1 boss quiz passed 6/6, 20 pts. Found + fixed:
+      every correct choice was seeded at position 0 and the player does
+      not shuffle — command now rotates choices deterministically.)
 - [x] Spot-check TEKS coverage: each of the 11 strands (c)(1)–(c)(11)
       appears in at least one lesson's content (grep the command for
       "§127.749" citations). All 11 strands cited (29 citations total);
