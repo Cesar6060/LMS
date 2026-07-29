@@ -17,8 +17,9 @@ This command is NON-DESTRUCTIVE:
 """
 import hashlib
 
-from django.core.management.base import BaseCommand
+from django.core.management.base import BaseCommand, CommandError
 from django.contrib.auth import get_user_model
+from django.db import transaction
 from courses.models import (
     Course, Unit, Lesson, LessonSection, LessonQuestion, LessonQuestionChoice
 )
@@ -35,31 +36,33 @@ class Command(BaseCommand):
 
         # Find the instructor (never modifies users)
         instructor = self._get_instructor()
-        if not instructor:
-            return
 
-        # Get or create ROB101 (touches no other course)
-        course = self._get_or_update_course(instructor)
+        # Atomic so a mid-rebuild failure can't leave students looking at a
+        # half-built course — either the refresh lands whole or not at all.
+        with transaction.atomic():
+            # Get or create ROB101 (touches no other course)
+            course = self._get_or_update_course(instructor)
 
-        # Clear only this course's content, then rebuild it
-        self._clear_course_content(course)
-        self._create_course_content(course)
+            # Clear only this course's content, then rebuild it
+            self._clear_course_content(course)
+            self._create_course_content(course)
 
         self.stdout.write(self.style.SUCCESS('\nROB101 population complete (non-destructive).'))
 
     def _get_instructor(self):
-        """Find the instructor Cesar Villarreal."""
-        try:
-            instructor = User.objects.get(first_name='Cesar', last_name='Villarreal')
-            self.stdout.write(f'Found instructor: {instructor.email}')
-            return instructor
-        except User.DoesNotExist:
-            self.stdout.write(self.style.ERROR('Instructor "Cesar Villarreal" not found!'))
-            return None
-        except User.MultipleObjectsReturned:
-            instructor = User.objects.filter(first_name='Cesar', last_name='Villarreal').first()
-            self.stdout.write(f'Found instructor: {instructor.email}')
-            return instructor
+        """Find the instructor Cesar Villarreal.
+
+        Filters on is_instructor so a student namesake can never be assigned
+        course ownership, and fails loudly (non-zero exit) so an automated
+        seeding step can't silently no-op.
+        """
+        instructor = User.objects.filter(
+            first_name='Cesar', last_name='Villarreal', is_instructor=True,
+        ).first()
+        if instructor is None:
+            raise CommandError('Instructor "Cesar Villarreal" (is_instructor=True) not found!')
+        self.stdout.write(f'Found instructor: {instructor.email}')
+        return instructor
 
     def _get_or_update_course(self, instructor):
         """Get or create the ROB101 course (non-destructive; no other course touched)."""
@@ -4734,7 +4737,8 @@ Go build something, break it on purpose, and write down what it taught you. That
         option 1. Hashing the question text keeps the rotation stable across
         re-runs, preserving the command's idempotency.
         """
-        offset = int(hashlib.md5(question_text.encode()).hexdigest(), 16) % len(choices)
+        digest = hashlib.md5(question_text.encode(), usedforsecurity=False).hexdigest()
+        offset = int(digest, 16) % len(choices)
         return choices[offset:] + choices[:offset]
 
     def _create_sections(self, lesson, sections_data):

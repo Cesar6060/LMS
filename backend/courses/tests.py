@@ -3730,6 +3730,7 @@ class TestPopulateRoboticsCourse:
             for quiz in unit.quizzes.all():
                 assert quiz.passing_score == 70
                 assert quiz.points == 20
+                assert quiz.max_attempts == 3
                 assert 4 <= quiz.questions.count() <= 6
 
     def test_running_twice_is_idempotent(self):
@@ -3792,11 +3793,15 @@ class TestPopulateRoboticsCourse:
 
         for question in LessonQuestion.objects.filter(
                 lesson__unit__course__code='ROB101').prefetch_related('choices'):
-            correct = [c for c in question.choices.all() if c.is_correct]
+            choices = list(question.choices.all())
+            correct = [c for c in choices if c.is_correct]
+            assert len(choices) == 4, f'lesson question "{question.text}"'
             assert len(correct) == 1, f'lesson question "{question.text}"'
         for question in Question.objects.filter(
                 quiz__unit__course__code='ROB101').prefetch_related('choices'):
-            correct = [c for c in question.choices.all() if c.is_correct]
+            choices = list(question.choices.all())
+            correct = [c for c in choices if c.is_correct]
+            assert len(choices) == 4, f'quiz question "{question.text}"'
             assert len(correct) == 1, f'quiz question "{question.text}"'
 
     def test_correct_choices_are_not_all_first(self):
@@ -3825,6 +3830,8 @@ class TestPopulateRoboticsCourse:
         )
 
     def test_all_eleven_teks_strands_cited(self):
+        import re
+
         self._seed_instructor()
         self._run()
 
@@ -3834,9 +3841,10 @@ class TestPopulateRoboticsCourse:
             ).values_list('content', flat=True)
         )
         blob = '\n'.join(contents)
+        # (?!\d) so "(c)(1)" is not satisfied by a "(c)(11)" citation
         missing = [
             n for n in range(1, 12)
-            if f'§127.749(c)({n})' not in blob
+            if not re.search(rf'§127\.749\(c\)\({n}\)(?!\d)', blob)
         ]
         assert missing == [], (
             f'TEKS strands not cited in any lesson section: (c){missing}'
@@ -3856,6 +3864,48 @@ class TestPopulateRoboticsCourse:
         assert Course.objects.filter(code='OTHER1').exists()
         assert Unit.objects.filter(course=other).count() == 1
         assert Lesson.objects.filter(unit__course=other).count() == 1
+
+    def test_namesake_student_is_not_made_instructor(self):
+        student_namesake = User.objects.create_user(
+            email='cesar-student@test.com', password='testpass123',
+            first_name='Cesar', last_name='Villarreal', is_instructor=False,
+        )
+        real = self._seed_instructor()
+
+        self._run()
+
+        course = Course.objects.get(code='ROB101')
+        assert course.instructor == real
+        assert course.instructor != student_namesake
+
+    def test_missing_instructor_fails_loudly_without_writes(self):
+        from django.core.management.base import CommandError
+
+        User.objects.create_user(
+            email='cesar-student@test.com', password='testpass123',
+            first_name='Cesar', last_name='Villarreal', is_instructor=False,
+        )
+        with pytest.raises(CommandError):
+            self._run()
+        assert not Course.objects.filter(code='ROB101').exists()
+
+    def test_failed_rebuild_rolls_back_whole(self):
+        from unittest import mock
+
+        self._seed_instructor()
+        self._run()
+        first = self._counts()
+
+        with mock.patch(
+            'courses.management.commands.populate_robotics_course.'
+            'Command._create_unit4', side_effect=RuntimeError('boom'),
+        ):
+            with pytest.raises(RuntimeError):
+                self._run()
+
+        assert self._counts() == first, (
+            'a mid-rebuild crash left ROB101 partially rebuilt'
+        )
 
     def test_seed_data_no_longer_creates_rob201(self):
         from django.core.management import call_command

@@ -100,7 +100,7 @@ lesson = 2–5 markdown `LessonSection`s + 2–4 `LessonQuestion`s (with
 ## Verification
 
 - [x] `/verify-stack` PASS (full backend suite incl. new populate tests;
-      tsc 0 errors; eslint clean). 627 backend tests passed (+9 new);
+      tsc 0 errors; eslint clean). 631 backend tests passed (+13 new);
       tsc 0 errors; eslint exit 0.
 - [x] `docker compose exec backend python manage.py populate_robotics_course`
       twice locally → second run reports idempotent update, counts unchanged.
@@ -125,7 +125,10 @@ lesson = 2–5 markdown `LessonSection`s + 2–4 `LessonQuestion`s (with
 - [ ] Post-merge, user-run: seed production
       (`DATABASE_URL=<neon> python manage.py populate_robotics_course` from
       a dev machine), then verify `/courses/ROB101` on stemquests.com as
-      the instructor.
+      the instructor. NOTE: treat re-runs as first-time-only once students
+      enroll — a refresh clears and rebuilds ROB101 content, which cascades
+      away student LessonProgress/QuizAttempts on this course (earned XP
+      survives on profiles). Same behavior as populate_java_course.
 
 ## Carried / related open items (not this phase's work)
 
