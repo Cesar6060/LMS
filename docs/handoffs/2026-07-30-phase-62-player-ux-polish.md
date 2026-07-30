@@ -1,9 +1,11 @@
 # Handoff: Phase 62 — Player UX polish (Present everywhere + deferred nits)
 
 ## Current state
-Phase 62 complete on `feat/phase-62-player-ux-polish`;
-**PR #80 open on Cesar6060/LMS, awaiting user merge**. Frontend only — zero
-backend diff (`git diff --stat main -- backend/` empty). Delivered:
+Phase 62 complete and **SHIPPED**: PR #80 merged to main 2026-07-30 16:04Z
+(merge commit `e975f2f`) on user instruction, both CI checks green. Frontend
+only — zero backend diff (`git diff --stat main -- backend/` empty), so the
+Render deploy is a no-op and only the Cloudflare Pages rebuild matters.
+Delivered:
 - New `components/lesson/PresentButton.tsx`; the toggle moved out of
   `SlideStage` into the player content area as a direct child of
   `playerContentRef` (inside the fullscreen element so one control enters AND
@@ -27,8 +29,10 @@ Reviews: code-reviewer REQUEST CHANGES → all 8 findings addressed;
 adversarial-tester 9 HELD / 5 SUSPICIOUS / 2 BROKEN → both BROKEN fixed.
 
 ## In progress / not done
-- **CI was still running when this was written** — check
-  `gh pr checks 80 --repo Cesar6060/LMS` before merging.
+- **The manual fullscreen pass never happened — this shipped without it.**
+  Five spec checks below are verified only by unit tests against a faked
+  Fullscreen API, not by a human in a real browser. Do them on the live site;
+  a problem is a frontend-only revert.
 - **Five manual checks could not be automated** (spec Verification steps 1, 3,
   4, 6b, 9) — everything requiring the browser to actually BE in fullscreen.
   `requestFullscreen()` from the Chrome extension is rejected with
@@ -46,13 +50,16 @@ adversarial-tester 9 HELD / 5 SUSPICIOUS / 2 BROKEN → both BROKEN fixed.
   while hunting for a login. Reseed or ignore.
 
 ## Next steps
-1. Verify CI green, do the 5-step manual fullscreen pass above, then merge #80.
-   No migrations, no new env vars — backend deploy is a no-op for this phase.
-2. Carried from phase 61: real-deck smoke test in prod (export a Google Slides
+1. Do the 5-step manual fullscreen pass on **production** (stemquests.com) —
+   it was skipped before merge, so present mode is live unverified by a human.
+2. Confirm the Pages rebuild actually served the new bundle: fetch
+   `https://stemquests.com/`, follow the `/assets/index-*.css` link, and grep
+   for `max-md\:aspect-auto` — a class that exists only in phase-62 code.
+3. Carried from phase 61: real-deck smoke test in prod (export a Google Slides
    deck to PDF, import into a live lesson) — the one flow never exercised
    against R2 signed URLs, and the practical confirmation that
    `THROTTLE_SLIDE_IMPORT` loaded.
-3. Carried: XP double-award schema fix, JAVA101 answer-rotation reseed,
+4. Carried: XP double-award schema fix, JAVA101 answer-rotation reseed,
    phase-56 regression click-through, school-device login test, Sentry
    LoginPage TypeError, promote warning-filter 3-way check to a test.
 
