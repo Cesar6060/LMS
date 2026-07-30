@@ -669,6 +669,15 @@ class LessonSection(models.Model):
         default='doc',
         help_text='How the player renders this page: scrolling document or slide stage'
     )
+    image = models.ImageField(
+        upload_to='slide_images/%Y/%m/',
+        blank=True,
+        help_text='Slide image (set only by the slide-import endpoint)'
+    )
+    image_alt = models.TextField(
+        blank=True,
+        help_text='Alt text for the slide image (extracted from the PDF text layer, editable)'
+    )
     order = models.PositiveIntegerField(default=0)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)

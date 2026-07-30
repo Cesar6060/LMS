@@ -66,4 +66,44 @@ describe('SlideStage', () => {
 
     expect(screen.getByText('No content available for this page.')).toBeInTheDocument();
   });
+
+  it('renders the image with its src and alt in image mode', () => {
+    renderStage({ image: { url: 'https://cdn.example.com/slide-3.webp', alt: 'Slide 3: Sensors' } });
+
+    const img = screen.getByRole('img', { name: 'Slide 3: Sensors' });
+    expect(img).toHaveAttribute('src', 'https://cdn.example.com/slide-3.webp');
+  });
+
+  it('suppresses the title heading in image mode', () => {
+    renderStage({ image: { url: 'https://cdn.example.com/slide-3.webp', alt: 'Slide 3' } });
+
+    expect(screen.queryByRole('heading', { name: 'Overview' })).not.toBeInTheDocument();
+  });
+
+  it('does not render markdown content or the empty state in image mode', () => {
+    renderStage({ image: { url: 'https://cdn.example.com/slide-3.webp', alt: 'Slide 3' } });
+
+    expect(screen.queryByRole('heading', { name: 'What Is a Robot?' })).not.toBeInTheDocument();
+    expect(screen.queryByText('A vending machine is not one.')).not.toBeInTheDocument();
+    expect(screen.queryByText('No content available for this page.')).not.toBeInTheDocument();
+  });
+
+  it('does not render the empty state in image mode even with no content', () => {
+    renderStage({
+      content: '',
+      title: '',
+      image: { url: 'https://cdn.example.com/slide-3.webp', alt: 'Slide 3' },
+    });
+
+    expect(screen.queryByText('No content available for this page.')).not.toBeInTheDocument();
+    expect(screen.getByRole('img', { name: 'Slide 3' })).toBeInTheDocument();
+  });
+
+  it('keeps title and content rendering unchanged when no image is set', () => {
+    renderStage();
+
+    expect(screen.getByRole('heading', { name: 'Overview' })).toBeInTheDocument();
+    expect(screen.getByText('A vending machine is not one.')).toBeInTheDocument();
+    expect(screen.queryByRole('img')).not.toBeInTheDocument();
+  });
 });

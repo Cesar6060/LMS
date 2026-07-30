@@ -7,9 +7,13 @@ student (jdoe@demo.com) enrolled in DEMO101 — the demo clone of JAVA101 —
 with a fixed baseline of progress. clone_course_for_demo produces DEMO101.
 """
 
+from io import BytesIO
+
 import pytest
+from django.core.files.base import ContentFile
 from django.core.management import call_command
 from django.core.management.base import CommandError
+from PIL import Image as PILImage
 
 from accounts.models import User, UserPreferences
 from allauth.account.models import EmailAddress
@@ -400,3 +404,77 @@ class TestCloneCourseForDemo:
         enrollments = Enrollment.objects.filter(user=user)
         assert enrollments.count() == 1
         assert enrollments.first().course.code == 'DEMO101'
+
+
+def png_bytes():
+    buf = BytesIO()
+    PILImage.new('RGB', (4, 4), color=(10, 120, 60)).save(buf, format='PNG')
+    return buf.getvalue()
+
+
+@pytest.mark.django_db
+class TestCloneSlideImages:
+    """Phase 61: clone_course_for_demo duplicates slide image blobs so the
+    original and the clone never share a storage object (the section DELETE
+    view deletes the blob with the row), and re-runs delete the previous
+    demo copies instead of orphaning them."""
+
+    @pytest.fixture(autouse=True)
+    def media_tmp(self, settings, tmp_path):
+        settings.MEDIA_ROOT = tmp_path
+
+    @pytest.fixture
+    def source_slide(self, java_course):
+        section = LessonSection.objects.get(
+            lesson__unit__course=java_course, title='Section 1')
+        section.layout = 'slide'
+        section.image_alt = 'A diagram'
+        section.save(update_fields=['layout', 'image_alt'])
+        section.image.save('deck-page.png', ContentFile(png_bytes()), save=True)
+        return section
+
+    def demo_clone_of(self, source_section):
+        return LessonSection.objects.get(
+            lesson__unit__course__code='DEMO101', title=source_section.title)
+
+    def test_clone_duplicates_image_blob(self, source_slide):
+        call_command('clone_course_for_demo')
+
+        cloned = self.demo_clone_of(source_slide)
+        storage = cloned.image.storage
+        assert cloned.image
+        assert cloned.image_alt == 'A diagram'
+        assert cloned.layout == 'slide'
+        # Its own object, not a shared reference to the source's file.
+        assert cloned.image.name != source_slide.image.name
+        assert storage.exists(source_slide.image.name)
+        assert storage.exists(cloned.image.name)
+
+        # Deleting the original's blob must leave the clone's file intact.
+        source_slide.image.delete(save=False)
+        assert storage.exists(cloned.image.name)
+
+    def test_sections_without_images_clone_without_blobs(self, source_slide):
+        call_command('clone_course_for_demo')
+
+        sibling = LessonSection.objects.get(
+            lesson__unit__course__code='DEMO101', title='Section 0')
+        assert not sibling.image
+
+    def test_rerun_deletes_previous_demo_blobs(self, source_slide):
+        call_command('clone_course_for_demo')
+        first_clone = self.demo_clone_of(source_slide)
+        first_name = first_clone.image.name
+        storage = first_clone.image.storage
+        assert storage.exists(first_name)
+
+        call_command('clone_course_for_demo')
+
+        # The refresh replaced the demo sections; the old copy's blob must
+        # not be orphaned in storage.
+        assert not storage.exists(first_name)
+        second_clone = self.demo_clone_of(source_slide)
+        assert second_clone.image.name != first_name
+        assert storage.exists(second_clone.image.name)
+        # Source blob untouched by the refresh.
+        assert storage.exists(source_slide.image.name)

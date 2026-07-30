@@ -588,6 +588,11 @@ export function CoursePlayerPage() {
           title={currentSection.title}
           content={currentSection.content}
           video={sectionVideo}
+          image={
+            currentSection.image_url
+              ? { url: currentSection.image_url, alt: currentSection.image_alt }
+              : undefined
+          }
           direction={navDirection}
           isPresenting={isPresenting}
           onTogglePresent={togglePresent}
@@ -616,16 +621,27 @@ export function CoursePlayerPage() {
           </div>
         )}
 
-        {/* Section content */}
-        {currentSection.content && (
+        {/* Section content. Phase 61: an imported slide image renders at the
+            top of the doc card, so flipping a slide page to doc never shows
+            an empty page. */}
+        {(currentSection.content || currentSection.image_url) && (
           <Card>
             <CardContent className="py-6">
-              <LessonMarkdown content={currentSection.content} />
+              {currentSection.image_url && (
+                <img
+                  src={currentSection.image_url}
+                  alt={currentSection.image_alt}
+                  className="mb-6 w-full rounded-md border"
+                />
+              )}
+              {currentSection.content && (
+                <LessonMarkdown content={currentSection.content} />
+              )}
             </CardContent>
           </Card>
         )}
 
-        {!currentSection.content && currentSection.video_type === 'none' && (
+        {!currentSection.content && !currentSection.image_url && currentSection.video_type === 'none' && (
           <Card>
             <CardContent className="py-12 text-center text-muted-foreground">
               No content available for this page.

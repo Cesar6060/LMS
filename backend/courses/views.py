@@ -17,6 +17,8 @@ from django.http import HttpResponse
 from django.utils import timezone
 from datetime import timedelta
 
+from PIL import Image as PILImage
+
 from allauth.account.models import EmailAddress
 from accounts.models import User
 from accounts.serializers import UserSerializer
@@ -2627,7 +2629,7 @@ def lesson_sections(request, lesson_id):
 
     if request.method == 'GET':
         sections = lesson.sections.all().order_by('order')
-        serializer = LessonSectionSerializer(sections, many=True)
+        serializer = LessonSectionSerializer(sections, many=True, context={'request': request})
         return Response(serializer.data)
 
     elif request.method == 'POST':
@@ -2646,7 +2648,7 @@ def lesson_sections(request, lesson_id):
 
             section = serializer.save(lesson=lesson, order=order)
             return Response(
-                LessonSectionSerializer(section).data,
+                LessonSectionSerializer(section, context={'request': request}).data,
                 status=status.HTTP_201_CREATED
             )
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
@@ -2667,7 +2669,7 @@ def lesson_section_detail(request, lesson_id, section_id):
     require_course_access(request.user, course, "You must be enrolled in this course.")
 
     if request.method == 'GET':
-        serializer = LessonSectionSerializer(section)
+        serializer = LessonSectionSerializer(section, context={'request': request})
         return Response(serializer.data)
 
     elif request.method == 'PUT':
@@ -2679,7 +2681,7 @@ def lesson_section_detail(request, lesson_id, section_id):
         serializer = LessonSectionCreateSerializer(section, data=request.data)
         if serializer.is_valid():
             serializer.save()
-            return Response(LessonSectionSerializer(section).data)
+            return Response(LessonSectionSerializer(section, context={'request': request}).data)
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
     elif request.method == 'DELETE':
@@ -2689,6 +2691,12 @@ def lesson_section_detail(request, lesson_id, section_id):
         )
 
         deleted_order = section.order
+
+        # Delete the slide image blob from storage before the row (same
+        # pattern as lesson_attachment_detail).
+        if section.image:
+            section.image.delete(save=False)
+
         section.delete()
 
         # Reorder remaining sections to fill the gap
@@ -2741,7 +2749,7 @@ def lesson_sections_reorder(request, lesson_id):
 
     # Return updated sections
     sections = lesson.sections.all().order_by('order')
-    serializer = LessonSectionSerializer(sections, many=True)
+    serializer = LessonSectionSerializer(sections, many=True, context={'request': request})
     return Response(serializer.data)
 
 
@@ -2782,9 +2790,139 @@ def lesson_sections_bulk_create(request, lesson_id):
             )
 
     return Response(
-        LessonSectionSerializer(created, many=True).data,
+        LessonSectionSerializer(created, many=True, context={'request': request}).data,
         status=status.HTTP_201_CREATED
     )
+
+
+# Extensions the slide-import endpoint accepts, mapped to the Pillow formats
+# the bytes must actually decode as (same magic-byte rationale as
+# accounts.views.upload_avatar: the allowlist bounds which Pillow decoders
+# untrusted bytes can reach, and verify() alone accepts any decodable format).
+SLIDE_IMAGE_EXTENSION_FORMATS = {
+    'png': {'PNG'},
+    'jpg': {'JPEG'},
+    'jpeg': {'JPEG'},
+    'webp': {'WEBP'},
+}
+
+# Hard ceiling on sections per lesson after a slide import: imports append one
+# section per slide, so a runaway client could otherwise grow a lesson without
+# bound (the player renders one dot per section).
+MAX_SECTIONS_PER_LESSON = 200
+
+
+@api_view(['POST'])
+@perm_classes([IsAuthenticated])
+@throttle_classes([ClientIPScopedWriteRateThrottle])
+def lesson_section_import_slide(request, lesson_id):
+    """Create one slide section from a client-rasterized PDF page.
+
+    Multipart fields: ``image`` (required file), ``title`` and ``image_alt``
+    (optional text). The client loops pages, one request per slide — that is
+    what makes keep-what-succeeded + retry-remaining possible. This endpoint
+    is the ONLY writer of ``LessonSection.image`` (the normal section
+    serializers exclude it so full-object editor PUTs can't wipe it).
+    """
+    lesson = get_object_or_404(Lesson, pk=lesson_id)
+    course = lesson.unit.course
+
+    require_course_instructor(
+        request.user, course,
+        "Only instructors can import slides."
+    )
+    # Slide uploads write to shared media storage, which falls under the demo
+    # policy's shared-surface rule even though ordinary section edits are
+    # learning writes.
+    require_not_demo(request.user)
+
+    image_file = request.FILES.get('image')
+    if image_file is None:
+        return Response(
+            {'error': 'No image file provided. Use the "image" field.'},
+            status=status.HTTP_400_BAD_REQUEST
+        )
+
+    file_ext = image_file.name.rsplit('.', 1)[-1].lower() if '.' in image_file.name else ''
+    if file_ext not in SLIDE_IMAGE_EXTENSION_FORMATS:
+        return Response(
+            {'error': f'File type ".{file_ext}" is not allowed. Allowed types: '
+                      f'{", ".join(sorted(SLIDE_IMAGE_EXTENSION_FORMATS))}'},
+            status=status.HTTP_400_BAD_REQUEST
+        )
+
+    if image_file.size > settings.SLIDE_IMAGE_MAX_UPLOAD_BYTES:
+        max_mb = settings.SLIDE_IMAGE_MAX_UPLOAD_BYTES // (1024 * 1024)
+        return Response(
+            {'error': f'Slide image exceeds the {max_mb} MB size limit.'},
+            status=status.HTTP_400_BAD_REQUEST
+        )
+
+    # Extension and content type are client-supplied; confirm the bytes really
+    # are an image of the claimed format (see accounts.views.upload_avatar for
+    # the full rationale — .format must be read BEFORE verify(), and verify()
+    # consumes the file so it must be rewound afterwards).
+    try:
+        image = PILImage.open(image_file)
+        detected_format = image.format
+        image.verify()
+    except Exception:
+        return Response(
+            {'error': 'Slide image is not a valid image file.'},
+            status=status.HTTP_400_BAD_REQUEST
+        )
+
+    if detected_format not in SLIDE_IMAGE_EXTENSION_FORMATS[file_ext]:
+        return Response(
+            {'error': f'Slide image contents are {detected_format or "an unknown format"}, '
+                      f'which does not match its ".{file_ext}" extension.'},
+            status=status.HTTP_400_BAD_REQUEST
+        )
+
+    image_file.seek(0)
+
+    title = request.data.get('title', '')
+    image_alt = request.data.get('image_alt', '')
+    if not isinstance(title, str) or not isinstance(image_alt, str):
+        return Response(
+            {'error': 'title and image_alt must be text.'},
+            status=status.HTTP_400_BAD_REQUEST
+        )
+    if len(title) > 200:
+        return Response(
+            {'error': 'title must be 200 characters or fewer.'},
+            status=status.HTTP_400_BAD_REQUEST
+        )
+
+    with transaction.atomic():
+        if lesson.sections.count() >= MAX_SECTIONS_PER_LESSON:
+            return Response(
+                {'error': f'This lesson already has {MAX_SECTIONS_PER_LESSON} '
+                          f'sections; cannot import more slides.'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        max_order = lesson.sections.aggregate(Max('order'))['order__max']
+        # Not `(max_order or -1) + 1`: a lone section at order 0 would make
+        # that expression collide with it (0 is falsy).
+        order = 0 if max_order is None else max_order + 1
+
+        section = LessonSection.objects.create(
+            lesson=lesson,
+            title=title or f'Slide {order + 1}',
+            layout='slide',
+            image=image_file,
+            image_alt=image_alt,
+            order=order,
+        )
+
+    return Response(
+        LessonSectionSerializer(section, context={'request': request}).data,
+        status=status.HTTP_201_CREATED
+    )
+
+
+lesson_section_import_slide.cls.throttle_scope = 'slide_import'
 
 
 # ============================================

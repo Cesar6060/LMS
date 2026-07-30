@@ -1,8 +1,10 @@
+from io import BytesIO
 from pathlib import Path
 
 import pytest
 from django.conf import settings
 from django.core.files.uploadedfile import SimpleUploadedFile
+from PIL import Image as PILImage
 from django.urls import reverse
 from rest_framework import status
 from rest_framework.test import APIClient
@@ -2700,6 +2702,367 @@ class TestLessonAttachments:
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert 'exceeds' in response.data['error']
         assert lesson.attachments.count() == 0
+
+
+def make_slide_image_file(name='slide.png', fmt='PNG', content=None):
+    """A real in-memory image (default) or arbitrary bytes as an upload.
+
+    The import-slide view ignores the client Content-Type — it trusts only
+    the filename extension plus Pillow's magic-byte sniff — so the
+    content_type here is deliberately generic.
+    """
+    if content is None:
+        buf = BytesIO()
+        PILImage.new('RGB', (4, 4), color=(20, 90, 200)).save(buf, format=fmt)
+        content = buf.getvalue()
+    return SimpleUploadedFile(name, content, content_type='application/octet-stream')
+
+
+@pytest.mark.django_db
+class TestSlideImport:
+    """Phase 61: POST /lessons/<id>/sections/import-slide/ creates one
+    'slide' section per uploaded (client-rasterized) page image. Runs
+    against FileSystemStorage in a temp MEDIA_ROOT, like the attachment
+    tests above."""
+
+    @pytest.fixture(autouse=True)
+    def media_tmp(self, settings, tmp_path):
+        settings.MEDIA_ROOT = tmp_path
+
+    def url(self, lesson):
+        return f'/api/courses/lessons/{lesson.id}/sections/import-slide/'
+
+    # ---- Happy path ----
+
+    def test_import_into_empty_lesson_201_with_defaults(
+            self, api_client, instructor, lesson):
+        api_client.force_authenticate(user=instructor)
+
+        response = api_client.post(
+            self.url(lesson),
+            {'image': make_slide_image_file()},
+            format='multipart',
+        )
+
+        assert response.status_code == status.HTTP_201_CREATED
+        assert response.data['layout'] == 'slide'
+        assert response.data['order'] == 0
+        assert response.data['title'] == 'Slide 1'
+        assert response.data['image_alt'] == ''
+        # Absolute URL (prod: the r2.dev host), stored under slide_images/.
+        assert response.data['image_url'].startswith('http://testserver/')
+        assert 'slide_images/' in response.data['image_url']
+        section = LessonSection.objects.get(pk=response.data['id'])
+        assert section.image
+        assert Path(section.image.path).exists()
+
+    def test_import_appends_after_existing_sections(
+            self, api_client, instructor, lesson):
+        LessonSection.objects.create(lesson=lesson, title='Doc 0', order=0)
+        LessonSection.objects.create(lesson=lesson, title='Doc 1', order=1)
+        api_client.force_authenticate(user=instructor)
+
+        response = api_client.post(
+            self.url(lesson),
+            {'image': make_slide_image_file()},
+            format='multipart',
+        )
+
+        assert response.status_code == status.HTTP_201_CREATED
+        assert response.data['order'] == 2
+        assert response.data['title'] == 'Slide 3'
+        assert lesson.sections.count() == 3
+
+    def test_provided_title_and_alt_respected(
+            self, api_client, instructor, lesson):
+        api_client.force_authenticate(user=instructor)
+
+        response = api_client.post(
+            self.url(lesson),
+            {'image': make_slide_image_file(),
+             'title': 'Intro deck, page 1',
+             'image_alt': 'Diagram of the JVM'},
+            format='multipart',
+        )
+
+        assert response.status_code == status.HTTP_201_CREATED
+        assert response.data['title'] == 'Intro deck, page 1'
+        assert response.data['image_alt'] == 'Diagram of the JVM'
+
+    def test_webp_accepted(self, api_client, instructor, lesson):
+        api_client.force_authenticate(user=instructor)
+
+        response = api_client.post(
+            self.url(lesson),
+            {'image': make_slide_image_file('slide.webp', fmt='WEBP')},
+            format='multipart',
+        )
+
+        assert response.status_code == status.HTTP_201_CREATED
+
+    # ---- Permission matrix ----
+
+    def test_enrolled_student_403(self, api_client, student, lesson, enrollment):
+        api_client.force_authenticate(user=student)
+
+        response = api_client.post(
+            self.url(lesson),
+            {'image': make_slide_image_file()},
+            format='multipart',
+        )
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+        assert lesson.sections.count() == 0
+
+    def test_unauthenticated_401(self, api_client, lesson):
+        response = api_client.post(
+            self.url(lesson),
+            {'image': make_slide_image_file()},
+            format='multipart',
+        )
+
+        assert response.status_code == status.HTTP_401_UNAUTHORIZED
+        assert lesson.sections.count() == 0
+
+    def test_wrong_course_instructor_403(self, api_client, lesson):
+        other = User.objects.create_user(
+            email='other-instructor@test.com',
+            password='testpass123',
+            is_instructor=True,
+        )
+        api_client.force_authenticate(user=other)
+
+        response = api_client.post(
+            self.url(lesson),
+            {'image': make_slide_image_file()},
+            format='multipart',
+        )
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+        assert lesson.sections.count() == 0
+
+    def test_demo_account_403_demo_blocked(self, api_client):
+        """Even as the owning instructor, the shared demo account cannot
+        write to shared media storage."""
+        demo = User.objects.create_user(
+            email=settings.DEMO_ACCOUNT_EMAIL,
+            password='testpass123',
+            is_instructor=True,
+        )
+        demo_course = Course.objects.create(
+            code='DEMO900', title='Demo Owned', instructor=demo)
+        demo_unit = Unit.objects.create(course=demo_course, title='U', order=0)
+        demo_lesson = Lesson.objects.create(unit=demo_unit, title='L', order=0)
+        api_client.force_authenticate(user=demo)
+
+        response = api_client.post(
+            self.url(demo_lesson),
+            {'image': make_slide_image_file()},
+            format='multipart',
+        )
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+        assert response.data['code'] == 'demo_blocked'
+        assert demo_lesson.sections.count() == 0
+
+    # ---- Validation ----
+
+    def test_missing_file_400(self, api_client, instructor, lesson):
+        api_client.force_authenticate(user=instructor)
+
+        response = api_client.post(self.url(lesson), {}, format='multipart')
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert 'image' in response.data['error']
+
+    def test_disallowed_extension_400(self, api_client, instructor, lesson):
+        api_client.force_authenticate(user=instructor)
+
+        response = api_client.post(
+            self.url(lesson),
+            {'image': make_slide_image_file('slide.gif', fmt='GIF')},
+            format='multipart',
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert 'not allowed' in response.data['error']
+        assert lesson.sections.count() == 0
+
+    def test_oversize_400(self, api_client, instructor, lesson, settings):
+        settings.SLIDE_IMAGE_MAX_UPLOAD_BYTES = 64  # tiny cap for the test
+        api_client.force_authenticate(user=instructor)
+
+        response = api_client.post(
+            self.url(lesson),
+            {'image': make_slide_image_file()},  # a real PNG is > 64 bytes
+            format='multipart',
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert 'size limit' in response.data['error']
+        assert lesson.sections.count() == 0
+
+    def test_text_bytes_named_png_400(self, api_client, instructor, lesson):
+        """Magic-byte check: extension alone must not be trusted."""
+        api_client.force_authenticate(user=instructor)
+
+        response = api_client.post(
+            self.url(lesson),
+            {'image': make_slide_image_file('fake.png', content=b'not an image')},
+            format='multipart',
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert 'not a valid image' in response.data['error']
+        assert lesson.sections.count() == 0
+
+    def test_format_extension_mismatch_400(self, api_client, instructor, lesson):
+        """Real PNG bytes under a .jpg name: decodes fine, but the detected
+        format must match the extension."""
+        api_client.force_authenticate(user=instructor)
+
+        response = api_client.post(
+            self.url(lesson),
+            {'image': make_slide_image_file('actually-png.jpg', fmt='PNG')},
+            format='multipart',
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert 'does not match' in response.data['error']
+        assert lesson.sections.count() == 0
+
+    def test_section_cap_rejects_201st_section(
+            self, api_client, instructor, lesson):
+        from .views import MAX_SECTIONS_PER_LESSON
+        LessonSection.objects.bulk_create([
+            LessonSection(lesson=lesson, title=f'S{i}', order=i)
+            for i in range(MAX_SECTIONS_PER_LESSON)
+        ])
+        api_client.force_authenticate(user=instructor)
+
+        response = api_client.post(
+            self.url(lesson),
+            {'image': make_slide_image_file()},
+            format='multipart',
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert 'cannot import more slides' in response.data['error']
+        assert lesson.sections.count() == MAX_SECTIONS_PER_LESSON
+
+    # ---- `image` is read-only outside import-slide ----
+
+    def test_create_endpoint_ignores_posted_image(
+            self, api_client, instructor, lesson):
+        api_client.force_authenticate(user=instructor)
+
+        response = api_client.post(
+            f'/api/courses/lessons/{lesson.id}/sections/',
+            {'title': 'Doc', 'content': 'text', 'image': make_slide_image_file()},
+            format='multipart',
+        )
+
+        assert response.status_code == status.HTTP_201_CREATED
+        section = LessonSection.objects.get(pk=response.data['id'])
+        assert not section.image
+        assert response.data['image_url'] is None
+
+    def test_bulk_endpoint_ignores_posted_image(
+            self, api_client, instructor, lesson):
+        api_client.force_authenticate(user=instructor)
+
+        response = api_client.post(
+            f'/api/courses/lessons/{lesson.id}/sections/bulk/',
+            {'sections': [
+                {'title': 'A', 'content': 'x', 'image': 'slide_images/evil.png'},
+            ]},
+            format='json',
+        )
+
+        assert response.status_code == status.HTTP_201_CREATED
+        section = LessonSection.objects.get(pk=response.data[0]['id'])
+        assert not section.image
+
+    def _import_slide(self, api_client, lesson, **extra):
+        response = api_client.post(
+            self.url(lesson),
+            {'image': make_slide_image_file(), **extra},
+            format='multipart',
+        )
+        assert response.status_code == status.HTTP_201_CREATED
+        return LessonSection.objects.get(pk=response.data['id'])
+
+    def test_editor_style_put_preserves_image_and_updates_alt(
+            self, api_client, instructor, lesson):
+        """A full-object PUT (what the section editor sends — no image field)
+        must not wipe the imported image, and must update image_alt."""
+        api_client.force_authenticate(user=instructor)
+        section = self._import_slide(api_client, lesson, image_alt='old alt')
+        original_name = section.image.name
+
+        response = api_client.put(
+            f'/api/courses/lessons/{lesson.id}/sections/{section.id}/',
+            {'title': 'Renamed slide', 'content': '', 'video_type': 'none',
+             'video_id': '', 'layout': 'slide', 'image_alt': 'new alt',
+             'order': 0},
+            format='json',
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        section.refresh_from_db()
+        assert section.image.name == original_name
+        assert section.image_alt == 'new alt'
+        assert section.title == 'Renamed slide'
+        assert response.data['image_url'].startswith('http://testserver/')
+        assert response.data['image_alt'] == 'new alt'
+
+    def test_put_with_image_file_does_not_replace_image(
+            self, api_client, instructor, lesson):
+        api_client.force_authenticate(user=instructor)
+        section = self._import_slide(api_client, lesson)
+        original_name = section.image.name
+
+        response = api_client.put(
+            f'/api/courses/lessons/{lesson.id}/sections/{section.id}/',
+            {'title': 'T', 'content': '', 'layout': 'slide',
+             'image_alt': '', 'order': 0,
+             'image': make_slide_image_file('replacement.png')},
+            format='multipart',
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        section.refresh_from_db()
+        assert section.image.name == original_name
+
+    # ---- Delete + read surfaces ----
+
+    def test_delete_removes_stored_blob(self, api_client, instructor, lesson):
+        api_client.force_authenticate(user=instructor)
+        section = self._import_slide(api_client, lesson)
+        stored = Path(section.image.path)
+        assert stored.exists()
+
+        response = api_client.delete(
+            f'/api/courses/lessons/{lesson.id}/sections/{section.id}/')
+
+        assert response.status_code == status.HTTP_204_NO_CONTENT
+        assert not stored.exists()
+        assert lesson.sections.count() == 0
+
+    def test_lesson_detail_nests_image_url_in_sections(
+            self, api_client, instructor, student, lesson, enrollment):
+        api_client.force_authenticate(user=instructor)
+        self._import_slide(api_client, lesson, image_alt='JVM diagram')
+
+        api_client.force_authenticate(user=student)
+        response = api_client.get(f'/api/courses/lessons/{lesson.id}/')
+
+        assert response.status_code == status.HTTP_200_OK
+        nested = response.data['sections'][0]
+        assert nested['layout'] == 'slide'
+        assert nested['image_alt'] == 'JVM diagram'
+        assert nested['image_url'].startswith('http://testserver/')
+        assert 'slide_images/' in nested['image_url']
 
 
 @pytest.mark.django_db

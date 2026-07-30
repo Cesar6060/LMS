@@ -75,6 +75,10 @@ export interface LessonSection {
   video_id: string;
   /** Phase 60 — per-page presentation: scrolling document or slide stage. */
   layout: 'doc' | 'slide';
+  /** Phase 61 — slide image (set only by the slide-import endpoint). Signed URL; do not cache. */
+  image_url: string | null;
+  /** Phase 61 — alt text for the slide image (from the PDF text layer, editable). */
+  image_alt: string;
   order: number;
   created_at: string;
   updated_at: string;

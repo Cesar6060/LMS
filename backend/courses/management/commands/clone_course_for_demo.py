@@ -21,12 +21,15 @@ restore the baseline.
 Usage: python manage.py clone_course_for_demo
 """
 
+import os
+
 from allauth.account.models import EmailAddress
+from django.core.files.base import ContentFile
 from django.core.management.base import BaseCommand, CommandError
 from django.db import transaction
 
 from accounts.models import User
-from courses.models import Course, Unit
+from courses.models import Course, LessonSection, Unit
 
 SOURCE_CODE = 'JAVA101'
 DEMO_CODE = 'DEMO101'
@@ -77,6 +80,13 @@ class Command(BaseCommand):
             demo.instructor = owner
             demo.is_active = True
             demo.save()
+            # Slide image blobs are per-section copies (see _clone_section),
+            # so deleting the rows without the blobs would orphan a deck's
+            # worth of storage objects on every refresh.
+            for section in LessonSection.objects.filter(
+                lesson__unit__course=demo
+            ).exclude(image=''):
+                section.image.delete(save=False)
             # Refresh: drop old content, keep the course row (and with it
             # the enrollment_code and any enrollments).
             demo.units.all().delete()
@@ -118,7 +128,7 @@ class Command(BaseCommand):
                 new_lesson = _clone(lesson, unit=new_unit)
                 counts['lessons'] += 1
                 for section in sections:
-                    _clone(section, lesson=new_lesson)
+                    self._clone_section(section, new_lesson)
                     counts['sections'] += 1
                 for question in questions:
                     choices = list(question.choices.all())
@@ -133,6 +143,27 @@ class Command(BaseCommand):
             f'("{DEMO_TITLE}") from {SOURCE_CODE}: {summary}. '
             f'Enrollment code: {demo.enrollment_code}'
         ))
+
+    def _clone_section(self, section, new_lesson):
+        """Clone a section, duplicating its slide image blob if it has one.
+
+        ``_clone`` copies the FileField *name*, so without duplication the
+        original and the clone would share one storage object — and the
+        section DELETE view deletes the blob with the row, which would break
+        whichever section survived.
+        """
+        image_name = section.image.name if section.image else ''
+        if image_name:
+            with section.image.open('rb') as f:
+                content = f.read()
+            new_section = _clone(section, lesson=new_lesson, image='')
+            # save() re-runs upload_to and de-duplicates the basename, so the
+            # clone gets its own object under a new name.
+            new_section.image.save(
+                os.path.basename(image_name), ContentFile(content), save=True
+            )
+            return new_section
+        return _clone(section, lesson=new_lesson)
 
     def _assert_demo_instructor(self):
         """Create (or re-assert) the demo course's instructor account.
