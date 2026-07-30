@@ -544,9 +544,36 @@ export const courseService = {
     video_type?: 'none' | 'youtube';
     video_id?: string;
     layout?: 'doc' | 'slide';
+    image_alt?: string;
     order?: number;
   }): Promise<LessonSection> {
     const response = await api.put<LessonSection>(`/courses/lessons/${lessonId}/sections/${sectionId}/`, data);
+    return response.data;
+  },
+
+  // Phase 61: one request per client-rasterized PDF page; per-page requests
+  // are what make keep-what-succeeded + retry-remaining possible.
+  // Cancellation is handled between pages by the upload pipeline (an
+  // in-flight request is allowed to finish so a retry can't duplicate a
+  // slide), so this deliberately takes no AbortSignal.
+  async importSlideSection(
+    lessonId: number,
+    data: { image: Blob; filename: string; title: string; imageAlt: string },
+  ): Promise<LessonSection> {
+    const formData = new FormData();
+    formData.append('image', data.image, data.filename);
+    formData.append('title', data.title);
+    formData.append('image_alt', data.imageAlt);
+
+    const response = await api.post<LessonSection>(
+      `/courses/lessons/${lessonId}/sections/import-slide/`,
+      formData,
+      {
+        headers: {
+          'Content-Type': 'multipart/form-data',
+        },
+      }
+    );
     return response.data;
   },
 

@@ -76,19 +76,37 @@ class LessonAttachmentSerializer(serializers.ModelSerializer):
 
 class LessonSectionSerializer(VideoFieldsValidationMixin, serializers.ModelSerializer):
     """Serializer for lesson sections."""
+    image_url = serializers.SerializerMethodField()
 
     class Meta:
         model = LessonSection
-        fields = ['id', 'title', 'content', 'video_type', 'video_id', 'layout', 'order', 'created_at', 'updated_at']
-        read_only_fields = ['id', 'created_at', 'updated_at']
+        fields = [
+            'id', 'title', 'content', 'video_type', 'video_id', 'layout',
+            'image_url', 'image_alt', 'order', 'created_at', 'updated_at',
+        ]
+        read_only_fields = ['id', 'image_url', 'created_at', 'updated_at']
+
+    def get_image_url(self, obj):
+        if not obj.image:
+            return None
+        request = self.context.get('request')
+        if request:
+            return request.build_absolute_uri(obj.image.url)
+        return obj.image.url
 
 
 class LessonSectionCreateSerializer(VideoFieldsValidationMixin, serializers.ModelSerializer):
-    """Serializer for creating/updating lesson sections (lesson set in view)."""
+    """Serializer for creating/updating lesson sections (lesson set in view).
+
+    ``image`` is deliberately absent: it is set only by the slide-import
+    endpoint. The editor sends full-object PUTs through this serializer, so a
+    writable image field would be wiped on every save. ``image_alt`` IS
+    editable here.
+    """
 
     class Meta:
         model = LessonSection
-        fields = ['id', 'title', 'content', 'video_type', 'video_id', 'layout', 'order']
+        fields = ['id', 'title', 'content', 'video_type', 'video_id', 'layout', 'image_alt', 'order']
         read_only_fields = ['id']
 
 

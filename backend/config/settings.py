@@ -259,6 +259,10 @@ REST_FRAMEWORK = {
         # endpoint (production ~10/hour). Unset = unlimited locally/in tests.
         'invite_send': config('THROTTLE_INVITE_SEND', default=None),
         'invite_accept': config('THROTTLE_INVITE_ACCEPT', default=None),
+        # Slide-deck import (Phase 61): one multipart upload per slide, so a
+        # 100-page deck is 100 writes in quick succession — the rate must
+        # allow a burst that size. Unset = unlimited locally/in tests.
+        'slide_import': config('THROTTLE_SLIDE_IMPORT', default=None),
     },
 }
 
@@ -351,6 +355,11 @@ AVATAR_MAX_UPLOAD_BYTES = 5 * 1024 * 1024
 # Largest lesson attachment an instructor may upload, per file (enforced in
 # courses.views.lesson_attachments — same view-level pattern as avatars).
 ATTACHMENT_MAX_UPLOAD_BYTES = 25 * 1024 * 1024
+
+# Largest slide image the client-side PDF rasterizer may upload, per slide
+# (enforced in courses.views.lesson_section_import_slide — same view-level
+# pattern as avatars). 1920px-wide WebP pages come in well under this.
+SLIDE_IMAGE_MAX_UPLOAD_BYTES = 5 * 1024 * 1024
 
 # Django Allauth Settings
 #

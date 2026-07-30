@@ -59,6 +59,8 @@ services:
 #                  THROTTLE_ANON, THROTTLE_DEMO_LOGIN, THROTTLE_PASSWORD_RESET
 # Throttles (P51): THROTTLE_USER, THROTTLE_INVITE_SEND, THROTTLE_INVITE_ACCEPT
 #                  (suggested: 120/min, 30/hour, 10/hour)
+# Throttles (P61): THROTTLE_SLIDE_IMPORT (suggested: 300/hour — one upload per
+#                  slide, must clear a 100-page deck plus retries)
 # Email (Resend since Phase 51 — was Gmail from Phase 47; see
 # docs/runbooks/phase-51-email-provider-steps.txt):
 #                  EMAIL_BACKEND, EMAIL_HOST, EMAIL_PORT, EMAIL_USE_TLS,

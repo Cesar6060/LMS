@@ -10,6 +10,11 @@ interface SlideStageProps {
   content: string;
   /** Rendered above the content, inside the stage (the page's video block). */
   video?: ReactNode;
+  /**
+   * Phase 61 — imported slide image. When set, the image fills the stage and
+   * the title is suppressed (it's baked into the image).
+   */
+  image?: { url: string; alt: string };
   /** Which way the deck moved — picks the slide-in direction. */
   direction: 'forward' | 'backward';
   isPresenting: boolean;
@@ -27,6 +32,7 @@ export function SlideStage({
   title,
   content,
   video,
+  image,
   direction,
   isPresenting,
   onTogglePresent,
@@ -55,28 +61,41 @@ export function SlideStage({
           </Button>
         )}
 
-        {/* Long content scrolls here, inside the stage. */}
-        <div className="flex-1 overflow-y-auto px-8 py-8 sm:px-14 sm:py-12">
-          {title && (
-            <h3 className="text-3xl sm:text-4xl font-bold tracking-tight mb-8 pr-24">
-              {title}
-            </h3>
-          )}
+        {image ? (
+          /* Imported slide: the image IS the page (title baked in). A video
+             on the same page still renders above it. */
+          <div className="flex-1 min-h-0 flex flex-col items-center justify-center gap-4 p-4">
+            {video && <div className="w-full max-w-3xl shrink-0">{video}</div>}
+            <img
+              src={image.url}
+              alt={image.alt}
+              className="min-h-0 w-full flex-1 object-contain"
+            />
+          </div>
+        ) : (
+          /* Long content scrolls here, inside the stage. */
+          <div className="flex-1 overflow-y-auto px-8 py-8 sm:px-14 sm:py-12">
+            {title && (
+              <h3 className="text-3xl sm:text-4xl font-bold tracking-tight mb-8 pr-24">
+                {title}
+              </h3>
+            )}
 
-          {video && (
-            <div className="mb-8 mx-auto w-full max-w-3xl">{video}</div>
-          )}
+            {video && (
+              <div className="mb-8 mx-auto w-full max-w-3xl">{video}</div>
+            )}
 
-          {content ? (
-            <LessonMarkdown content={content} className="prose-lg sm:prose-xl" />
-          ) : (
-            !video && (
-              <p className="text-muted-foreground text-lg">
-                No content available for this page.
-              </p>
-            )
-          )}
-        </div>
+            {content ? (
+              <LessonMarkdown content={content} className="prose-lg sm:prose-xl" />
+            ) : (
+              !video && (
+                <p className="text-muted-foreground text-lg">
+                  No content available for this page.
+                </p>
+              )
+            )}
+          </div>
+        )}
       </div>
     </div>
   );
