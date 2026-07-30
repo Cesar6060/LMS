@@ -27,8 +27,15 @@ adversarial-tester 19 HELD / 2 BROKEN → both fixed (same race);
 db-migration-checker UNSAFE → fixed via `db_default`.
 
 ## In progress / not done
-- **Migration 0023 NOT applied to Neon.** Additive, no backfill. Apply BEFORE
-  merging (same MCP procedure as phases 59/60).
+- SHIPPED 2026-07-30 (user instructed): migration 0023 applied to Neon via
+  Neon MCP (exact sqlmigrate SQL + migration row; both columns NOT NULL with
+  the `''` default RETAINED — the db_default fix — 264 sections backfilled
+  empty; an old-code-shaped INSERT verified to succeed against the new
+  schema), THEN PR #79 merged (04:43Z, both CI checks green). Post-deploy
+  verified: deep health 200; `/api/courses/lessons/21/sections/` returns
+  `image_url` + `image_alt`; import-slide route live (401 unauth vs 404 on a
+  bogus sibling route); demo user → 403; Pages serving the new bundle with
+  pdf.js present but NOT referenced eagerly in index.html.
 - `THROTTLE_SLIDE_IMPORT` not set in Render (optional; suggested `300/hour`).
   Unset falls back to the global `THROTTLE_USER` ceiling.
 - Stray `feat/phase-61-slide-import` branch pushed to the archived `origin`
@@ -39,11 +46,10 @@ db-migration-checker UNSAFE → fixed via `db_default`.
   media objects orphaned (matches existing attachment behavior).
 
 ## Next steps
-1. Apply migration 0023 to Neon, then merge PR #79, then verify prod
-   (`/api/health/?deep=1`, lesson API returns `image_url`).
+1. Real-deck smoke test in prod: export an actual Google Slides deck to PDF and
+   import it into a live lesson (local testing used a Chrome-generated 13-page
+   PDF). This is the one flow never exercised against R2 signed URLs.
 2. Optionally set `THROTTLE_SLIDE_IMPORT=300/hour` in the Render dashboard.
-3. Real-deck smoke test in prod: export an actual Google Slides deck to PDF and
-   import it (local testing used a Chrome-generated 13-page PDF).
 4. Carried from phase 60: debounce editor live preview; attachments steal stage
    height on a long last slide; Mark Complete hidden while presenting.
 5. Carried: XP double-award schema fix, JAVA101 answer-rotation reseed,

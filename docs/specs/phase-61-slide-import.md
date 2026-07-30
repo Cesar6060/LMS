@@ -242,5 +242,5 @@ multipart request per slide.
 - [x] Demo: import-slide as the demo user → 403 `demo_blocked`; run
       `clone_course_for_demo` on a course with an image slide → cloned
       section shows the image and its file name differs from the original.
-- [ ] After merge/deploy: apply migration 0023 to Neon (additive columns,
+- [x] After merge/deploy: apply migration 0023 to Neon (additive columns,
       no backfill) — same MCP procedure as phases 59/60; note in handoff.
