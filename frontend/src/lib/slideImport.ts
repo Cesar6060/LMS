@@ -7,6 +7,15 @@
  * injected, so this is unit-testable with the service mocked.
  */
 
+/**
+ * Client-side deck limits. They live here, not in pdfSlides.ts, so the editor
+ * can show them in the dropzone copy without statically importing pdf.js —
+ * that library is ~145 kB gzip and must stay out of the lesson-editor chunk
+ * for instructors who never open the import modal.
+ */
+export const MAX_PDF_BYTES = 50 * 1024 * 1024;
+export const MAX_PDF_PAGES = 100;
+
 export interface SlideUploadTask {
   /** 1-based PDF page number (stable across retries). */
   pageNumber: number;

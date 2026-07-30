@@ -62,12 +62,14 @@ export function SlideStage({
         )}
 
         {image ? (
-          /* Imported slide: the image IS the page (title baked in). */
-          <div className="flex-1 min-h-0 flex items-center justify-center">
+          /* Imported slide: the image IS the page (title baked in). A video
+             on the same page still renders above it. */
+          <div className="flex-1 min-h-0 flex flex-col items-center justify-center gap-4 p-4">
+            {video && <div className="w-full max-w-3xl shrink-0">{video}</div>}
             <img
               src={image.url}
               alt={image.alt}
-              className="h-full w-full object-contain"
+              className="min-h-0 w-full flex-1 object-contain"
             />
           </div>
         ) : (

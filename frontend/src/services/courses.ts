@@ -553,10 +553,12 @@ export const courseService = {
 
   // Phase 61: one request per client-rasterized PDF page; per-page requests
   // are what make keep-what-succeeded + retry-remaining possible.
+  // Cancellation is handled between pages by the upload pipeline (an
+  // in-flight request is allowed to finish so a retry can't duplicate a
+  // slide), so this deliberately takes no AbortSignal.
   async importSlideSection(
     lessonId: number,
     data: { image: Blob; filename: string; title: string; imageAlt: string },
-    signal?: AbortSignal,
   ): Promise<LessonSection> {
     const formData = new FormData();
     formData.append('image', data.image, data.filename);
@@ -570,7 +572,6 @@ export const courseService = {
         headers: {
           'Content-Type': 'multipart/form-data',
         },
-        signal,
       }
     );
     return response.data;

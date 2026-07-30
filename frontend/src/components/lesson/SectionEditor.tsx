@@ -13,9 +13,8 @@ import {
 } from '@/components/ui/Dialog';
 import { courseService } from '@/services/courses';
 import { splitSections } from '@/lib/splitSections';
-import { loadDeck, MAX_PDF_BYTES, MAX_PDF_PAGES } from '@/lib/pdfSlides';
 import type { RenderedSlide } from '@/lib/pdfSlides';
-import { uploadSlideTasks } from '@/lib/slideImport';
+import { uploadSlideTasks, MAX_PDF_BYTES, MAX_PDF_PAGES } from '@/lib/slideImport';
 import type { SlideUploadTask } from '@/lib/slideImport';
 import { extractYouTubeVideoId } from '@/lib/video';
 import { YouTubeVideoPreview } from '@/components/lesson/YouTubeVideoPreview';
@@ -104,6 +103,7 @@ export function SectionEditor({ lessonId, lessonTitle, onSaveStatus }: SectionEd
   const [uploadCurrent, setUploadCurrent] = useState(0);
   const [uploadTotal, setUploadTotal] = useState(0);
   const importAbortRef = useRef<AbortController | null>(null);
+  const renderCancelledRef = useRef(false);
   const importFileInputRef = useRef<HTMLInputElement>(null);
 
   const loadSections = useCallback(async () => {
@@ -358,6 +358,10 @@ export function SectionEditor({ lessonId, lessonTitle, onSaveStatus }: SectionEd
   const resetImportState = useCallback(() => {
     importAbortRef.current?.abort();
     importAbortRef.current = null;
+    // Signals an in-flight render loop to stop and clean up after itself;
+    // closing the modal mid-render must not keep rasterizing into state that
+    // no longer has a home.
+    renderCancelledRef.current = true;
     setImportPages(prev => {
       prev.forEach(p => URL.revokeObjectURL(p.previewUrl));
       return [];
@@ -369,6 +373,10 @@ export function SectionEditor({ lessonId, lessonTitle, onSaveStatus }: SectionEd
     setUploadCurrent(0);
     setUploadTotal(0);
   }, []);
+
+  // Revoke any preview URLs still alive if the editor unmounts with the
+  // modal open.
+  useEffect(() => resetImportState, [resetImportState]);
 
   const openImportModal = () => {
     resetImportState();
@@ -397,13 +405,17 @@ export function SectionEditor({ lessonId, lessonTitle, onSaveStatus }: SectionEd
     }
 
     setImportPhase('rendering');
+    renderCancelledRef.current = false;
+    const pages: ImportPage[] = [];
     try {
+      // pdf.js is loaded on demand — see the comment in pdfSlides.ts.
+      const { loadDeck } = await import('@/lib/pdfSlides');
       const deck = await loadDeck(file);
       try {
         setRenderTotal(deck.numPages);
         setRenderedCount(0);
-        const pages: ImportPage[] = [];
         for (let n = 1; n <= deck.numPages; n++) {
+          if (renderCancelledRef.current) break;
           const slide = await deck.renderPage(n);
           pages.push({
             pageNumber: n,
@@ -414,12 +426,19 @@ export function SectionEditor({ lessonId, lessonTitle, onSaveStatus }: SectionEd
           });
           setRenderedCount(n);
         }
+        if (renderCancelledRef.current) {
+          pages.forEach(p => URL.revokeObjectURL(p.previewUrl));
+          return;
+        }
         setImportPages(pages);
         setImportPhase('preview');
       } finally {
         deck.destroy();
       }
     } catch (err: unknown) {
+      // Pages rendered before the failure never reach state, so revoke their
+      // object URLs here or nothing ever will.
+      pages.forEach(p => URL.revokeObjectURL(p.previewUrl));
       const message = err instanceof Error ? err.message : 'Could not read this PDF.';
       setImportError(message);
       setImportPhase('pick');
@@ -475,6 +494,17 @@ export function SectionEditor({ lessonId, lessonTitle, onSaveStatus }: SectionEd
       );
     };
 
+    // Deterministic failures (oversize, demo_blocked, throttled) will repeat
+    // on every retry, so show the server's reason rather than only "retry".
+    let firstFailure = '';
+    const failureMessage = (err: unknown) => {
+      const e = err as {
+        response?: { data?: { error?: string; detail?: string } };
+        message?: string;
+      };
+      return e.response?.data?.error || e.response?.data?.detail || e.message || '';
+    };
+
     const result = await uploadSlideTasks(
       tasks,
       task =>
@@ -491,7 +521,10 @@ export function SectionEditor({ lessonId, lessonTitle, onSaveStatus }: SectionEd
           setPageStatus(task.pageNumber, 'uploading');
         },
         onPageDone: task => setPageStatus(task.pageNumber, 'done'),
-        onPageFailed: task => setPageStatus(task.pageNumber, 'failed'),
+        onPageFailed: (task, err) => {
+          firstFailure ||= failureMessage(err);
+          setPageStatus(task.pageNumber, 'failed');
+        },
       }
     );
 
@@ -516,8 +549,9 @@ export function SectionEditor({ lessonId, lessonTitle, onSaveStatus }: SectionEd
       } else {
         report('error', 'Some slides failed to upload');
         setImportError(
-          `${result.failed.length} slide${result.failed.length === 1 ? '' : 's'} failed to upload. ` +
-          'What succeeded has been kept — use "Retry remaining" to finish.'
+          `${result.failed.length} slide${result.failed.length === 1 ? '' : 's'} failed to upload` +
+          (firstFailure ? ` (${firstFailure})` : '') +
+          '. What succeeded has been kept — use "Retry remaining" to finish.'
         );
       }
       // The lesson already grew behind the modal; keep the editor in sync.

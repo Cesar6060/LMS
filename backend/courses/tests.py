@@ -2950,6 +2950,69 @@ class TestSlideImport:
         assert 'cannot import more slides' in response.data['error']
         assert lesson.sections.count() == MAX_SECTIONS_PER_LESSON
 
+    def test_oversize_image_alt_rejected(
+            self, api_client, instructor, lesson):
+        from .views import MAX_IMAGE_ALT_CHARS
+        api_client.force_authenticate(user=instructor)
+
+        response = api_client.post(
+            self.url(lesson),
+            {
+                'image': make_slide_image_file(),
+                'image_alt': 'x' * (MAX_IMAGE_ALT_CHARS + 1),
+            },
+            format='multipart',
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert 'image_alt' in response.data['error']
+        assert lesson.sections.count() == 0
+
+    def test_image_alt_at_cap_accepted(self, api_client, instructor, lesson):
+        from .views import MAX_IMAGE_ALT_CHARS
+        api_client.force_authenticate(user=instructor)
+
+        response = api_client.post(
+            self.url(lesson),
+            {
+                'image': make_slide_image_file(),
+                'image_alt': 'x' * MAX_IMAGE_ALT_CHARS,
+            },
+            format='multipart',
+        )
+
+        assert response.status_code == status.HTTP_201_CREATED
+        assert len(response.data['image_alt']) == MAX_IMAGE_ALT_CHARS
+
+    def test_import_locks_the_lesson_row(self, api_client, instructor, lesson):
+        """Concurrent imports must not race on the section cap or on
+        Max(order)+1 — both are read-then-write and `lesson`+`order` is a
+        unique constraint, so two overlapping imports used to produce a 500
+        (and could push a lesson past the 200-section cap).
+
+        Real concurrency can't be exercised inside a test transaction, so
+        this pins the guard itself: the create runs under a SELECT ... FOR
+        UPDATE on the lesson row.
+        """
+        from django.db import connection
+        from django.test.utils import CaptureQueriesContext
+
+        api_client.force_authenticate(user=instructor)
+
+        with CaptureQueriesContext(connection) as ctx:
+            response = api_client.post(
+                self.url(lesson),
+                {'image': make_slide_image_file()},
+                format='multipart',
+            )
+
+        assert response.status_code == status.HTTP_201_CREATED
+        locking = [
+            q['sql'] for q in ctx.captured_queries
+            if 'FOR UPDATE' in q['sql'] and 'courses_lesson' in q['sql']
+        ]
+        assert locking, 'import-slide must lock the lesson row before assigning order'
+
     # ---- `image` is read-only outside import-slide ----
 
     def test_create_endpoint_ignores_posted_image(

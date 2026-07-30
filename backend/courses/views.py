@@ -27,6 +27,7 @@ from core.email import send_course_invite_link_email, send_emails_async
 from core.pagination import RosterPagination
 from core.throttling import (
     ClientIPScopedRateThrottle, ClientIPScopedWriteRateThrottle,
+    ClientIPUserRateThrottle,
 )
 from .models import Course, Unit, Lesson, Enrollment, LessonProgress, Announcement, LessonQuestion, LessonQuestionChoice, LessonQuestionAnswer, LessonQuizAttempt, LessonAttemptAnswer, LessonAttachment, LessonSection, CourseInvite
 from .serializers import (
@@ -2811,10 +2812,19 @@ SLIDE_IMAGE_EXTENSION_FORMATS = {
 # bound (the player renders one dot per section).
 MAX_SECTIONS_PER_LESSON = 200
 
+# Cap on extracted alt text. The client truncates the PDF text layer to ~1000
+# chars, but image_alt is a TextField, so without a server cap any client can
+# store megabytes per section and bloat every lesson-detail response.
+MAX_IMAGE_ALT_CHARS = 2000
+
 
 @api_view(['POST'])
 @perm_classes([IsAuthenticated])
-@throttle_classes([ClientIPScopedWriteRateThrottle])
+# @throttle_classes REPLACES DEFAULT_THROTTLE_CLASSES, so the global
+# per-user ceiling has to be re-listed here or this endpoint — which writes
+# 5 MB objects to shared storage — would be the only unthrottled write in
+# the app when THROTTLE_SLIDE_IMPORT is unset.
+@throttle_classes([ClientIPUserRateThrottle, ClientIPScopedWriteRateThrottle])
 def lesson_section_import_slide(request, lesson_id):
     """Create one slide section from a client-rasterized PDF page.
 
@@ -2893,8 +2903,21 @@ def lesson_section_import_slide(request, lesson_id):
             {'error': 'title must be 200 characters or fewer.'},
             status=status.HTTP_400_BAD_REQUEST
         )
+    if len(image_alt) > MAX_IMAGE_ALT_CHARS:
+        return Response(
+            {'error': f'image_alt must be {MAX_IMAGE_ALT_CHARS} characters or fewer.'},
+            status=status.HTTP_400_BAD_REQUEST
+        )
 
     with transaction.atomic():
+        # Serialize concurrent imports into the same lesson. The section-count
+        # cap and the Max(order)+1 assignment below are both read-then-write:
+        # without the lock, two overlapping imports pick the same order (500 on
+        # the lesson+order unique constraint) and can both pass a 199-section
+        # cap check. Locking the lesson row is enough — every writer of this
+        # lesson's sections goes through it.
+        Lesson.objects.select_for_update().get(pk=lesson.pk)
+
         if lesson.sections.count() >= MAX_SECTIONS_PER_LESSON:
             return Response(
                 {'error': f'This lesson already has {MAX_SECTIONS_PER_LESSON} '

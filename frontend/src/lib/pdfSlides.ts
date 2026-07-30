@@ -1,13 +1,30 @@
-import { GlobalWorkerOptions, getDocument } from 'pdfjs-dist';
-import workerUrl from 'pdfjs-dist/build/pdf.worker.min.mjs?url';
+import { MAX_PDF_BYTES, MAX_PDF_PAGES } from './slideImport';
 
-// pdf.js parses PDFs on a worker thread; Vite's ?url import gives us the
-// bundled worker asset without needing a copy step or CDN fetch.
-GlobalWorkerOptions.workerSrc = workerUrl;
+export { MAX_PDF_BYTES, MAX_PDF_PAGES };
 
-export const MAX_PDF_BYTES = 50 * 1024 * 1024;
-export const MAX_PDF_PAGES = 100;
 export const ALT_TEXT_MAX_CHARS = 1000;
+
+/**
+ * Load pdf.js on first use. The library plus its worker are ~145 kB gzip, and
+ * only the slide-import modal ever needs them — a static import would put all
+ * of it in the lesson-editor route chunk for every instructor. Cached after
+ * the first call so a multi-page deck resolves the module once.
+ */
+let pdfjsPromise: Promise<typeof import('pdfjs-dist')> | null = null;
+
+function loadPdfjs(): Promise<typeof import('pdfjs-dist')> {
+  pdfjsPromise ??= (async () => {
+    const [pdfjs, { default: workerUrl }] = await Promise.all([
+      import('pdfjs-dist'),
+      import('pdfjs-dist/build/pdf.worker.min.mjs?url'),
+    ]);
+    // pdf.js parses PDFs on a worker thread; Vite's ?url import gives us the
+    // bundled worker asset without needing a copy step or CDN fetch.
+    pdfjs.GlobalWorkerOptions.workerSrc = workerUrl;
+    return pdfjs;
+  })();
+  return pdfjsPromise;
+}
 
 /** Target output width for rasterized slides, in CSS pixels. */
 const SLIDE_WIDTH_PX = 1920;
@@ -76,6 +93,8 @@ export async function loadDeck(
       `PDF is too large (max ${Math.floor(MAX_PDF_BYTES / (1024 * 1024))} MB).`,
     );
   }
+
+  const { getDocument } = await loadPdfjs();
 
   // In pdf.js v6, teardown lives on the loading task, not the document.
   const loadingTask = getDocument({ data: await file.arrayBuffer() });
