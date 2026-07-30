@@ -3647,16 +3647,21 @@ class TestInviteAccept:
 class TestPhase51Throttles:
     """Env-gated rates: unset (the default) means unlimited; when a rate is
     set, the scoped/user buckets enforce it. DRF snapshots rates onto the
-    throttle classes at import, so tests patch the class attribute."""
+    throttle classes at import, so tests patch the class attribute.
+
+    Phase 63: counters live in the 'throttle' cache alias, not the default one
+    — clearing `django.core.cache.cache` no longer reaches them, and since that
+    alias is file-backed, history survives whole pytest sessions if not cleared.
+    """
 
     def test_invite_send_scoped_throttle_skips_reads(
             self, api_client, instructor, course, monkeypatch):
-        from django.core.cache import cache
+        from django.core.cache import caches
         from rest_framework.throttling import ScopedRateThrottle
 
         monkeypatch.setattr(
             ScopedRateThrottle, 'THROTTLE_RATES', {'invite_send': '2/hour'})
-        cache.clear()
+        caches['throttle'].clear()
         try:
             api_client.force_authenticate(user=instructor)
             for _ in range(2):
@@ -3672,15 +3677,15 @@ class TestPhase51Throttles:
             listed = api_client.get(invites_url(course))
             assert listed.status_code == status.HTTP_200_OK
         finally:
-            cache.clear()
+            caches['throttle'].clear()
 
     def test_invite_accept_scoped_throttle(self, api_client, monkeypatch):
-        from django.core.cache import cache
+        from django.core.cache import caches
         from rest_framework.throttling import ScopedRateThrottle
 
         monkeypatch.setattr(
             ScopedRateThrottle, 'THROTTLE_RATES', {'invite_accept': '2/hour'})
-        cache.clear()
+        caches['throttle'].clear()
         try:
             for _ in range(2):
                 response = api_client.post(
@@ -3691,7 +3696,7 @@ class TestPhase51Throttles:
                 accept_url('bogus'), VALID_ACCEPT_BODY, format='json')
             assert throttled.status_code == status.HTTP_429_TOO_MANY_REQUESTS
         finally:
-            cache.clear()
+            caches['throttle'].clear()
 
     def test_user_throttle_off_by_default(self, api_client, student, enrollment):
         """THROTTLE_USER unset => rate None => authenticated traffic is
@@ -3706,12 +3711,12 @@ class TestPhase51Throttles:
 
     def test_user_throttle_enforced_when_rate_set(
             self, api_client, student, enrollment, monkeypatch):
-        from django.core.cache import cache
+        from django.core.cache import caches
         from rest_framework.throttling import UserRateThrottle
 
         monkeypatch.setattr(
             UserRateThrottle, 'THROTTLE_RATES', {'user': '3/min'})
-        cache.clear()
+        caches['throttle'].clear()
         try:
             api_client.force_authenticate(user=student)
             for _ in range(3):
@@ -3721,7 +3726,7 @@ class TestPhase51Throttles:
             throttled = api_client.get('/api/courses/courses/')
             assert throttled.status_code == status.HTTP_429_TOO_MANY_REQUESTS
         finally:
-            cache.clear()
+            caches['throttle'].clear()
 
 
 # ---------------------------------------------------------------------------
@@ -4445,3 +4450,367 @@ class TestPopulateRoboticsCourse:
         from django.core.management import call_command
         call_command('seed_data')
         assert not Course.objects.filter(code='ROB201').exists()
+
+
+# ===========================================================================
+# Phase 63 — query-count and shape guards for the N+1 rewrite
+# ===========================================================================
+#
+# Before phase 63 the per-lesson count fields each ran their own query, so a
+# course-detail payload cost roughly four queries per lesson. These guards pin
+# the replacement: counts resolve in bulk, so query volume must not scale with
+# the number of lessons/students, AND the values must be byte-identical to what
+# the per-object versions returned — including the rows with nothing related,
+# which is the classic thing a bulk rewrite drops.
+#
+# Counts are asserted per table (following TestCourseDetailPerLessonCompletion)
+# rather than as a whole-response total, so an unrelated extra query elsewhere
+# does not break them with an unhelpful message.
+
+
+def queries_against(ctx, table):
+    return [q['sql'] for q in ctx.captured_queries if table in q['sql'].lower()]
+
+
+@pytest.fixture
+def big_course(instructor, student):
+    """A course with 3 units x 4 lessons, with related rows on some lessons.
+
+    Deliberately uneven: lesson 1 of each unit gets sections/attachments/
+    questions, the rest get none, so a bulk rewrite that silently drops
+    empty-related rows fails here rather than in production.
+    """
+    course = Course.objects.create(
+        code='BIG101', title='Big Course', instructor=instructor)
+    Enrollment.objects.create(user=student, course=course)
+    for unit_order in range(3):
+        unit = Unit.objects.create(
+            course=course, title=f'U{unit_order}', order=unit_order)
+        for lesson_order in range(4):
+            lesson = Lesson.objects.create(
+                unit=unit, title=f'U{unit_order}L{lesson_order}',
+                order=lesson_order)
+            if lesson_order != 0:
+                continue
+            LessonSection.objects.create(
+                lesson=lesson, title='S0', order=0,
+                video_type='youtube', video_id='abc12345678')
+            LessonSection.objects.create(lesson=lesson, title='S1', order=1)
+            LessonAttachment.objects.create(
+                lesson=lesson, filename='a.txt', file_type='txt', file_size=1,
+                file=SimpleUploadedFile('a.txt', b'x'))
+            LessonQuestion.objects.create(lesson=lesson, text='Q0', order=0)
+    return course
+
+
+@pytest.mark.django_db
+class TestPhase63CourseDetailQueryCounts:
+    """Course detail must not scale its query count with lesson count."""
+
+    def _get(self, api_client, course):
+        from django.db import connection
+        from django.test.utils import CaptureQueriesContext
+
+        with CaptureQueriesContext(connection) as ctx:
+            response = api_client.get(f'/api/courses/courses/{course.code}/')
+        assert response.status_code == status.HTTP_200_OK
+        return response, ctx
+
+    def test_section_queries_do_not_scale_with_lessons(
+            self, api_client, student, big_course):
+        api_client.force_authenticate(user=student)
+        _, ctx = self._get(api_client, big_course)
+
+        # One bulk lookup per unit (the ListSerializer primes per many=True
+        # render), not one per lesson. 3 units, 12 lessons.
+        section_queries = queries_against(ctx, 'courses_lessonsection')
+        assert len(section_queries) <= 3, (
+            f'expected at most one section query per unit, got '
+            f'{len(section_queries)} for 12 lessons'
+        )
+
+    def test_attachment_and_question_queries_do_not_scale(
+            self, api_client, student, big_course):
+        api_client.force_authenticate(user=student)
+        _, ctx = self._get(api_client, big_course)
+
+        assert len(queries_against(ctx, 'courses_lessonattachment')) <= 3
+        assert len(queries_against(ctx, 'courses_lessonquestion')) <= 3
+
+    def test_enrollment_queries_do_not_scale_with_courses(
+            self, api_client, student, big_course):
+        """student_count/is_enrolled used .filter(), which defeats a prefetch."""
+        api_client.force_authenticate(user=student)
+        _, ctx = self._get(api_client, big_course)
+
+        # The active-enrollment prefetch is one query; the enrolled-courses
+        # lookup in get_queryset is another. Two is the ceiling, and crucially
+        # it does not grow with the number of courses or lessons.
+        assert len(queries_against(ctx, 'courses_enrollment')) <= 2
+
+    def test_adding_lessons_does_not_add_queries(
+            self, api_client, student, big_course):
+        """The scaling assertion stated directly: 12 lessons and 24 lessons
+        must cost the same number of queries."""
+        api_client.force_authenticate(user=student)
+        _, small_ctx = self._get(api_client, big_course)
+
+        unit = big_course.units.first()
+        for extra in range(100, 112):
+            Lesson.objects.create(unit=unit, title=f'X{extra}', order=extra)
+
+        _, big_ctx = self._get(api_client, big_course)
+        assert len(big_ctx.captured_queries) == len(small_ctx.captured_queries), (
+            f'{len(small_ctx.captured_queries)} queries for 12 lessons vs '
+            f'{len(big_ctx.captured_queries)} for 24 — still scaling'
+        )
+
+
+@pytest.mark.django_db
+class TestPhase63CountFieldValues:
+    """The bulk counts must return exactly what the per-object ones did."""
+
+    def _lessons(self, api_client, course):
+        response = api_client.get(f'/api/courses/courses/{course.code}/')
+        assert response.status_code == status.HTTP_200_OK
+        lessons = {}
+        for unit in response.data['units']:
+            for lesson in unit['lessons']:
+                lessons[lesson['title']] = lesson
+        return lessons
+
+    def test_populated_lesson_counts(self, api_client, student, big_course):
+        api_client.force_authenticate(user=student)
+        lesson = self._lessons(api_client, big_course)['U0L0']
+
+        assert lesson['section_count'] == 2
+        assert lesson['attachment_count'] == 1
+        assert lesson['question_count'] == 1
+        assert lesson['has_video'] is True
+
+    def test_lesson_with_no_related_rows_reports_zeroes(
+            self, api_client, student, big_course):
+        """The row a bulk rewrite forgets."""
+        api_client.force_authenticate(user=student)
+        lesson = self._lessons(api_client, big_course)['U0L1']
+
+        assert lesson['section_count'] == 0
+        assert lesson['attachment_count'] == 0
+        assert lesson['question_count'] == 0
+        assert lesson['has_video'] is False
+
+    def test_has_video_false_for_section_with_empty_video_id(
+            self, api_client, student, big_course):
+        """`video_type='youtube'` with a blank id is not a playable video —
+        this is what the old .exclude(video_id='') encoded."""
+        api_client.force_authenticate(user=student)
+        lesson = Lesson.objects.get(title='U0L1')
+        LessonSection.objects.create(
+            lesson=lesson, title='empty', order=0,
+            video_type='youtube', video_id='')
+
+        rendered = self._lessons(api_client, big_course)['U0L1']
+        assert rendered['section_count'] == 1
+        assert rendered['has_video'] is False
+
+    def test_has_video_false_for_non_youtube_section(
+            self, api_client, student, big_course):
+        api_client.force_authenticate(user=student)
+        lesson = Lesson.objects.get(title='U0L2')
+        LessonSection.objects.create(
+            lesson=lesson, title='plain', order=0, video_type='none')
+
+        rendered = self._lessons(api_client, big_course)['U0L2']
+        assert rendered['has_video'] is False
+
+    def test_student_count_and_is_enrolled(
+            self, api_client, student, instructor, big_course):
+        """Active-only, and inactive enrollments must not be counted."""
+        other = User.objects.create_user(
+            email='other@test.com', password='x', first_name='O', last_name='T')
+        Enrollment.objects.create(user=other, course=big_course)
+        gone = User.objects.create_user(
+            email='gone@test.com', password='x', first_name='G', last_name='T')
+        Enrollment.objects.create(
+            user=gone, course=big_course, is_active=False)
+
+        api_client.force_authenticate(user=student)
+        response = api_client.get(f'/api/courses/courses/{big_course.code}/')
+        assert response.data['student_count'] == 2
+        assert response.data['is_enrolled'] is True
+
+    def test_is_enrolled_false_for_inactive_enrollment(
+            self, api_client, instructor, big_course):
+        """An inactive enrollment is not an enrollment."""
+        lapsed = User.objects.create_user(
+            email='lapsed@test.com', password='x', first_name='L', last_name='T')
+        Enrollment.objects.create(
+            user=lapsed, course=big_course, is_active=False)
+
+        api_client.force_authenticate(user=instructor)
+        response = api_client.get(f'/api/courses/courses/{big_course.code}/')
+        assert response.status_code == status.HTTP_200_OK
+
+        api_client.force_authenticate(user=lapsed)
+        # Students only see courses they are actively enrolled in, so the
+        # lapsed user cannot reach the detail route at all — assert the
+        # serializer's own answer instead of going through the view.
+        from .serializers import CourseSerializer
+        from rest_framework.test import APIRequestFactory
+        request = APIRequestFactory().get('/')
+        request.user = lapsed
+        data = CourseSerializer(big_course, context={'request': request}).data
+        assert data['is_enrolled'] is False
+
+
+@pytest.mark.django_db
+class TestPhase63SingleObjectFallback:
+    """Rendering one lesson without the many=True wrapper still works.
+
+    The ListSerializer is what primes the bulk map, so this is the path that
+    would silently break if the fields assumed priming had happened.
+    """
+
+    def test_single_lesson_render_has_correct_counts(self, big_course):
+        from .serializers import LessonListSerializer
+
+        lesson = Lesson.objects.get(title='U0L0')
+        data = LessonListSerializer(lesson).data
+
+        assert data['section_count'] == 2
+        assert data['attachment_count'] == 1
+        assert data['question_count'] == 1
+        assert data['has_video'] is True
+
+    def test_single_lesson_with_no_related_rows(self, big_course):
+        from .serializers import LessonListSerializer
+
+        data = LessonListSerializer(Lesson.objects.get(title='U0L1')).data
+
+        assert data['section_count'] == 0
+        assert data['attachment_count'] == 0
+        assert data['question_count'] == 0
+        assert data['has_video'] is False
+
+    def test_lesson_detail_endpoint_matches(self, api_client, student,
+                                            enrollment, big_course):
+        """LessonSerializer (detail) reads the prefetch cache rather than the
+        bulk map — same numbers either way."""
+        Enrollment.objects.get_or_create(user=student, course=big_course)
+        api_client.force_authenticate(user=student)
+        lesson = Lesson.objects.get(title='U0L0')
+
+        response = api_client.get(f'/api/courses/lessons/{lesson.id}/')
+        assert response.status_code == status.HTTP_200_OK
+        assert response.data['section_count'] == 2
+        assert response.data['question_count'] == 1
+        assert response.data['has_video'] is True
+
+
+@pytest.mark.django_db
+class TestPhase63RosterQueryCounts:
+    """Roster progress must not recompute the course lesson total per student."""
+
+    @pytest.fixture
+    def roster_course(self, instructor):
+        course = Course.objects.create(
+            code='ROS101', title='Roster', instructor=instructor)
+        unit = Unit.objects.create(course=course, title='U', order=0)
+        lessons = [
+            Lesson.objects.create(unit=unit, title=f'L{i}', order=i)
+            for i in range(4)
+        ]
+        for i in range(12):
+            user = User.objects.create_user(
+                email=f's{i}@test.com', password='x',
+                first_name=f'S{i}', last_name='T')
+            Enrollment.objects.create(user=user, course=course)
+            # Student i completes i % 5 lessons — including 0 for some.
+            for lesson in lessons[:i % 5]:
+                LessonProgress.objects.create(
+                    user=user, lesson=lesson, completed=True)
+        return course
+
+    def test_progress_costs_a_fixed_number_of_queries(
+            self, api_client, instructor, roster_course):
+        from django.db import connection
+        from django.test.utils import CaptureQueriesContext
+
+        api_client.force_authenticate(user=instructor)
+        with CaptureQueriesContext(connection) as ctx:
+            response = api_client.get(
+                f'/api/courses/courses/{roster_course.code}/students/')
+
+        assert response.status_code == status.HTTP_200_OK
+        assert len(response.data['results']) == 12
+
+        # The lesson-total query and the grouped-progress query both touch
+        # courses_lesson, so separate them: the total must be resolved once for
+        # the whole page, not once per student.
+        progress_queries = queries_against(ctx, 'courses_lessonprogress')
+        lesson_total_queries = [
+            sql for sql in queries_against(ctx, 'courses_lesson"')
+            if 'courses_lessonprogress' not in sql
+        ]
+        assert len(lesson_total_queries) == 1, (
+            f'the course lesson total is identical for every student and must '
+            f'be resolved once, got {len(lesson_total_queries)}'
+        )
+        assert len(progress_queries) == 1, (
+            f'completed counts must be one grouped query, got '
+            f'{len(progress_queries)}'
+        )
+
+    def test_roster_queries_do_not_scale_with_students(
+            self, api_client, instructor, roster_course):
+        """The guarantee stated directly: 12 students and 24 must cost the
+        same, which is what a per-student recompute would break."""
+        from django.db import connection
+        from django.test.utils import CaptureQueriesContext
+
+        api_client.force_authenticate(user=instructor)
+        url = f'/api/courses/courses/{roster_course.code}/students/'
+
+        with CaptureQueriesContext(connection) as small:
+            assert api_client.get(url).status_code == status.HTTP_200_OK
+
+        for i in range(100, 112):
+            user = User.objects.create_user(
+                email=f's{i}@test.com', password='x',
+                first_name=f'S{i}', last_name='T')
+            Enrollment.objects.create(user=user, course=roster_course)
+
+        with CaptureQueriesContext(connection) as big:
+            response = api_client.get(url)
+        assert len(response.data['results']) == 24
+
+        assert len(big.captured_queries) == len(small.captured_queries), (
+            f'{len(small.captured_queries)} queries for 12 students vs '
+            f'{len(big.captured_queries)} for 24 — still scaling'
+        )
+
+    def test_progress_percentages_are_unchanged(
+            self, api_client, instructor, roster_course):
+        api_client.force_authenticate(user=instructor)
+        response = api_client.get(f'/api/courses/courses/{roster_course.code}/students/')
+
+        by_email = {r['email']: r for r in response.data['results']}
+        # 4 lessons in the course; student i completed i % 5 of them.
+        assert by_email['s0@test.com']['progress_percentage'] == 0
+        assert by_email['s1@test.com']['progress_percentage'] == 25.0
+        assert by_email['s2@test.com']['progress_percentage'] == 50.0
+        assert by_email['s4@test.com']['progress_percentage'] == 100.0
+        # i % 5 == 0 again — a student with no progress rows at all.
+        assert by_email['s5@test.com']['progress_percentage'] == 0
+
+    def test_zero_lesson_course_reports_zero_not_error(
+            self, api_client, instructor, student):
+        empty = Course.objects.create(
+            code='EMPTY1', title='Empty', instructor=instructor)
+        Enrollment.objects.create(user=student, course=empty)
+
+        api_client.force_authenticate(user=instructor)
+        response = api_client.get(f'/api/courses/courses/{empty.code}/students/')
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.data['results'][0]['progress_percentage'] == 0

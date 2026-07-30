@@ -1,4 +1,6 @@
 from django.core.validators import MaxLengthValidator
+from django.db import models
+from django.db.models import Count, Prefetch
 from rest_framework import serializers
 from .models import (
     Course, Unit, Lesson, Enrollment, LessonProgress, Announcement, CourseGradingConfig,
@@ -119,7 +121,138 @@ class LessonSectionBulkCreateSerializer(serializers.Serializer):
     sections = LessonSectionCreateSerializer(many=True, min_length=1, max_length=50)
 
 
-class LessonSerializer(serializers.ModelSerializer):
+def _build_lesson_stats(lesson_ids):
+    """Per-lesson counts for a batch of lessons, in three queries total.
+
+    Returns ``{lesson_id: {section_count, attachment_count, question_count,
+    has_video}}`` with an entry for every id asked for — lessons with no
+    sections/attachments/questions must still report 0 rather than go missing,
+    which is the classic way a bulk rewrite changes behaviour.
+
+    ``has_video`` rides along on the section pass instead of costing a query of
+    its own. It is the Python equivalent of the old
+    ``filter(video_type='youtube').exclude(video_id='')``: ``video_id`` is a
+    non-null CharField, so empty string is the only falsy value it can hold.
+    """
+    stats = {
+        lesson_id: {
+            'section_count': 0,
+            'attachment_count': 0,
+            'question_count': 0,
+            'has_video': False,
+        }
+        for lesson_id in lesson_ids
+    }
+    if not lesson_ids:
+        return stats
+
+    for lesson_id, video_type, video_id in LessonSection.objects.filter(
+        lesson_id__in=lesson_ids
+    ).values_list('lesson_id', 'video_type', 'video_id'):
+        row = stats[lesson_id]
+        row['section_count'] += 1
+        if video_type == 'youtube' and video_id:
+            row['has_video'] = True
+
+    for model, key in (
+        (LessonAttachment, 'attachment_count'),
+        (LessonQuestion, 'question_count'),
+    ):
+        counts = (
+            model.objects.filter(lesson_id__in=lesson_ids)
+            .values('lesson_id')
+            .annotate(n=Count('id'))
+            .values_list('lesson_id', 'n')
+        )
+        for lesson_id, n in counts:
+            stats[lesson_id][key] = n
+
+    return stats
+
+
+class LessonStatsMixin:
+    """Resolves the per-lesson count fields in bulk instead of per lesson.
+
+    Same mechanic as ``_completed_lesson_ids`` below: DRF's ``context`` is a
+    property that walks ``self.parent`` up to the root serializer and returns
+    one shared dict, so a nested serializer writing to it is visible to every
+    sibling. Results accumulate — a second unit's lessons add to the map rather
+    than replacing it — and the dict lives for exactly one response.
+
+    Priming happens in ``LessonStatsListSerializer`` because only the
+    ``many=True`` wrapper can see the whole list up front. Rendering a single
+    lesson still works: the first field access primes just that lesson, which
+    costs three queries instead of the four it replaces.
+    """
+
+    #: Relations the stats are derived from, by prefetch-cache key.
+    _STAT_RELATIONS = ('sections', 'attachments', 'questions')
+
+    def _lesson_stats(self, lesson_ids):
+        stats = self.context.setdefault('lesson_stats', {})
+        missing = [
+            lesson_id for lesson_id in lesson_ids if lesson_id not in stats
+        ]
+        if missing:
+            stats.update(_build_lesson_stats(missing))
+        return stats
+
+    def _stats_for(self, obj):
+        """Stats for one lesson, cheapest source first.
+
+        If the view already prefetched all three relations — which the views
+        serializing full sections/attachments do — read them straight out of the
+        prefetch cache for zero further queries. Otherwise fall back to the
+        bulk map, which is what course detail uses: prefetching sections there
+        would drag every section's markdown `content` into memory just to count
+        rows.
+        """
+        prefetched = getattr(obj, '_prefetched_objects_cache', None) or {}
+        if all(relation in prefetched for relation in self._STAT_RELATIONS):
+            sections = list(obj.sections.all())
+            return {
+                'section_count': len(sections),
+                'has_video': any(
+                    section.video_type == 'youtube' and section.video_id
+                    for section in sections
+                ),
+                'attachment_count': len(obj.attachments.all()),
+                'question_count': len(obj.questions.all()),
+            }
+        return self._lesson_stats([obj.pk])[obj.pk]
+
+    def get_attachment_count(self, obj):
+        return self._stats_for(obj)['attachment_count']
+
+    def get_section_count(self, obj):
+        return self._stats_for(obj)['section_count']
+
+    def get_has_video(self, obj):
+        # Phase 53: video lives in sections, not on the lesson. True if any
+        # section has a playable YouTube video.
+        return self._stats_for(obj)['has_video']
+
+    def get_question_count(self, obj):
+        return self._stats_for(obj)['question_count']
+
+
+class LessonStatsListSerializer(serializers.ListSerializer):
+    """Primes the shared stats map once for the whole list.
+
+    Wired via ``Meta.list_serializer_class``, so every ``many=True`` use gets
+    this for free no matter which of the six views instantiated it.
+    """
+
+    def to_representation(self, data):
+        iterable = data.all() if isinstance(data, models.Manager) else data
+        # Materialize once: the queryset would otherwise be evaluated a second
+        # time by super(), undoing the saving.
+        lessons = list(iterable)
+        self.child._lesson_stats([lesson.pk for lesson in lessons])
+        return super().to_representation(lessons)
+
+
+class LessonSerializer(LessonStatsMixin, serializers.ModelSerializer):
     """Serializer for Lesson model."""
     question_count = serializers.SerializerMethodField()
     attachments = LessonAttachmentSerializer(many=True, read_only=True)
@@ -129,6 +262,7 @@ class LessonSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = Lesson
+        list_serializer_class = LessonStatsListSerializer
         # Phase 54: `required_quiz` (System A) retired — not writable/readable.
         # `requires_quiz` is the single per-lesson gate over the lesson's own
         # comprehension questions.
@@ -196,16 +330,6 @@ class LessonSerializer(serializers.ModelSerializer):
 
         return value
 
-    def get_question_count(self, obj):
-        return obj.questions.count()
-
-    def get_section_count(self, obj):
-        return obj.sections.count()
-
-    def get_has_video(self, obj):
-        # Phase 53: video lives in sections. True if any section has a YouTube video.
-        return obj.sections.filter(video_type='youtube').exclude(video_id='').exists()
-
 
 class LessonCreateSerializer(serializers.ModelSerializer):
     """Serializer for creating lessons (unit set in view).
@@ -221,7 +345,7 @@ class LessonCreateSerializer(serializers.ModelSerializer):
         read_only_fields = ['id', 'content', 'video_type', 'video_id']
 
 
-class LessonListSerializer(serializers.ModelSerializer):
+class LessonListSerializer(LessonStatsMixin, serializers.ModelSerializer):
     """Serializer for lesson lists (includes content and video_id for editing)."""
     question_count = serializers.SerializerMethodField()
     attachment_count = serializers.SerializerMethodField()
@@ -231,6 +355,7 @@ class LessonListSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = Lesson
+        list_serializer_class = LessonStatsListSerializer
         fields = [
             'id', 'title', 'order', 'video_type', 'video_id', 'content',
             'requires_quiz', 'question_count',
@@ -267,20 +392,6 @@ class LessonListSerializer(serializers.ModelSerializer):
         """
         return obj.id in self._completed_lesson_ids()
 
-    def get_attachment_count(self, obj):
-        return obj.attachments.count()
-
-    def get_section_count(self, obj):
-        return obj.sections.count()
-
-    def get_has_video(self, obj):
-        # Phase 53: video lives in sections, not on the lesson. True if any
-        # section has a playable YouTube video.
-        return obj.sections.filter(video_type='youtube').exclude(video_id='').exists()
-
-    def get_question_count(self, obj):
-        return obj.questions.count()
-
 
 class UnitSerializer(serializers.ModelSerializer):
     """Serializer for Unit model with nested lessons."""
@@ -301,7 +412,52 @@ class UnitCreateSerializer(serializers.ModelSerializer):
         read_only_fields = ['id']
 
 
-class CourseSerializer(serializers.ModelSerializer):
+#: Prefetch alias holding only active enrollments. Views that serialize
+#: student_count/is_enrolled attach this; the serializers below read it instead
+#: of issuing a filter() per course. Named via to_attr so it cannot collide with
+#: a plain prefetch_related('enrollments') elsewhere.
+ACTIVE_ENROLLMENTS_ATTR = 'active_enrollments'
+
+
+def prefetch_active_enrollments():
+    return Prefetch(
+        'enrollments',
+        queryset=Enrollment.objects.filter(is_active=True),
+        to_attr=ACTIVE_ENROLLMENTS_ATTR,
+    )
+
+
+class ActiveEnrollmentCountMixin:
+    """Serves student_count/is_enrolled from a filtered prefetch when present.
+
+    The per-object versions these replace both called ``.filter()`` on the
+    related manager, which builds a fresh queryset and hits the database every
+    time — a plain ``prefetch_related('enrollments')`` never helped them.
+    """
+
+    def _active_enrollments(self, obj):
+        return getattr(obj, ACTIVE_ENROLLMENTS_ATTR, None)
+
+    def get_student_count(self, obj):
+        active = self._active_enrollments(obj)
+        if active is None:
+            return obj.enrollments.filter(is_active=True).count()
+        return len(active)
+
+    def get_is_enrolled(self, obj):
+        request = self.context.get('request')
+        if not (request and request.user.is_authenticated):
+            return False
+        active = self._active_enrollments(obj)
+        if active is None:
+            return obj.enrollments.filter(
+                user=request.user, is_active=True).exists()
+        return any(
+            enrollment.user_id == request.user.id for enrollment in active
+        )
+
+
+class CourseSerializer(ActiveEnrollmentCountMixin, serializers.ModelSerializer):
     """Full course serializer with nested units."""
     instructor = UserSerializer(read_only=True)
     units = UnitSerializer(many=True, read_only=True)
@@ -317,15 +473,6 @@ class CourseSerializer(serializers.ModelSerializer):
         ]
         read_only_fields = ['id', 'enrollment_code', 'created_at', 'updated_at']
 
-    def get_student_count(self, obj):
-        return obj.enrollments.filter(is_active=True).count()
-
-    def get_is_enrolled(self, obj):
-        request = self.context.get('request')
-        if request and request.user.is_authenticated:
-            return obj.enrollments.filter(user=request.user, is_active=True).exists()
-        return False
-
     def to_representation(self, instance):
         """Hide enrollment_code from non-instructors."""
         data = super().to_representation(instance)
@@ -338,7 +485,7 @@ class CourseSerializer(serializers.ModelSerializer):
         return data
 
 
-class CourseListSerializer(serializers.ModelSerializer):
+class CourseListSerializer(ActiveEnrollmentCountMixin, serializers.ModelSerializer):
     """Lightweight serializer for course lists."""
     instructor_name = serializers.SerializerMethodField()
     student_count = serializers.SerializerMethodField()
@@ -354,11 +501,10 @@ class CourseListSerializer(serializers.ModelSerializer):
     def get_instructor_name(self, obj):
         return obj.instructor.get_full_name() or obj.instructor.email
 
-    def get_student_count(self, obj):
-        return obj.enrollments.filter(is_active=True).count()
-
     def get_unit_count(self, obj):
-        return obj.units.count()
+        # Free when the view prefetched units: .count() on a prefetched manager
+        # would still hit the database, len() of .all() reads the cache.
+        return len(obj.units.all())
 
 
 class CourseCreateSerializer(serializers.ModelSerializer):
@@ -374,7 +520,8 @@ class CourseCreateSerializer(serializers.ModelSerializer):
         return super().create(validated_data)
 
 
-class InstructorCourseSerializer(serializers.ModelSerializer):
+class InstructorCourseSerializer(
+        ActiveEnrollmentCountMixin, serializers.ModelSerializer):
     """Course serializer for instructors (includes enrollment_code)."""
     units = UnitSerializer(many=True, read_only=True)
     student_count = serializers.SerializerMethodField()
@@ -386,9 +533,6 @@ class InstructorCourseSerializer(serializers.ModelSerializer):
             'is_active', 'units', 'student_count', 'created_at', 'updated_at'
         ]
         read_only_fields = ['id', 'enrollment_code', 'created_at', 'updated_at']
-
-    def get_student_count(self, obj):
-        return obj.enrollments.filter(is_active=True).count()
 
 
 class EnrollmentCourseSerializer(serializers.ModelSerializer):
@@ -603,17 +747,47 @@ class StudentRosterSerializer(serializers.ModelSerializer):
             'progress_percentage', 'is_inactive'
         ]
 
+    def _course_lesson_total(self, course_id):
+        """Lessons in the course — one query per response, not per student.
+
+        Every row on a roster page belongs to the same course, so the old
+        per-student ``Lesson.objects.filter(unit__course=obj.course).count()``
+        recomputed an identical number up to 100 times (the roster page size).
+        Keyed by course id anyway, so a mixed-course list stays correct.
+        """
+        totals = self.context.setdefault('roster_lesson_totals', {})
+        if course_id not in totals:
+            totals[course_id] = Lesson.objects.filter(
+                unit__course_id=course_id).count()
+        return totals[course_id]
+
+    def _completed_counts(self, course_id):
+        """{user_id: completed lesson count} for the whole course, in one query.
+
+        Scoped by course rather than by the ids on the current page so the
+        first access serves every row without a list wrapper to prime it. The
+        rows are two integers each, so fetching the whole course is cheaper
+        than the per-student query it replaces even when the page is small.
+        """
+        by_course = self.context.setdefault('roster_completed', {})
+        if course_id not in by_course:
+            rows = (
+                LessonProgress.objects.filter(
+                    lesson__unit__course_id=course_id, completed=True)
+                .values('user_id')
+                .annotate(n=Count('id'))
+                .values_list('user_id', 'n')
+            )
+            by_course[course_id] = dict(rows)
+        return by_course[course_id]
+
     def get_progress_percentage(self, obj):
         """Calculate course progress for this student."""
-        total_lessons = Lesson.objects.filter(unit__course=obj.course).count()
+        total_lessons = self._course_lesson_total(obj.course_id)
         if total_lessons == 0:
             return 0
 
-        completed = LessonProgress.objects.filter(
-            user=obj.user,
-            lesson__unit__course=obj.course,
-            completed=True
-        ).count()
+        completed = self._completed_counts(obj.course_id).get(obj.user_id, 0)
 
         return round((completed / total_lessons) * 100, 1)
 

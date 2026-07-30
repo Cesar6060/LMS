@@ -20,6 +20,7 @@ than left implied by this docstring.
 """
 
 from django.conf import settings
+from django.core.cache import caches
 
 from rest_framework.throttling import (
     AnonRateThrottle, ScopedRateThrottle, UserRateThrottle,
@@ -33,7 +34,24 @@ class ClientIPIdentMixin:
 
     Only when ``settings.TRUST_CF_HEADERS`` is on; otherwise the header is
     ignored entirely and DRF's default ident applies.
+
+    Also redirects counter storage off the default cache. DRF's
+    ``SimpleRateThrottle`` declares ``cache = default_cache`` as a plain class
+    attribute, so overriding it here reaches every throttle in this module at
+    once. The default cache is a per-process LocMemCache and production runs two
+    gunicorn workers, which meant each worker enforced its own copy of every
+    rate; the ``throttle`` alias is shared across the workers in a container.
+    See the CACHES block in config/settings.py for the full reasoning.
+
+    Resolved per access rather than bound at import: ``caches`` hands out a
+    per-thread backend instance, and a property keeps ``override_settings``
+    working in tests. Tests that need to clear throttle history must clear
+    ``caches['throttle']`` — clearing the default cache no longer reaches it.
     """
+
+    @property
+    def cache(self):
+        return caches['throttle']
 
     def get_ident(self, request):
         if getattr(settings, 'TRUST_CF_HEADERS', False):

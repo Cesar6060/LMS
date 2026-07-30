@@ -310,3 +310,112 @@ class TestReplyEditDelete:
         api_client.force_authenticate(user=student)
         response = api_client.delete(f'/api/replies/{reply.id}/')
         assert response.status_code == status.HTTP_403_FORBIDDEN
+
+
+# ===========================================================================
+# Phase 63 — query-count guards for the thread-detail N+1
+# ===========================================================================
+#
+# thread_detail was a bare get_object_or_404 feeding a serializer that nests a
+# UserSerializer per reply, so a 50-reply thread cost ~100 queries. The
+# prefetch makes the reply fan-out constant; the one remaining per-author query
+# is UserSerializer.preferences, a reverse OneToOne that is out of scope for
+# this phase (see the note in views.course_threads).
+
+
+def queries_against(ctx, table):
+    return [q['sql'] for q in ctx.captured_queries if table in q['sql'].lower()]
+
+
+@pytest.mark.django_db
+class TestPhase63ThreadDetailQueryCounts:
+
+    @pytest.fixture
+    def busy_thread(self, thread, student):
+        """12 replies, all by the same author.
+
+        One author on purpose: it isolates the reply fan-out this phase fixed
+        from the per-distinct-author preferences query it did not.
+        """
+        for i in range(12):
+            Reply.objects.create(
+                thread=thread, author=student, content=f'reply {i}')
+        return thread
+
+    def test_reply_authors_are_not_fetched_per_reply(
+            self, api_client, student, enrollment, busy_thread):
+        from django.db import connection
+        from django.test.utils import CaptureQueriesContext
+
+        api_client.force_authenticate(user=student)
+        with CaptureQueriesContext(connection) as ctx:
+            response = api_client.get(f'/api/threads/{busy_thread.id}/')
+
+        assert response.status_code == status.HTTP_200_OK
+        assert len(response.data['replies']) == 12
+        assert len(queries_against(ctx, 'discussions_reply')) <= 1, (
+            'replies must be prefetched, not fetched per access'
+        )
+        assert len(queries_against(ctx, 'accounts_user"')) <= 3, (
+            'reply authors must come from the prefetch, not one query each'
+        )
+
+    def test_adding_replies_does_not_add_queries(
+            self, api_client, student, enrollment, busy_thread):
+        from django.db import connection
+        from django.test.utils import CaptureQueriesContext
+
+        api_client.force_authenticate(user=student)
+        url = f'/api/threads/{busy_thread.id}/'
+        with CaptureQueriesContext(connection) as small:
+            api_client.get(url)
+
+        for i in range(100, 112):
+            Reply.objects.create(
+                thread=busy_thread, author=student, content=f'more {i}')
+
+        with CaptureQueriesContext(connection) as big:
+            response = api_client.get(url)
+        assert len(response.data['replies']) == 24
+
+        assert len(big.captured_queries) == len(small.captured_queries), (
+            f'{len(small.captured_queries)} queries for 12 replies vs '
+            f'{len(big.captured_queries)} for 24 — still scaling'
+        )
+
+    def test_replies_are_unchanged(
+            self, api_client, student, enrollment, busy_thread):
+        api_client.force_authenticate(user=student)
+        response = api_client.get(f'/api/threads/{busy_thread.id}/')
+
+        replies = response.data['replies']
+        assert [r['content'] for r in replies] == [
+            f'reply {i}' for i in range(12)]
+        assert all(r['author']['email'] == 'student@test.com' for r in replies)
+
+    def test_thread_with_no_replies(
+            self, api_client, student, enrollment, thread):
+        api_client.force_authenticate(user=student)
+        response = api_client.get(f'/api/threads/{thread.id}/')
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.data['replies'] == []
+
+    def test_missing_thread_still_404s(self, api_client, student, enrollment):
+        """The queryset form of get_object_or_404 must not change this."""
+        api_client.force_authenticate(user=student)
+        assert api_client.get('/api/threads/999999/').status_code == (
+            status.HTTP_404_NOT_FOUND)
+
+    def test_pin_and_lock_still_work(
+            self, api_client, instructor, busy_thread):
+        api_client.force_authenticate(user=instructor)
+
+        pinned = api_client.post(f'/api/threads/{busy_thread.id}/pin/')
+        assert pinned.status_code == status.HTTP_200_OK
+        assert pinned.data['is_pinned'] is True
+        assert len(pinned.data['replies']) == 12
+
+        locked = api_client.post(f'/api/threads/{busy_thread.id}/lock/')
+        assert locked.status_code == status.HTTP_200_OK
+        assert locked.data['is_locked'] is True

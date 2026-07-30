@@ -355,7 +355,7 @@ class TestDemoLogin:
 
     def test_requests_over_rate_throttled(
             self, api_client, demo_user, monkeypatch):
-        from django.core.cache import cache
+        from django.core.cache import caches
         from rest_framework.throttling import ScopedRateThrottle
 
         # DRF snapshots DEFAULT_THROTTLE_RATES onto the throttle class at
@@ -364,7 +364,12 @@ class TestDemoLogin:
         # THROTTLE_DEMO_LOGIN=3/min).
         monkeypatch.setattr(
             ScopedRateThrottle, 'THROTTLE_RATES', {'demo_login': '3/min'})
-        cache.clear()
+        # Phase 63: the 'throttle' alias, not the default cache. Throttle
+        # counters moved to their own file-backed cache so both gunicorn
+        # workers share them; clearing the default cache no longer reaches
+        # them, and because that cache is on disk, history would otherwise
+        # survive not just other tests but entire pytest sessions.
+        caches['throttle'].clear()
         try:
             for _ in range(3):
                 ok = api_client.post('/api/auth/demo-login/')
@@ -374,7 +379,7 @@ class TestDemoLogin:
             assert throttled.status_code == status.HTTP_429_TOO_MANY_REQUESTS
         finally:
             # Don't leak throttle history into other tests.
-            cache.clear()
+            caches['throttle'].clear()
 
 
 def make_png(name='avatar.png'):
@@ -689,7 +694,7 @@ class TestPasswordResetEmail:
         assert len(mail.outbox) == 0
 
     def test_requests_over_rate_throttled(self, api_client, user, monkeypatch):
-        from django.core.cache import cache
+        from django.core.cache import caches
         from rest_framework.throttling import ScopedRateThrottle
 
         # Same pattern as the demo_login throttle test: DRF snapshots
@@ -697,7 +702,7 @@ class TestPasswordResetEmail:
         # attribute (equivalent to booting with THROTTLE_PASSWORD_RESET=3/min).
         monkeypatch.setattr(
             ScopedRateThrottle, 'THROTTLE_RATES', {'password_reset': '3/min'})
-        cache.clear()
+        caches['throttle'].clear()
         try:
             for _ in range(3):
                 ok = api_client.post(self.RESET_URL, {'email': user.email})
@@ -706,7 +711,7 @@ class TestPasswordResetEmail:
             throttled = api_client.post(self.RESET_URL, {'email': user.email})
             assert throttled.status_code == status.HTTP_429_TOO_MANY_REQUESTS
         finally:
-            cache.clear()
+            caches['throttle'].clear()
 
     def test_throttle_keys_on_cf_connecting_ip(
             self, api_client, user, monkeypatch, settings):
@@ -723,13 +728,13 @@ class TestPasswordResetEmail:
         so it opts in explicitly. The off case is covered in
         core/tests/test_throttling.py.
         """
-        from django.core.cache import cache
+        from django.core.cache import caches
         from rest_framework.throttling import ScopedRateThrottle
 
         settings.TRUST_CF_HEADERS = True
         monkeypatch.setattr(
             ScopedRateThrottle, 'THROTTLE_RATES', {'password_reset': '3/min'})
-        cache.clear()
+        caches['throttle'].clear()
         try:
             for i in range(3):
                 ok = api_client.post(
@@ -752,4 +757,4 @@ class TestPasswordResetEmail:
                 HTTP_X_FORWARDED_FOR='198.51.100.7, 172.71.0.99')
             assert other.status_code == status.HTTP_200_OK
         finally:
-            cache.clear()
+            caches['throttle'].clear()

@@ -61,6 +61,12 @@ services:
 #                  (suggested: 120/min, 30/hour, 10/hour)
 # Throttles (P61): THROTTLE_SLIDE_IMPORT (suggested: 300/hour — one upload per
 #                  slide, must clear a 100-page deck plus retries)
+# Throttles (P63): THROTTLE_CACHE_DIR — OPTIONAL, leave unset. Throttle counters
+#                  moved to their own file-backed cache so both gunicorn workers
+#                  share them (before P63 each worker held its own copy and every
+#                  rate above was enforced at ~2x its stated value). The default
+#                  location under the system temp dir is correct here; set this
+#                  only to relocate the counters.
 # Email (Resend since Phase 51 — was Gmail from Phase 47; see
 # docs/runbooks/phase-51-email-provider-steps.txt):
 #                  EMAIL_BACKEND, EMAIL_HOST, EMAIL_PORT, EMAIL_USE_TLS,

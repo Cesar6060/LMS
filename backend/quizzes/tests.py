@@ -604,3 +604,284 @@ class TestQuizSessionFlow:
 
         history = api_client.get(f'/api/quizzes/{two_question_quiz.id}/attempts/')
         assert history.data == []
+
+
+# ===========================================================================
+# Phase 63 — query-count and shape guards for the N+1 rewrite
+# ===========================================================================
+#
+# QuizListSerializer used to cost four queries per quiz (best_score,
+# attempt_count, attempts_remaining, and the question_count model property),
+# and every answer row on quiz_attempts cost its own lookup for the correct
+# choice. These pin the bulk replacements: query volume must not scale with the
+# number of quizzes or answers, and the values must be unchanged — including
+# the quizzes with no attempts, which is what a grouped query drops.
+
+
+def queries_against(ctx, table):
+    return [q['sql'] for q in ctx.captured_queries if table in q['sql'].lower()]
+
+
+@pytest.mark.django_db
+class TestPhase63QuizListQueryCounts:
+
+    @pytest.fixture
+    def many_quizzes(self, unit, student):
+        """12 quizzes; the student has attempts on only some of them."""
+        quizzes = []
+        for i in range(12):
+            q = Quiz.objects.create(
+                unit=unit, title=f'Q{i}', passing_score=70, points=10,
+                order=i, max_attempts=3)
+            Question.objects.create(quiz=q, text=f'q{i}?', order=1)
+            quizzes.append(q)
+        # Attempts on the first four only.
+        for i, q in enumerate(quizzes[:4]):
+            QuizAttempt.objects.create(
+                quiz=q, student=student, score=50 + i * 10, passed=i > 1,
+                status=QuizAttempt.STATUS_COMPLETED)
+        return quizzes
+
+    def test_student_list_does_not_scale_with_quizzes(
+            self, api_client, student, enrollment, unit, many_quizzes):
+        from django.db import connection
+        from django.test.utils import CaptureQueriesContext
+
+        api_client.force_authenticate(user=student)
+        with CaptureQueriesContext(connection) as ctx:
+            response = api_client.get(f'/api/units/{unit.id}/quizzes/')
+
+        assert response.status_code == status.HTTP_200_OK
+        assert len(response.data) == 12
+        assert len(queries_against(ctx, 'quizzes_quizattempt')) <= 1, (
+            'best_score/attempt_count/attempts_remaining must share one '
+            'grouped query'
+        )
+        assert len(queries_against(ctx, 'quizzes_question')) <= 1, (
+            'question_count must be annotated, not a per-quiz property call'
+        )
+
+    def test_adding_quizzes_does_not_add_queries(
+            self, api_client, student, enrollment, unit, many_quizzes):
+        from django.db import connection
+        from django.test.utils import CaptureQueriesContext
+
+        api_client.force_authenticate(user=student)
+        url = f'/api/units/{unit.id}/quizzes/'
+        with CaptureQueriesContext(connection) as small:
+            api_client.get(url)
+
+        for i in range(100, 112):
+            Quiz.objects.create(
+                unit=unit, title=f'X{i}', passing_score=70, points=10, order=i)
+
+        with CaptureQueriesContext(connection) as big:
+            response = api_client.get(url)
+        assert len(response.data) == 24
+        assert len(big.captured_queries) == len(small.captured_queries), (
+            f'{len(small.captured_queries)} queries for 12 quizzes vs '
+            f'{len(big.captured_queries)} for 24 — still scaling'
+        )
+
+
+@pytest.mark.django_db
+class TestPhase63QuizListValues:
+    """Values must match what the per-quiz queries returned."""
+
+    @pytest.fixture
+    def graded_quiz(self, unit, student):
+        quiz = Quiz.objects.create(
+            unit=unit, title='Graded', passing_score=70, points=10, order=1,
+            max_attempts=3)
+        Question.objects.create(quiz=quiz, text='q?', order=1)
+        for score in (40, 90, 60):
+            QuizAttempt.objects.create(
+                quiz=quiz, student=student, score=score, passed=score >= 70,
+                status=QuizAttempt.STATUS_COMPLETED)
+        return quiz
+
+    def _list(self, api_client, unit):
+        response = api_client.get(f'/api/units/{unit.id}/quizzes/')
+        assert response.status_code == status.HTTP_200_OK
+        return {q['title']: q for q in response.data}
+
+    def test_best_score_is_the_highest_completed_attempt(
+            self, api_client, student, enrollment, unit, graded_quiz):
+        api_client.force_authenticate(user=student)
+        row = self._list(api_client, unit)['Graded']
+
+        assert row['best_score']['score'] == 90.0
+        assert row['best_score']['passed'] is True
+        assert row['attempt_count'] == 3
+        assert row['attempts_remaining'] == 0
+        assert row['question_count'] == 1
+
+    def test_quiz_with_no_attempts(
+            self, api_client, student, enrollment, unit, quiz):
+        """The row a grouped query drops."""
+        api_client.force_authenticate(user=student)
+        row = self._list(api_client, unit)['Test Quiz']
+
+        assert row['best_score'] is None
+        assert row['attempt_count'] == 0
+        assert row['question_count'] == 0
+
+    def test_unlimited_attempts_reports_none(
+            self, api_client, student, enrollment, unit, graded_quiz):
+        graded_quiz.max_attempts = 0
+        graded_quiz.save()
+
+        api_client.force_authenticate(user=student)
+        row = self._list(api_client, unit)['Graded']
+        assert row['attempts_remaining'] is None
+
+    def test_in_progress_attempts_are_not_counted(
+            self, api_client, student, enrollment, unit, graded_quiz):
+        QuizAttempt.objects.create(
+            quiz=graded_quiz, student=student, score=0,
+            status=QuizAttempt.STATUS_IN_PROGRESS)
+
+        api_client.force_authenticate(user=student)
+        row = self._list(api_client, unit)['Graded']
+        assert row['attempt_count'] == 3
+
+    def test_another_students_attempts_are_not_counted(
+            self, api_client, student, enrollment, unit, graded_quiz):
+        other = User.objects.create_user(email='o@test.com', password='x')
+        Enrollment.objects.create(user=other, course=unit.course)
+        QuizAttempt.objects.create(
+            quiz=graded_quiz, student=other, score=100, passed=True,
+            status=QuizAttempt.STATUS_COMPLETED)
+
+        api_client.force_authenticate(user=student)
+        row = self._list(api_client, unit)['Graded']
+        assert row['attempt_count'] == 3
+        assert row['best_score']['score'] == 90.0
+
+    def test_instructor_sees_all_completed_attempts(
+            self, api_client, instructor, unit, graded_quiz, student):
+        other = User.objects.create_user(email='o2@test.com', password='x')
+        QuizAttempt.objects.create(
+            quiz=graded_quiz, student=other, score=100, passed=True,
+            status=QuizAttempt.STATUS_COMPLETED)
+
+        api_client.force_authenticate(user=instructor)
+        row = self._list(api_client, unit)['Graded']
+        assert row['attempt_count'] == 4
+        assert row['best_score'] is None
+        assert row['attempts_remaining'] is None
+
+    def test_single_object_render_matches_the_list(
+            self, api_client, student, enrollment, unit, graded_quiz):
+        """The many=False fallback path — no ListSerializer to prime it."""
+        from rest_framework.test import APIRequestFactory
+
+        from .serializers import QuizListSerializer
+
+        api_client.force_authenticate(user=student)
+        from_list = self._list(api_client, unit)['Graded']
+
+        request = APIRequestFactory().get('/')
+        request.user = student
+        single = QuizListSerializer(
+            graded_quiz, context={'request': request}).data
+
+        for field in ('best_score', 'attempt_count', 'attempts_remaining',
+                      'question_count'):
+            assert single[field] == from_list[field], field
+
+
+@pytest.mark.django_db
+class TestPhase63QuizAttemptAnswers:
+    """Answer rows must not cost a query each for their correct choice."""
+
+    @pytest.fixture
+    def attempt_with_answers(self, quiz, student):
+        from .models import AttemptAnswer
+
+        attempt = QuizAttempt.objects.create(
+            quiz=quiz, student=student, score=50, passed=False,
+            status=QuizAttempt.STATUS_COMPLETED)
+        for i in range(12):
+            question = Question.objects.create(
+                quiz=quiz, text=f'q{i}?', order=i)
+            wrong = Choice.objects.create(
+                question=question, text='no', is_correct=False, order=1)
+            Choice.objects.create(
+                question=question, text='yes', is_correct=True, order=2)
+            AttemptAnswer.objects.create(
+                attempt=attempt, question=question, selected_choice=wrong,
+                is_correct=False)
+        return attempt
+
+    def test_choice_queries_do_not_scale_with_answers(
+            self, api_client, student, enrollment, quiz, attempt_with_answers):
+        from django.db import connection
+        from django.test.utils import CaptureQueriesContext
+
+        api_client.force_authenticate(user=student)
+        with CaptureQueriesContext(connection) as ctx:
+            response = api_client.get(f'/api/quizzes/{quiz.id}/attempts/')
+
+        assert response.status_code == status.HTTP_200_OK
+        assert len(response.data[0]['answers']) == 12
+        assert len(queries_against(ctx, 'quizzes_choice')) <= 2, (
+            'correct_choice_text must read the prefetch cache'
+        )
+        # Two constant quiz queries: the view's own get_object_or_404 and the
+        # attempts query's select_related join. Neither scales per attempt,
+        # which is what the next test pins.
+        assert len(queries_against(ctx, 'quizzes_quiz"')) <= 2
+
+    def test_adding_attempts_does_not_add_queries(
+            self, api_client, student, enrollment, quiz, attempt_with_answers):
+        """quiz_title was a query per attempt before select_related('quiz')."""
+        from django.db import connection
+        from django.test.utils import CaptureQueriesContext
+
+        api_client.force_authenticate(user=student)
+        url = f'/api/quizzes/{quiz.id}/attempts/'
+        with CaptureQueriesContext(connection) as small:
+            api_client.get(url)
+
+        for score in (10, 20, 30):
+            QuizAttempt.objects.create(
+                quiz=quiz, student=student, score=score, passed=False,
+                status=QuizAttempt.STATUS_COMPLETED)
+
+        with CaptureQueriesContext(connection) as big:
+            response = api_client.get(url)
+        assert len(response.data) == 4
+
+        assert len(big.captured_queries) == len(small.captured_queries), (
+            f'{len(small.captured_queries)} queries for 1 attempt vs '
+            f'{len(big.captured_queries)} for 4 — still scaling'
+        )
+
+    def test_answer_values_are_unchanged(
+            self, api_client, student, enrollment, quiz, attempt_with_answers):
+        api_client.force_authenticate(user=student)
+        response = api_client.get(f'/api/quizzes/{quiz.id}/attempts/')
+
+        answers = response.data[0]['answers']
+        assert all(a['correct_choice_text'] == 'yes' for a in answers)
+        assert all(a['selected_choice_text'] == 'no' for a in answers)
+        assert all(a['is_correct'] is False for a in answers)
+
+    def test_question_with_no_correct_choice_reports_none(
+            self, api_client, student, enrollment, quiz):
+        from .models import AttemptAnswer
+
+        attempt = QuizAttempt.objects.create(
+            quiz=quiz, student=student, score=0, passed=False,
+            status=QuizAttempt.STATUS_COMPLETED)
+        question = Question.objects.create(quiz=quiz, text='broken?', order=1)
+        choice = Choice.objects.create(
+            question=question, text='only', is_correct=False, order=1)
+        AttemptAnswer.objects.create(
+            attempt=attempt, question=question, selected_choice=choice,
+            is_correct=False)
+
+        api_client.force_authenticate(user=student)
+        response = api_client.get(f'/api/quizzes/{quiz.id}/attempts/')
+        assert response.data[0]['answers'][0]['correct_choice_text'] is None
