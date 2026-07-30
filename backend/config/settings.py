@@ -293,9 +293,12 @@ if USE_HTTPS:
 
 # Content-Security-Policy (django-csp 4.x) — applied to every Django-served
 # response. This host only serves JSON API responses and the Django admin, so
-# the policy is strict: nothing loads from anywhere but self. The 'unsafe-inline'
-# style allowance is what the Django 4.2 admin needs (it inlines a few style
-# attributes); admin scripts are all static files, so script-src stays 'self'.
+# the policy is strict: nothing loads from anywhere but self. style-src keeps
+# 'unsafe-inline' as headroom: the pages this host serves render with no inline
+# styles under the Django 5.2 admin, but admin/change_list.html still emits a
+# conditional <style> block (changelists with no actions) and third-party admin
+# widgets may inline styles. Admin scripts are all static files, so script-src
+# stays 'self'.
 # The React app is served by Cloudflare and carries its own CSP
 # (frontend/public/_headers) — this policy never applies to it.
 CONTENT_SECURITY_POLICY = {
