@@ -517,7 +517,9 @@ export function CoursePlayerPage() {
         // spoils the answers); always allow exiting, including from the quiz.
         // Never hijack browser shortcuts (Cmd/Ctrl+F find-in-page).
         if (e.metaKey || e.ctrlKey || e.altKey) return;
-        if (!isOnQuizSection || isPresenting) {
+        // Never present a lesson that hasn't loaded — the button is absent in
+        // that state, so F would fullscreen a bare spinner with no visible exit.
+        if ((!isOnQuizSection || isPresenting) && !isLessonLoading) {
           e.preventDefault();
           togglePresent();
         }
@@ -526,7 +528,7 @@ export function CoursePlayerPage() {
 
     window.addEventListener('keydown', handleKeyPress);
     return () => window.removeEventListener('keydown', handleKeyPress);
-  }, [previousLesson, nextLesson, handleLessonSelect, hasSections, currentSectionIndex, totalSections, handleSectionChange, isOnQuizSection, isPresenting, togglePresent]);
+  }, [previousLesson, nextLesson, handleLessonSelect, hasSections, currentSectionIndex, totalSections, handleSectionChange, isOnQuizSection, isPresenting, isLessonLoading, togglePresent]);
 
   if (isLoading) {
     return (
@@ -760,8 +762,10 @@ export function CoursePlayerPage() {
                       have to leave fullscreen to finish the lesson. The whole
                       block (and its margin) collapses when nothing survives. */}
                   <div className={headerHasContent ? 'mb-6' : 'hidden'}>
+                    {/* pr-* keeps a long title clear of the floating Present
+                        button, which overlaps this corner (phase 62). */}
                     {!isPresenting && (
-                      <h2 className="text-3xl font-bold mb-2">{currentLesson.title}</h2>
+                      <h2 className="text-3xl font-bold mb-2 pr-14 md:pr-32">{currentLesson.title}</h2>
                     )}
 
                     {/* Section title (only show if section has a title) */}
@@ -845,7 +849,10 @@ export function CoursePlayerPage() {
                       (hidden while presenting so the stage keeps the screen) */}
                   {!isPresenting &&
                     (!hasContentSections || isOnQuizSection || (!hasQuiz && isLastSection)) && (
-                    <LessonAttachmentsList attachments={currentLesson.attachments || []} />
+                    <LessonAttachmentsList
+                      attachments={currentLesson.attachments || []}
+                      capHeight={isSlidePage}
+                    />
                   )}
                 </div>
               </div>

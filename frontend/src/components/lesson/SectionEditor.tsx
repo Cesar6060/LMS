@@ -83,6 +83,12 @@ interface DebouncedPreviewProps {
  * keystrokes remain instant. It exists as a component rather than a hook call in
  * the editor body because the paste modal needs one per card, and hooks cannot
  * be called inside `previewCards.map()`.
+ *
+ * Key it by the thing being edited where a stable id exists: the debounced state
+ * lives inside, so swapping the content prop on a surviving instance shows the
+ * previous content for one debounce interval. The paste cards have no id and are
+ * keyed by index, so removing a card mid-typing does flash the removed card's
+ * markdown in that slot for ~200ms before it self-corrects.
  */
 function DebouncedMarkdownPreview({ content, className, emptyText }: DebouncedPreviewProps) {
   const debouncedContent = useDebounce(content, PREVIEW_DEBOUNCE_MS);
@@ -954,6 +960,7 @@ export function SectionEditor({ lessonId, lessonTitle, onSaveStatus }: SectionEd
                           </h3>
                         )}
                         <DebouncedMarkdownPreview
+                          key={editingSection.id}
                           content={editingSection.content}
                           className="prose-lg"
                           emptyText="Preview appears here as you type."
@@ -963,6 +970,7 @@ export function SectionEditor({ lessonId, lessonTitle, onSaveStatus }: SectionEd
                   ) : (
                     <CardContent className="py-4">
                       <DebouncedMarkdownPreview
+                        key={editingSection?.id}
                         content={editingSection?.content || ''}
                         emptyText="Preview appears here as you type."
                       />

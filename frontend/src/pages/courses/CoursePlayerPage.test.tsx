@@ -114,6 +114,10 @@ function installFullscreenFake() {
     return setFullscreenElement(this);
   };
   document.exitFullscreen = () => setFullscreenElement(null);
+
+  // What Esc actually does: the browser drops out of fullscreen and fires the
+  // event without any of our code being called.
+  return { browserExit: () => void setFullscreenElement(null) };
 }
 
 function renderPlayer() {
@@ -153,12 +157,14 @@ function setLesson(sections: LessonSection[], questions?: Partial<LessonQuestion
   );
 }
 
+let fullscreen: ReturnType<typeof installFullscreenFake>;
+
 const presentButton = () => screen.queryByRole('button', { name: 'Present fullscreen (F)' });
 const exitButton = () => screen.queryByRole('button', { name: 'Exit fullscreen (Esc)' });
 
 describe('CoursePlayerPage — Present control (phase 62)', () => {
   beforeEach(() => {
-    installFullscreenFake();
+    fullscreen = installFullscreenFake();
     mockUseAuth.mockReturnValue({ user });
     mockGetCourseWithProgress.mockReset().mockResolvedValue(course);
     mockGetCourseQuizzes.mockReset().mockResolvedValue([]);
@@ -220,7 +226,7 @@ describe('CoursePlayerPage — Present control (phase 62)', () => {
     expect(presentButton()).not.toBeInTheDocument();
   });
 
-  it('flips back to Present when the browser leaves fullscreen (Esc)', async () => {
+  it('flips back to Present when the browser leaves fullscreen on its own (Esc)', async () => {
     setLesson([makeSection()]);
 
     renderPlayer();
@@ -228,9 +234,46 @@ describe('CoursePlayerPage — Present control (phase 62)', () => {
     fireEvent.click(await screen.findByRole('button', { name: 'Present fullscreen (F)' }));
     expect(exitButton()).toBeInTheDocument();
 
+    // Esc never routes through our code: the browser clears fullscreenElement
+    // and fires the event unprompted, which only the listener can catch.
+    fullscreen.browserExit();
+
+    await waitFor(() => expect(presentButton()).toBeInTheDocument());
+  });
+
+  it('exits when the Exit button is clicked', async () => {
+    setLesson([makeSection()]);
+
+    renderPlayer();
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Present fullscreen (F)' }));
     fireEvent.click(screen.getByRole('button', { name: 'Exit fullscreen (Esc)' }));
 
     await waitFor(() => expect(presentButton()).toBeInTheDocument());
+  });
+
+  it('presents on F from a doc page, but not from the quiz page or with a modifier', async () => {
+    setLesson([makeSection({ layout: 'doc' })], { total_questions: 3 });
+
+    renderPlayer();
+    await screen.findByRole('heading', { name: 'What Is a Robot?' });
+
+    // Cmd+F must stay browser find-in-page.
+    fireEvent.keyDown(window, { key: 'f', metaKey: true });
+    expect(exitButton()).not.toBeInTheDocument();
+
+    fireEvent.keyDown(window, { key: 'f' });
+    expect(exitButton()).toBeInTheDocument();
+
+    // Leaving present mode on the quiz page, F must not put it back.
+    fullscreen.browserExit();
+    await waitFor(() => expect(presentButton()).toBeInTheDocument());
+
+    fireEvent.click(screen.getByRole('button', { name: /next/i }));
+    expect(await screen.findByTestId('quiz-section')).toBeInTheDocument();
+
+    fireEvent.keyDown(window, { key: 'f' });
+    expect(exitButton()).not.toBeInTheDocument();
   });
 
   it('renders no Present control where the Fullscreen API is unavailable', async () => {

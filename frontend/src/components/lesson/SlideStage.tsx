@@ -31,9 +31,16 @@ interface SlideStageProps {
  * from the wrapper's own height (`cqh`, hence `container-type: size`), which
  * binds when the box is wider than 16:9. Deliberately only ONE cross-axis
  * container-query cap: constraining both axes that way left Chrome resolving
- * one of them against a stale container size after a relayout. `max-h-full` is
- * the belt-and-braces clamp for browsers without container queries. The Present
- * button lives in the player content area now (see PresentButton).
+ * one of them against a stale container size after a relayout. `max-h-full`
+ * doesn't preserve the ratio — where container queries are unsupported it just
+ * stops the card overflowing its box.
+ *
+ * Below `md` the ratio is dropped (`max-md:aspect-auto max-md:h-full`): a phone
+ * in portrait is far taller than 16:9, so enforcing it would leave a ~220px
+ * stage with `prose-lg` text scrolling inside. Presenting happens on laptops
+ * and projectors, which is where true 16:9 earns its keep; phones keep the
+ * fill-height reading view they had before. The Present button lives in the
+ * player content area now (see PresentButton).
  */
 export function SlideStage({
   slideKey,
@@ -47,7 +54,7 @@ export function SlideStage({
     <div className="h-full w-full flex items-center justify-center px-4 py-2 sm:px-6 sm:py-4 [container-type:size]">
       <div
         key={slideKey}
-        className={`relative flex aspect-video h-auto max-h-full w-full mx-auto max-w-[calc(100cqh*1.7778)] flex-col overflow-hidden rounded-xl border bg-card shadow-lg animate-in fade-in duration-300 ${
+        className={`relative flex aspect-video h-auto max-h-full max-md:aspect-auto max-md:h-full w-full mx-auto max-w-[calc(100cqh*1.7778)] flex-col overflow-hidden rounded-xl border bg-card shadow-lg animate-in fade-in duration-300 ${
           direction === 'forward' ? 'slide-in-from-right-8' : 'slide-in-from-left-8'
         }`}
       >
