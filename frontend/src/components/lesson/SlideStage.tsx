@@ -39,17 +39,21 @@ export function SlideStage({
           direction === 'forward' ? 'slide-in-from-right-8' : 'slide-in-from-left-8'
         }`}
       >
-        <Button
-          variant="outline"
-          size="sm"
-          onClick={onTogglePresent}
-          className="absolute top-4 right-4 z-10 gap-2"
-          aria-label={isPresenting ? 'Exit fullscreen (Esc)' : 'Present fullscreen (F)'}
-          title={isPresenting ? 'Exit fullscreen (Esc)' : 'Present fullscreen (F)'}
-        >
-          {isPresenting ? <Minimize className="h-4 w-4" /> : <Maximize className="h-4 w-4" />}
-          <span className="hidden md:inline">{isPresenting ? 'Exit' : 'Present'}</span>
-        </Button>
+        {/* No button where the Fullscreen API is unavailable (e.g. iPhone
+            Safari) — presenting can't work there. */}
+        {document.fullscreenEnabled && (
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={onTogglePresent}
+            className="absolute top-4 right-4 z-10 gap-2"
+            aria-label={isPresenting ? 'Exit fullscreen (Esc)' : 'Present fullscreen (F)'}
+            title={isPresenting ? 'Exit fullscreen (Esc)' : 'Present fullscreen (F)'}
+          >
+            {isPresenting ? <Minimize className="h-4 w-4" /> : <Maximize className="h-4 w-4" />}
+            <span className="hidden md:inline">{isPresenting ? 'Exit' : 'Present'}</span>
+          </Button>
+        )}
 
         {/* Long content scrolls here, inside the stage. */}
         <div className="flex-1 overflow-y-auto px-8 py-8 sm:px-14 sm:py-12">

@@ -185,6 +185,7 @@ export function CoursePlayerPage() {
       setIsLessonLoading(true);
       setQuestionsStatus(null); // Reset questions status when loading new lesson
       setCurrentSectionIndex(0); // Reset section index
+      setNavDirection('forward'); // New lesson always enters forward
       const [lessonData, progressData, quizStatusData] = await Promise.all([
         courseService.getLesson(id),
         courseService.getLessonProgress(id),
@@ -285,15 +286,22 @@ export function CoursePlayerPage() {
   // and sidebar live outside it, so they disappear while presenting; the
   // prev/next footer and dots live inside it and stay).
   const togglePresent = useCallback(() => {
-    if (document.fullscreenElement) {
+    const el = playerContentRef.current;
+    if (!el) return;
+    if (document.fullscreenElement === el) {
       document.exitFullscreen().catch(() => {});
     } else {
-      playerContentRef.current?.requestFullscreen().catch(() => {});
+      // Optional call: iOS Safari has no Element.requestFullscreen, and a bare
+      // call would throw synchronously (uncaught by .catch).
+      el.requestFullscreen?.().catch(() => {});
     }
   }, []);
 
   useEffect(() => {
-    const onFullscreenChange = () => setIsPresenting(!!document.fullscreenElement);
+    // Present mode = OUR element is fullscreen. A student fullscreening the
+    // embedded YouTube player must not flip the presenting UI.
+    const onFullscreenChange = () =>
+      setIsPresenting(document.fullscreenElement === playerContentRef.current);
     document.addEventListener('fullscreenchange', onFullscreenChange);
     return () => document.removeEventListener('fullscreenchange', onFullscreenChange);
   }, []);
@@ -497,6 +505,8 @@ export function CoursePlayerPage() {
         }
       } else if (e.key === 'f' || e.key === 'F') {
         // Phase 60: enter present mode from slide pages; always allow exiting.
+        // Never hijack browser shortcuts (Cmd/Ctrl+F find-in-page).
+        if (e.metaKey || e.ctrlKey || e.altKey) return;
         if (isSlidePage || isPresenting) {
           e.preventDefault();
           togglePresent();
@@ -791,8 +801,10 @@ export function CoursePlayerPage() {
                     renderSectionContent()
                   )}
 
-                  {/* Attachments - show on last content section or quiz section */}
-                  {(!hasContentSections || isOnQuizSection || (!hasQuiz && isLastSection)) && (
+                  {/* Attachments - show on last content section or quiz section
+                      (hidden while presenting so the stage keeps the screen) */}
+                  {!isPresenting &&
+                    (!hasContentSections || isOnQuizSection || (!hasQuiz && isLastSection)) && (
                     <LessonAttachmentsList attachments={currentLesson.attachments || []} />
                   )}
                 </div>

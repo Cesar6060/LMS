@@ -130,9 +130,11 @@ mode.
       a dropdown), persisted via `updateLessonSection`; preview pane renders
       slide pages with the slide styling ("preview as slide"), doc pages as
       today.
-- [x] Frontend tests where the repo has patterns for them (e.g. a
-      `splitSections`-style unit test isn't applicable; rely on tsc/lint +
-      manual flow below).
+- [x] Frontend tests where the repo has patterns for them: added
+      `SlideStage.test.tsx` (vitest + testing-library, matching the existing
+      component-test pattern) covering title/markdown render, Present/Exit
+      button states + callback, fullscreen-unavailable gating, and the empty
+      state; plus tsc/lint + manual flow below.
 
 ## Verification
 

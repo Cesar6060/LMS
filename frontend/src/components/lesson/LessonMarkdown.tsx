@@ -15,7 +15,8 @@ interface LessonMarkdownProps {
  * Used by the player (doc and slide layouts) and the SectionEditor previews so
  * instructors preview exactly what students see. Token colors live in
  * lessonMarkdown.css, scoped under `.lesson-markdown` (light/dark via the
- * `dark` class) so they never leak into other prose surfaces.
+ * `dark` class) so they never leak into other prose surfaces. Regenerate the
+ * theme after a highlight.js bump with `npm run gen:hljs-theme`.
  */
 export function LessonMarkdown({ content, className }: LessonMarkdownProps) {
   return (
