@@ -3,7 +3,7 @@ from rest_framework.decorators import api_view, permission_classes
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from django.shortcuts import get_object_or_404
-from django.db.models import Max
+from django.db.models import Count, Max
 from django.utils import timezone
 
 from courses.models import Unit
@@ -17,6 +17,26 @@ from .serializers import (
 
 
 # ==================== Quiz Views ====================
+
+def _quiz_list_queryset(**filters):
+    """Base queryset for anything rendered by ``QuizListSerializer``.
+
+    ``unit_title`` / ``course_code`` are FK traversals and ``question_count``
+    is a per-quiz .count() on the model property, so without this a quiz list
+    costs 3 extra queries per row. The count is annotated under
+    ``annotated_question_count`` — ``Quiz.question_count`` is a read-only
+    property (a data descriptor), and Django assigns annotations with setattr,
+    so annotating under that name would raise. The serializer field points at
+    the annotation with ``source=``, which means **every** caller of
+    ``QuizListSerializer`` must go through this helper.
+    """
+    return (
+        Quiz.objects
+        .filter(**filters)
+        .select_related('unit', 'unit__course')
+        .annotate(annotated_question_count=Count('questions'))
+    )
+
 
 @api_view(['GET', 'POST'])
 @permission_classes([IsAuthenticated])
@@ -33,7 +53,7 @@ def unit_quizzes(request, unit_id):
         )
 
     if request.method == 'GET':
-        quizzes = Quiz.objects.filter(unit=unit)
+        quizzes = _quiz_list_queryset(unit=unit)
         serializer = QuizListSerializer(quizzes, many=True, context={'request': request})
         return Response(serializer.data)
 
@@ -64,7 +84,11 @@ def unit_quizzes(request, unit_id):
 @permission_classes([IsAuthenticated])
 def quiz_detail(request, quiz_id):
     """Get, update, or delete a quiz."""
-    quiz = get_object_or_404(Quiz, id=quiz_id)
+    # The detail serializers nest questions -> choices; without the prefetch
+    # that is one choices query per question.
+    quiz = get_object_or_404(
+        Quiz.objects.prefetch_related('questions__choices'), id=quiz_id
+    )
     course = quiz.unit.course
 
     # Check access
@@ -474,16 +498,22 @@ def quiz_attempts(request, quiz_id):
             status=status.HTTP_403_FORBIDDEN
         )
 
+    # Each answer row renders question_text, selected_choice_text and the
+    # correct choice; without these prefetches that is ~3 queries per answer.
+    # `quiz` is select_related for the serializer's quiz_title, which was
+    # otherwise one query per attempt.
+    answer_prefetch = ('answers__question__choices', 'answers__selected_choice')
+
     if is_course_instructor(request.user, course):
         # Instructors see all attempts
         attempts = QuizAttempt.objects.filter(
             quiz=quiz, status=QuizAttempt.STATUS_COMPLETED
-        ).select_related('student')
+        ).select_related('student', 'quiz').prefetch_related(*answer_prefetch)
     else:
         # Students see only their attempts
         attempts = QuizAttempt.objects.filter(
             quiz=quiz, student=request.user, status=QuizAttempt.STATUS_COMPLETED
-        )
+        ).select_related('quiz').prefetch_related(*answer_prefetch)
 
     serializer = QuizAttemptSerializer(attempts, many=True)
     return Response(serializer.data)
@@ -503,7 +533,7 @@ def course_quizzes(request, course_code):
             status=status.HTTP_403_FORBIDDEN
         )
 
-    quizzes = Quiz.objects.filter(unit__course=course).select_related('unit')
+    quizzes = _quiz_list_queryset(unit__course=course)
     serializer = QuizListSerializer(quizzes, many=True, context={'request': request})
     return Response(serializer.data)
 

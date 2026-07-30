@@ -17,6 +17,7 @@ are all unset outside production).
 
 import pytest
 from django.conf import settings
+from django.core.cache import caches
 from django.test import override_settings
 from rest_framework.test import APIRequestFactory
 
@@ -232,3 +233,54 @@ def test_trusting_cf_headers_does_not_close_xff_splitting(factory):
     second = factory.get('/api/auth/login/', HTTP_X_FORWARDED_FOR='2.2.2.2')
 
     assert throttle.get_ident(first) != throttle.get_ident(second)
+
+
+# ---------------------------------------------------------------------------
+# Phase 63: counters live in the 'throttle' cache alias, not the default one
+# ---------------------------------------------------------------------------
+#
+# Production runs `gunicorn --workers 2` and the default cache is a per-process
+# LocMemCache, so before this the two workers kept independent counters and
+# every configured rate was enforced at roughly twice its stated value. The
+# fix is one `cache` property on ClientIPIdentMixin; these tests are what catch
+# it being removed or shadowed, since nothing else in the suite would fail.
+
+
+@pytest.mark.parametrize('throttle_cls', ALL_THROTTLES)
+def test_throttle_uses_the_throttle_cache_alias(throttle_cls):
+    """Every throttle class reads and writes the dedicated alias."""
+    assert throttle_cls().cache is caches['throttle']
+
+
+@pytest.mark.parametrize('throttle_cls', ALL_THROTTLES)
+def test_throttle_does_not_use_the_default_cache(throttle_cls):
+    """A counter write must be invisible to the default cache.
+
+    The sharp edge this guards: the default cache is what
+    `from django.core.cache import cache` gives you, and it is what every
+    throttle test used to clear. If `cache` ever falls back to the default
+    alias, throttling silently returns to being per-process and the clears in
+    accounts/tests.py and courses/tests.py start passing for the wrong reason.
+    """
+    key = f'throttle_probe_{throttle_cls.__name__}'
+    caches['throttle'].delete(key)
+    caches['default'].delete(key)
+
+    throttle_cls().cache.set(key, ['written-by-the-throttle'], 60)
+    try:
+        assert caches['throttle'].get(key) == ['written-by-the-throttle']
+        assert caches['default'].get(key) is None
+    finally:
+        caches['throttle'].delete(key)
+
+
+def test_throttle_cache_is_not_locmem():
+    """The alias must be shared between processes to be worth anything.
+
+    LocMemCache is per-process; the two gunicorn workers would each get their
+    own. Asserted by backend class rather than by behaviour because a test
+    process cannot observe another worker's memory.
+    """
+    from django.core.cache.backends.locmem import LocMemCache
+
+    assert not isinstance(caches['throttle'], LocMemCache)

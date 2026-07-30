@@ -19,6 +19,22 @@ from .serializers import (
 
 # ==================== Thread Views ====================
 
+def thread_detail_queryset():
+    """Queryset for every view that renders `ThreadDetailSerializer`.
+
+    That serializer nests `replies` (each with a `UserSerializer(author)`) plus
+    `course.code` and its own `author`, so a bare `Thread.objects` render costs
+    ~2 queries per reply. The prefetch collapses the reply authors into one
+    query and, because a forward-FK prefetch reuses a single instance per
+    distinct user, the (out-of-scope) `UserSerializer.preferences` lookup drops
+    from one per reply to one per distinct author.
+
+    `get_object_or_404` still 404s normally: it calls `.get()` on this
+    queryset, and `DoesNotExist` is what it converts to `Http404`.
+    """
+    return Thread.objects.select_related('course', 'author').prefetch_related('replies__author')
+
+
 @api_view(['GET', 'POST'])
 @permission_classes([IsAuthenticated])
 def course_threads(request, course_code):
@@ -32,6 +48,16 @@ def course_threads(request, course_code):
         )
 
     if request.method == 'GET':
+        # Already flat: `reply_count` / `last_activity` are annotated (no
+        # per-thread aggregate) and the author FK is joined, so this costs a
+        # constant number of queries in the thread count. The one remaining
+        # per-thread query is the reverse OneToOne `UserSerializer.preferences`
+        # (accounts/serializers.py:46), which that serializer resolves lazily
+        # for every user it renders across 7 nesting sites. Fixing it belongs
+        # in `accounts/`, not here — patching only this call site would leave
+        # the other six — so it is deliberately left in place (phase 63,
+        # "Out of scope", recorded as follow-up debt). Measured: 12 threads =
+        # 16 queries, 12 of them `accounts_userpreferences`.
         threads = Thread.objects.filter(course=course).select_related('author').annotate(
             reply_count=Count('replies'),
             last_activity=Coalesce(Max('replies__created_at'), 'created_at'),
@@ -57,7 +83,7 @@ def course_threads(request, course_code):
 @permission_classes([IsAuthenticated])
 def thread_detail(request, thread_id):
     """Get, update, or delete a thread."""
-    thread = get_object_or_404(Thread, id=thread_id)
+    thread = get_object_or_404(thread_detail_queryset(), id=thread_id)
     course = thread.course
 
     if not can_access(request.user, course):
@@ -103,7 +129,7 @@ def thread_detail(request, thread_id):
 @permission_classes([IsAuthenticated])
 def toggle_pin(request, thread_id):
     """Toggle the pinned state of a thread. Instructor only."""
-    thread = get_object_or_404(Thread, id=thread_id)
+    thread = get_object_or_404(thread_detail_queryset(), id=thread_id)
 
     if not is_course_instructor(request.user, thread.course):
         return Response(
@@ -120,7 +146,7 @@ def toggle_pin(request, thread_id):
 @permission_classes([IsAuthenticated])
 def toggle_lock(request, thread_id):
     """Toggle the locked state of a thread. Instructor only."""
-    thread = get_object_or_404(Thread, id=thread_id)
+    thread = get_object_or_404(thread_detail_queryset(), id=thread_id)
 
     if not is_course_instructor(request.user, thread.course):
         return Response(

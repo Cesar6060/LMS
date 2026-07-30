@@ -2,6 +2,7 @@
 Django settings for gamedev_platform project.
 """
 
+import tempfile
 from datetime import timedelta
 from pathlib import Path
 from decouple import config, Csv
@@ -128,6 +129,59 @@ if DATABASE_URL:
         conn_health_checks=True,
         ssl_require=True,
     )
+
+# Caches
+#
+# Only throttling uses a cache in this project — there is no page caching, no
+# session cache (sessions are database-backed), and no memoization. `default`
+# is spelled out rather than left implicit so the contrast with `throttle` is
+# visible: it is Django's stock per-process LocMemCache and nothing depends on
+# it being shared.
+#
+# `throttle` exists because DRF stores rate-limit counters in a cache, and
+# production runs `gunicorn --workers 2` (render.yaml). Under LocMemCache each
+# worker kept its own counters, so every configured rate — THROTTLE_ANON,
+# THROTTLE_USER, THROTTLE_PASSWORD_RESET and the rest — was enforced at roughly
+# double its stated value, and would have drifted again with any worker-count
+# change. A file-backed cache fixes that: both workers are processes in one
+# container and share one filesystem.
+#
+# Why not a database cache on Neon: the `anon` and `user` scopes are checked on
+# EVERY request, so routing them through Postgres would add several queries to
+# the hottest path in the app — trading a limit-accuracy bug for a latency bug.
+# Why not Redis: it would mean a new service, a new dependency, and a new
+# failure mode for a counter store that tolerates loss.
+#
+# Two limits, both accepted:
+#   - Counters reset when the container restarts (deploys). Unchanged from the
+#     LocMemCache behaviour it replaces.
+#   - It is shared per *container*, not globally. If the service is ever scaled
+#     past one instance the per-process split returns as a per-instance split,
+#     and this needs to become Redis. The same applies for the few seconds a
+#     zero-downtime deploy runs two containers.
+#
+# MAX_ENTRIES is raised well above Django's default of 300: throttling holds one
+# key per client IP plus one per user id, so a single class of 200 students can
+# exceed 300 and culling would start discarding live counters — silently
+# widening the limits this alias exists to enforce.
+#
+# No TIMEOUT: DRF passes its own per-key duration to cache.set().
+CACHES = {
+    'default': {
+        'BACKEND': 'django.core.cache.backends.locmem.LocMemCache',
+    },
+    'throttle': {
+        'BACKEND': 'django.core.cache.backends.filebased.FileBasedCache',
+        'LOCATION': config(
+            'THROTTLE_CACHE_DIR',
+            default=str(Path(tempfile.gettempdir()) / 'stemquest-throttle'),
+        ),
+        'OPTIONS': {
+            'MAX_ENTRIES': 5000,
+            'CULL_FREQUENCY': 4,
+        },
+    },
+}
 
 # Password validation
 AUTH_PASSWORD_VALIDATORS = [

@@ -40,7 +40,8 @@ from .serializers import (
     StudentRosterSerializer, LessonQuestionSerializer, LessonQuestionStudentSerializer,
     LessonQuestionCreateSerializer, LessonAttachmentSerializer,
     LessonSectionSerializer, LessonSectionCreateSerializer,
-    LessonSectionBulkCreateSerializer, CourseMapSerializer, CourseInviteSerializer
+    LessonSectionBulkCreateSerializer, CourseMapSerializer, CourseInviteSerializer,
+    prefetch_active_enrollments,
 )
 from rest_framework.exceptions import PermissionDenied
 from .permissions import (
@@ -66,8 +67,12 @@ class CourseViewSet(viewsets.ModelViewSet):
     permission_classes = [IsAuthenticated, IsInstructorOrReadOnly, IsCourseInstructor]
 
     def get_queryset(self):
+        # `enrollments` is prefetched through the active-only alias: both
+        # student_count and is_enrolled used .filter() on the related manager,
+        # which rebuilds the queryset and hits the database however it was
+        # prefetched. See ActiveEnrollmentCountMixin.
         queryset = Course.objects.select_related('instructor').prefetch_related(
-            'units__lessons', 'enrollments'
+            'units__lessons', prefetch_active_enrollments()
         )
 
         if self.request.user.is_instructor:
@@ -158,7 +163,9 @@ class InstructorCourseViewSet(viewsets.ReadOnlyModelViewSet):
     def get_queryset(self):
         return Course.objects.filter(
             instructor=self.request.user
-        ).prefetch_related('units__lessons', 'enrollments')
+        ).select_related('instructor').prefetch_related(
+            'units__lessons', prefetch_active_enrollments()
+        )
 
 
 class UnitViewSet(viewsets.ModelViewSet):
@@ -273,6 +280,15 @@ class LessonViewSet(viewsets.ModelViewSet):
             # List only shows lessons of courses the user teaches or is enrolled in;
             # detail actions keep the full queryset so object permissions return 403
             queryset = queryset.filter(unit__course_id__in=accessible_course_ids(self.request.user))
+        else:
+            # Detail serves LessonSerializer, which nests sections and
+            # attachments in full — so these rows are being fetched either way
+            # and prefetching also feeds the count fields for free. Deliberately
+            # NOT applied to list: LessonListSerializer nests neither, and
+            # loading every section's markdown just to count rows is worse than
+            # the three bulk count queries it would save.
+            queryset = queryset.prefetch_related(
+                'sections', 'attachments', 'questions')
         return queryset
 
     def perform_create(self, serializer):
@@ -384,7 +400,11 @@ class UnitLessonsView(generics.ListCreateAPIView):
     def get_queryset(self):
         unit = get_object_or_404(Unit, pk=self.kwargs['unit_id'])
         require_course_access(self.request.user, unit.course)
-        return Lesson.objects.filter(unit=unit)
+        # Serves LessonSerializer, which nests sections and attachments in full
+        # and reports counts over all three relations.
+        return Lesson.objects.filter(unit=unit).select_related(
+            'unit__course'
+        ).prefetch_related('sections', 'attachments', 'questions')
 
     def perform_create(self, serializer):
         unit = get_object_or_404(Unit, pk=self.kwargs['unit_id'])
@@ -1628,7 +1648,13 @@ def _queue_invite_email(invite, email_tasks):
 
 @api_view(['GET', 'POST'])
 @perm_classes([IsAuthenticated])
-@throttle_classes([ClientIPScopedWriteRateThrottle])
+# @throttle_classes REPLACES DEFAULT_THROTTLE_CLASSES, and the scoped class
+# below exempts safe methods — so listing this way left GET with no throttle at
+# all. Re-list the global per-user ceiling to cover the read, exactly as
+# lesson_section_import_slide does. The other @throttle_classes views
+# (demo_login, accept_invite, the password-reset view) drop the globals too,
+# but their scoped rate is strictly tighter than anon/user, so nothing is lost.
+@throttle_classes([ClientIPUserRateThrottle, ClientIPScopedWriteRateThrottle])
 def course_invites(request, course_code):
     """List invites for a course, or bulk-invite students by email.
 
@@ -3014,7 +3040,10 @@ class InstructorReminderViewSet(viewsets.ModelViewSet):
         # Only instructors can access reminders
         if not self.request.user.is_instructor:
             return InstructorReminder.objects.none()
-        return InstructorReminder.objects.filter(instructor=self.request.user)
+        # course_code/course_title on the serializer are FK traversals — without
+        # this the list endpoint costs one query per reminder.
+        return InstructorReminder.objects.filter(
+            instructor=self.request.user).select_related('course')
 
     def get_serializer_class(self):
         if self.action in ['create', 'update', 'partial_update']:
