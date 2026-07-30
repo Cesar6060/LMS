@@ -517,6 +517,7 @@ export const courseService = {
     content?: string;
     video_type?: 'none' | 'youtube';
     video_id?: string;
+    layout?: 'doc' | 'slide';
     order?: number;
   }): Promise<LessonSection> {
     const response = await api.post<LessonSection>(`/courses/lessons/${lessonId}/sections/`, data);
@@ -528,6 +529,7 @@ export const courseService = {
     content?: string;
     video_type?: 'none' | 'youtube';
     video_id?: string;
+    layout?: 'doc' | 'slide';
   }>): Promise<LessonSection[]> {
     const response = await api.post<LessonSection[]>(
       `/courses/lessons/${lessonId}/sections/bulk/`,
@@ -541,6 +543,7 @@ export const courseService = {
     content?: string;
     video_type?: 'none' | 'youtube';
     video_id?: string;
+    layout?: 'doc' | 'slide';
     order?: number;
   }): Promise<LessonSection> {
     const response = await api.put<LessonSection>(`/courses/lessons/${lessonId}/sections/${sectionId}/`, data);
