@@ -114,7 +114,7 @@ Deep dives: [deployment overview](docs/specs/deployment-overview.md) (historical
 |-------|------------|
 | **Frontend** | React 18, TypeScript, Vite, Tailwind CSS, Radix UI |
 | **Frontend hosting** | Cloudflare Workers (static assets, global CDN) |
-| **Backend** | Django 4.2 LTS, Django REST Framework, gunicorn, WhiteNoise |
+| **Backend** | Django 5.2 LTS, Django REST Framework, gunicorn, WhiteNoise |
 | **Backend hosting** | Render |
 | **Database** | PostgreSQL 16 (Neon serverless in production) |
 | **Media storage** | Cloudflare R2 via django-storages |
