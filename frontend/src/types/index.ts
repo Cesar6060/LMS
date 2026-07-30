@@ -73,6 +73,8 @@ export interface LessonSection {
   content: string;
   video_type: 'none' | 'youtube';
   video_id: string;
+  /** Phase 60 — per-page presentation: scrolling document or slide stage. */
+  layout: 'doc' | 'slide';
   order: number;
   created_at: string;
   updated_at: string;

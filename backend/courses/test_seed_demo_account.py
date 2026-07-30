@@ -346,6 +346,26 @@ class TestCloneCourseForDemo:
             unit__course=demo, title='Number Types')
         assert cloned_lesson.unit.course == demo
 
+    def test_clone_preserves_section_layout(self, java_course):
+        """Phase 60: a source section's `layout` survives the clone."""
+        source_section = LessonSection.objects.get(
+            lesson__unit__course=java_course, title='Section 1'
+        )
+        source_section.layout = 'slide'
+        source_section.save(update_fields=['layout'])
+
+        call_command('clone_course_for_demo')
+
+        demo = Course.objects.get(code='DEMO101')
+        cloned = LessonSection.objects.get(
+            lesson__unit__course=demo, title='Section 1'
+        )
+        assert cloned.layout == 'slide'
+        # Siblings keep the default.
+        assert LessonSection.objects.get(
+            lesson__unit__course=demo, title='Section 0'
+        ).layout == 'doc'
+
     def test_rerun_is_idempotent_and_preserves_enrollment_code(self, java_course):
         call_command('clone_course_for_demo')
         demo = Course.objects.get(code='DEMO101')

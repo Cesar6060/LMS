@@ -15,11 +15,10 @@ import { splitSections } from '@/lib/splitSections';
 import { extractYouTubeVideoId } from '@/lib/video';
 import { YouTubeVideoPreview } from '@/components/lesson/YouTubeVideoPreview';
 import type { LessonSection } from '@/types';
-import ReactMarkdown from 'react-markdown';
-import remarkGfm from 'remark-gfm';
+import { LessonMarkdown } from '@/components/lesson/LessonMarkdown';
 import {
   Loader2, Plus, Trash2, ChevronUp, ChevronDown,
-  FileText, Video, Save, ClipboardPaste, X
+  FileText, Video, Save, ClipboardPaste, X, Presentation
 } from 'lucide-react';
 
 export type SaveStatus = 'idle' | 'saving' | 'saved' | 'error';
@@ -37,6 +36,7 @@ interface EditingSection {
   content: string;
   video_type: 'none' | 'youtube';
   video_id: string;
+  layout: 'doc' | 'slide';
   order: number;
 }
 
@@ -88,6 +88,7 @@ export function SectionEditor({ lessonId, lessonTitle, onSaveStatus }: SectionEd
       content: '',
       video_type: 'none',
       video_id: '',
+      layout: 'doc',
       order: nextOrder,
     });
     setSaveError('');
@@ -101,6 +102,7 @@ export function SectionEditor({ lessonId, lessonTitle, onSaveStatus }: SectionEd
       content: section.content,
       video_type: section.video_type,
       video_id: section.video_id,
+      layout: section.layout,
       order: section.order,
     });
     setSaveError('');
@@ -132,6 +134,7 @@ export function SectionEditor({ lessonId, lessonTitle, onSaveStatus }: SectionEd
         content: editingSection.content,
         video_type: editingSection.video_type,
         video_id: videoId,
+        layout: editingSection.layout,
         order: editingSection.order,
       };
 
@@ -167,6 +170,28 @@ export function SectionEditor({ lessonId, lessonTitle, onSaveStatus }: SectionEd
     } catch (err) {
       console.error('Failed to delete section:', err);
       report('error', 'Failed to delete section');
+    }
+  };
+
+  // Phase 60: flip a page between Document and Slide straight from its row.
+  const handleLayoutChange = async (section: LessonSection, layout: 'doc' | 'slide') => {
+    if (section.layout === layout) return;
+
+    report('saving');
+    try {
+      const updated = await courseService.updateLessonSection(lessonId, section.id, {
+        title: section.title,
+        content: section.content,
+        video_type: section.video_type,
+        video_id: section.video_id,
+        layout,
+        order: section.order,
+      });
+      setSections(prev => prev.map(s => (s.id === updated.id ? updated : s)));
+      report('saved');
+    } catch (err) {
+      console.error('Failed to change page layout:', err);
+      report('error', 'Failed to change page layout');
     }
   };
 
@@ -347,6 +372,37 @@ export function SectionEditor({ lessonId, lessonTitle, onSaveStatus }: SectionEd
                           </p>
                         </div>
 
+                        {/* Layout toggle (phase 60): how the player renders
+                            this page — scrolling document or slide stage */}
+                        <div
+                          className="flex items-center rounded-md border overflow-hidden shrink-0"
+                          role="group"
+                          aria-label={`Page ${index + 1} layout`}
+                        >
+                          <Button
+                            variant={section.layout === 'doc' ? 'default' : 'ghost'}
+                            size="sm"
+                            className="rounded-none gap-1.5"
+                            onClick={() => handleLayoutChange(section, 'doc')}
+                            aria-pressed={section.layout === 'doc'}
+                            title="Render as a scrolling document"
+                          >
+                            <FileText className="h-4 w-4" />
+                            Doc
+                          </Button>
+                          <Button
+                            variant={section.layout === 'slide' ? 'default' : 'ghost'}
+                            size="sm"
+                            className="rounded-none gap-1.5"
+                            onClick={() => handleLayoutChange(section, 'slide')}
+                            aria-pressed={section.layout === 'slide'}
+                            title="Render as a slide"
+                          >
+                            <Presentation className="h-4 w-4" />
+                            Slide
+                          </Button>
+                        </div>
+
                         {/* Actions */}
                         <div className="flex items-center gap-2">
                           <Button
@@ -413,6 +469,46 @@ export function SectionEditor({ lessonId, lessonTitle, onSaveStatus }: SectionEd
             </div>
 
             <div className="space-y-2">
+              <span className="text-sm font-medium">Page Layout</span>
+              <div
+                className="flex items-center rounded-md border overflow-hidden w-fit"
+                role="group"
+                aria-label="Page layout"
+              >
+                <Button
+                  type="button"
+                  variant={editingSection?.layout === 'doc' ? 'default' : 'ghost'}
+                  size="sm"
+                  className="rounded-none gap-1.5"
+                  onClick={() =>
+                    setEditingSection(prev => (prev ? { ...prev, layout: 'doc' } : null))
+                  }
+                  aria-pressed={editingSection?.layout === 'doc'}
+                >
+                  <FileText className="h-4 w-4" />
+                  Document
+                </Button>
+                <Button
+                  type="button"
+                  variant={editingSection?.layout === 'slide' ? 'default' : 'ghost'}
+                  size="sm"
+                  className="rounded-none gap-1.5"
+                  onClick={() =>
+                    setEditingSection(prev => (prev ? { ...prev, layout: 'slide' } : null))
+                  }
+                  aria-pressed={editingSection?.layout === 'slide'}
+                >
+                  <Presentation className="h-4 w-4" />
+                  Slide
+                </Button>
+              </div>
+              <p className="text-xs text-muted-foreground">
+                Documents scroll like today's pages; slides render on a big
+                centered stage with larger type.
+              </p>
+            </div>
+
+            <div className="space-y-2">
               <label htmlFor="section-video-type" className="text-sm font-medium">
                 Video Type
               </label>
@@ -471,17 +567,39 @@ export function SectionEditor({ lessonId, lessonTitle, onSaveStatus }: SectionEd
                   className="flex w-full rounded-md border border-input bg-background px-3 py-2 text-sm font-mono ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 resize-y"
                 />
                 <Card className="overflow-y-auto max-h-[320px]">
-                  <CardContent className="prose prose-neutral dark:prose-invert max-w-none py-4">
-                    {editingSection?.content ? (
-                      <ReactMarkdown remarkPlugins={[remarkGfm]}>
-                        {editingSection.content}
-                      </ReactMarkdown>
-                    ) : (
-                      <p className="text-muted-foreground not-prose text-sm">
-                        Preview appears here as you type.
-                      </p>
-                    )}
-                  </CardContent>
+                  {editingSection?.layout === 'slide' ? (
+                    /* Preview as slide (phase 60): mini stage with the same
+                       styling students see in the player */
+                    <CardContent className="p-3 h-full bg-muted/40">
+                      <div className="rounded-lg border bg-card shadow-md px-6 py-5 min-h-full">
+                        {editingSection.title && (
+                          <h3 className="text-2xl font-bold tracking-tight mb-4">
+                            {editingSection.title}
+                          </h3>
+                        )}
+                        {editingSection.content ? (
+                          <LessonMarkdown
+                            content={editingSection.content}
+                            className="prose-lg"
+                          />
+                        ) : (
+                          <p className="text-muted-foreground text-sm">
+                            Preview appears here as you type.
+                          </p>
+                        )}
+                      </div>
+                    </CardContent>
+                  ) : (
+                    <CardContent className="py-4">
+                      {editingSection?.content ? (
+                        <LessonMarkdown content={editingSection.content} />
+                      ) : (
+                        <p className="text-muted-foreground text-sm">
+                          Preview appears here as you type.
+                        </p>
+                      )}
+                    </CardContent>
+                  )}
                 </Card>
               </div>
               <p className="text-xs text-muted-foreground">
@@ -595,13 +713,11 @@ export function SectionEditor({ lessonId, lessonTitle, onSaveStatus }: SectionEd
                               className="flex w-full rounded-md border border-input bg-background px-3 py-2 text-sm font-mono ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 resize-y"
                             />
                             <Card className="overflow-y-auto max-h-[200px]">
-                              <CardContent className="prose prose-neutral dark:prose-invert max-w-none py-3 text-sm">
+                              <CardContent className="py-3">
                                 {card.content ? (
-                                  <ReactMarkdown remarkPlugins={[remarkGfm]}>
-                                    {card.content}
-                                  </ReactMarkdown>
+                                  <LessonMarkdown content={card.content} className="prose-sm" />
                                 ) : (
-                                  <p className="text-muted-foreground not-prose text-sm">
+                                  <p className="text-muted-foreground text-sm">
                                     (No content)
                                   </p>
                                 )}

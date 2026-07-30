@@ -79,7 +79,7 @@ class LessonSectionSerializer(VideoFieldsValidationMixin, serializers.ModelSeria
 
     class Meta:
         model = LessonSection
-        fields = ['id', 'title', 'content', 'video_type', 'video_id', 'order', 'created_at', 'updated_at']
+        fields = ['id', 'title', 'content', 'video_type', 'video_id', 'layout', 'order', 'created_at', 'updated_at']
         read_only_fields = ['id', 'created_at', 'updated_at']
 
 
@@ -88,7 +88,7 @@ class LessonSectionCreateSerializer(VideoFieldsValidationMixin, serializers.Mode
 
     class Meta:
         model = LessonSection
-        fields = ['id', 'title', 'content', 'video_type', 'video_id', 'order']
+        fields = ['id', 'title', 'content', 'video_type', 'video_id', 'layout', 'order']
         read_only_fields = ['id']
 
 

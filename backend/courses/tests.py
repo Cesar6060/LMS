@@ -1677,6 +1677,114 @@ class TestLessonSections:
 
 
 @pytest.mark.django_db
+class TestSectionLayout:
+    """Phase 60: per-section `layout` field ('doc' default, 'slide')."""
+
+    def test_create_section_with_slide_layout(self, api_client, instructor, lesson):
+        api_client.force_authenticate(user=instructor)
+        response = api_client.post(
+            f'/api/courses/lessons/{lesson.id}/sections/',
+            {'title': 'Slide One', 'content': 'deck', 'layout': 'slide'},
+        )
+        assert response.status_code == status.HTTP_201_CREATED
+        assert response.data['layout'] == 'slide'
+        section = LessonSection.objects.get(pk=response.data['id'])
+        assert section.layout == 'slide'
+
+    def test_update_section_layout_to_slide(self, api_client, instructor, lesson):
+        section = LessonSection.objects.create(
+            lesson=lesson, title='Doc', content='text', order=0
+        )
+        assert section.layout == 'doc'
+
+        api_client.force_authenticate(user=instructor)
+        response = api_client.put(
+            f'/api/courses/lessons/{lesson.id}/sections/{section.id}/',
+            {'title': 'Doc', 'content': 'text', 'order': 0, 'layout': 'slide'},
+        )
+        assert response.status_code == status.HTTP_200_OK
+        assert response.data['layout'] == 'slide'
+        section.refresh_from_db()
+        assert section.layout == 'slide'
+
+    def test_create_section_defaults_to_doc(self, api_client, instructor, lesson):
+        """Omitting `layout` yields 'doc' in both the response and the DB."""
+        api_client.force_authenticate(user=instructor)
+        response = api_client.post(
+            f'/api/courses/lessons/{lesson.id}/sections/',
+            {'title': 'Plain', 'content': 'text'},
+        )
+        assert response.status_code == status.HTTP_201_CREATED
+        assert response.data['layout'] == 'doc'
+        section = LessonSection.objects.get(pk=response.data['id'])
+        assert section.layout == 'doc'
+
+    def test_invalid_layout_rejected(self, api_client, instructor, lesson):
+        api_client.force_authenticate(user=instructor)
+        response = api_client.post(
+            f'/api/courses/lessons/{lesson.id}/sections/',
+            {'title': 'Bad', 'content': 'x', 'layout': 'carousel'},
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert 'layout' in response.data
+        assert lesson.sections.count() == 0
+
+    def test_bulk_create_mixed_layouts(self, api_client, instructor, lesson):
+        api_client.force_authenticate(user=instructor)
+        response = api_client.post(
+            f'/api/courses/lessons/{lesson.id}/sections/bulk/',
+            {'sections': [
+                {'title': 'Doc part', 'content': 'a', 'layout': 'doc'},
+                {'title': 'Slide part', 'content': 'b', 'layout': 'slide'},
+            ]},
+            format='json',
+        )
+        assert response.status_code == status.HTTP_201_CREATED
+        assert [s['layout'] for s in response.data] == ['doc', 'slide']
+        assert lesson.sections.get(title='Doc part').layout == 'doc'
+        assert lesson.sections.get(title='Slide part').layout == 'slide'
+
+    def test_layout_write_requires_course_owner(
+        self, api_client, student, lesson, enrollment
+    ):
+        """An enrolled student cannot set layout via create or update."""
+        section = LessonSection.objects.create(
+            lesson=lesson, title='Only', content='x', order=0
+        )
+        api_client.force_authenticate(user=student)
+
+        create_resp = api_client.post(
+            f'/api/courses/lessons/{lesson.id}/sections/',
+            {'title': 'Hacked', 'content': 'nope', 'layout': 'slide'},
+        )
+        assert create_resp.status_code == status.HTTP_403_FORBIDDEN
+
+        update_resp = api_client.put(
+            f'/api/courses/lessons/{lesson.id}/sections/{section.id}/',
+            {'title': 'Only', 'content': 'x', 'order': 0, 'layout': 'slide'},
+        )
+        assert update_resp.status_code == status.HTTP_403_FORBIDDEN
+        section.refresh_from_db()
+        assert section.layout == 'doc'
+
+    def test_lesson_detail_sections_include_layout(
+        self, api_client, student, lesson, enrollment
+    ):
+        LessonSection.objects.create(
+            lesson=lesson, title='Doc', order=0, layout='doc'
+        )
+        LessonSection.objects.create(
+            lesson=lesson, title='Slide', order=1, layout='slide'
+        )
+
+        api_client.force_authenticate(user=student)
+        response = api_client.get(f'/api/courses/lessons/{lesson.id}/')
+
+        assert response.status_code == status.HTTP_200_OK
+        assert [s['layout'] for s in response.data['sections']] == ['doc', 'slide']
+
+
+@pytest.mark.django_db
 class TestLessonCompletionGating:
     def test_complete_blocked_until_comprehension_quiz_passed(
         self, api_client, student, lesson, enrollment

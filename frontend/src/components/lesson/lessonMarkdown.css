@@ -1,0 +1,227 @@
+/*
+ * GENERATED — do not edit by hand.
+ * Built from highlight.js@11.11.1 github.css / github-dark.css, scoped under
+ * .lesson-markdown so hljs token colors apply only inside LessonMarkdown and
+ * never fight prose/prose-invert elsewhere. Regenerate with
+ * scripts/gen-hljs-theme.mjs (see LessonMarkdown.tsx).
+ */
+
+/* Code-block surface: typography's :where() selectors lose to these, so the
+ * pre background always matches the hljs theme in both modes. */
+.lesson-markdown pre {
+  background: #f6f8fa;
+  color: #24292e;
+}
+.dark .lesson-markdown pre {
+  background: #161b22;
+  color: #c9d1d9;
+}
+.lesson-markdown pre code.hljs,
+.dark .lesson-markdown pre code.hljs {
+  display: block;
+  overflow-x: auto;
+  padding: 0;
+  background: transparent;
+}
+
+.lesson-markdown .hljs {
+  color: #24292e;
+  background: #ffffff
+}
+.lesson-markdown .hljs-doctag,
+.lesson-markdown .hljs-keyword,
+.lesson-markdown .hljs-meta .hljs-keyword,
+.lesson-markdown .hljs-template-tag,
+.lesson-markdown .hljs-template-variable,
+.lesson-markdown .hljs-type,
+.lesson-markdown .hljs-variable.language_ {
+  
+  color: #d73a49
+}
+.lesson-markdown .hljs-title,
+.lesson-markdown .hljs-title.class_,
+.lesson-markdown .hljs-title.class_.inherited__,
+.lesson-markdown .hljs-title.function_ {
+  
+  color: #6f42c1
+}
+.lesson-markdown .hljs-attr,
+.lesson-markdown .hljs-attribute,
+.lesson-markdown .hljs-literal,
+.lesson-markdown .hljs-meta,
+.lesson-markdown .hljs-number,
+.lesson-markdown .hljs-operator,
+.lesson-markdown .hljs-variable,
+.lesson-markdown .hljs-selector-attr,
+.lesson-markdown .hljs-selector-class,
+.lesson-markdown .hljs-selector-id {
+  
+  color: #005cc5
+}
+.lesson-markdown .hljs-regexp,
+.lesson-markdown .hljs-string,
+.lesson-markdown .hljs-meta .hljs-string {
+  
+  color: #032f62
+}
+.lesson-markdown .hljs-built_in,
+.lesson-markdown .hljs-symbol {
+  
+  color: #e36209
+}
+.lesson-markdown .hljs-comment,
+.lesson-markdown .hljs-code,
+.lesson-markdown .hljs-formula {
+  
+  color: #6a737d
+}
+.lesson-markdown .hljs-name,
+.lesson-markdown .hljs-quote,
+.lesson-markdown .hljs-selector-tag,
+.lesson-markdown .hljs-selector-pseudo {
+  
+  color: #22863a
+}
+.lesson-markdown .hljs-subst {
+  
+  color: #24292e
+}
+.lesson-markdown .hljs-section {
+  
+  color: #005cc5;
+  font-weight: bold
+}
+.lesson-markdown .hljs-bullet {
+  
+  color: #735c0f
+}
+.lesson-markdown .hljs-emphasis {
+  
+  color: #24292e;
+  font-style: italic
+}
+.lesson-markdown .hljs-strong {
+  
+  color: #24292e;
+  font-weight: bold
+}
+.lesson-markdown .hljs-addition {
+  
+  color: #22863a;
+  background-color: #f0fff4
+}
+.lesson-markdown .hljs-deletion {
+  
+  color: #b31d28;
+  background-color: #ffeef0
+}
+.lesson-markdown .hljs-char.escape_,
+.lesson-markdown .hljs-link,
+.lesson-markdown .hljs-params,
+.lesson-markdown .hljs-property,
+.lesson-markdown .hljs-punctuation,
+.lesson-markdown .hljs-tag {
+  
+  
+}
+
+.dark .lesson-markdown .hljs {
+  color: #c9d1d9;
+  background: #0d1117
+}
+.dark .lesson-markdown .hljs-doctag,
+.dark .lesson-markdown .hljs-keyword,
+.dark .lesson-markdown .hljs-meta .hljs-keyword,
+.dark .lesson-markdown .hljs-template-tag,
+.dark .lesson-markdown .hljs-template-variable,
+.dark .lesson-markdown .hljs-type,
+.dark .lesson-markdown .hljs-variable.language_ {
+  
+  color: #ff7b72
+}
+.dark .lesson-markdown .hljs-title,
+.dark .lesson-markdown .hljs-title.class_,
+.dark .lesson-markdown .hljs-title.class_.inherited__,
+.dark .lesson-markdown .hljs-title.function_ {
+  
+  color: #d2a8ff
+}
+.dark .lesson-markdown .hljs-attr,
+.dark .lesson-markdown .hljs-attribute,
+.dark .lesson-markdown .hljs-literal,
+.dark .lesson-markdown .hljs-meta,
+.dark .lesson-markdown .hljs-number,
+.dark .lesson-markdown .hljs-operator,
+.dark .lesson-markdown .hljs-variable,
+.dark .lesson-markdown .hljs-selector-attr,
+.dark .lesson-markdown .hljs-selector-class,
+.dark .lesson-markdown .hljs-selector-id {
+  
+  color: #79c0ff
+}
+.dark .lesson-markdown .hljs-regexp,
+.dark .lesson-markdown .hljs-string,
+.dark .lesson-markdown .hljs-meta .hljs-string {
+  
+  color: #a5d6ff
+}
+.dark .lesson-markdown .hljs-built_in,
+.dark .lesson-markdown .hljs-symbol {
+  
+  color: #ffa657
+}
+.dark .lesson-markdown .hljs-comment,
+.dark .lesson-markdown .hljs-code,
+.dark .lesson-markdown .hljs-formula {
+  
+  color: #8b949e
+}
+.dark .lesson-markdown .hljs-name,
+.dark .lesson-markdown .hljs-quote,
+.dark .lesson-markdown .hljs-selector-tag,
+.dark .lesson-markdown .hljs-selector-pseudo {
+  
+  color: #7ee787
+}
+.dark .lesson-markdown .hljs-subst {
+  
+  color: #c9d1d9
+}
+.dark .lesson-markdown .hljs-section {
+  
+  color: #1f6feb;
+  font-weight: bold
+}
+.dark .lesson-markdown .hljs-bullet {
+  
+  color: #f2cc60
+}
+.dark .lesson-markdown .hljs-emphasis {
+  
+  color: #c9d1d9;
+  font-style: italic
+}
+.dark .lesson-markdown .hljs-strong {
+  
+  color: #c9d1d9;
+  font-weight: bold
+}
+.dark .lesson-markdown .hljs-addition {
+  
+  color: #aff5b4;
+  background-color: #033a16
+}
+.dark .lesson-markdown .hljs-deletion {
+  
+  color: #ffdcd7;
+  background-color: #67060c
+}
+.dark .lesson-markdown .hljs-char.escape_,
+.dark .lesson-markdown .hljs-link,
+.dark .lesson-markdown .hljs-params,
+.dark .lesson-markdown .hljs-property,
+.dark .lesson-markdown .hljs-punctuation,
+.dark .lesson-markdown .hljs-tag {
+  
+  
+}

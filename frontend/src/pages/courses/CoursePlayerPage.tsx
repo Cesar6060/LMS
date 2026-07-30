@@ -1,13 +1,13 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { useParams, useNavigate, Link } from 'react-router';
-import ReactMarkdown from 'react-markdown';
-import remarkGfm from 'remark-gfm';
 import { Button } from '@/components/ui/Button';
 import { Card, CardContent } from '@/components/ui/Card';
 import { CourseSidebar } from '@/components/course/CourseSidebar';
 import { VideoPlayer } from '@/components/video/VideoPlayer';
 import { LessonQuizSection } from '@/components/lesson/LessonQuizSection';
 import { LessonAttachmentsList } from '@/components/lesson/LessonAttachmentsList';
+import { LessonMarkdown } from '@/components/lesson/LessonMarkdown';
+import { SlideStage } from '@/components/lesson/SlideStage';
 import { courseService } from '@/services/courses';
 import { quizzesService } from '@/services/quizzes';
 import { useAuth } from '@/contexts/useAuth';
@@ -93,6 +93,12 @@ export function CoursePlayerPage() {
 
   // Section navigation state
   const [currentSectionIndex, setCurrentSectionIndex] = useState(0);
+  // Phase 60: which way the last page change went — picks the transition side.
+  const [navDirection, setNavDirection] = useState<'forward' | 'backward'>('forward');
+  // Phase 60: fullscreen present mode (slide pages). Mirrors the browser's
+  // fullscreen state via the fullscreenchange listener below, so Esc works.
+  const [isPresenting, setIsPresenting] = useState(false);
+  const playerContentRef = useRef<HTMLDivElement | null>(null);
 
   // Check if current user is the instructor
   const isCourseOwner = course && user && course.instructor.id === user.id;
@@ -179,6 +185,7 @@ export function CoursePlayerPage() {
       setIsLessonLoading(true);
       setQuestionsStatus(null); // Reset questions status when loading new lesson
       setCurrentSectionIndex(0); // Reset section index
+      setNavDirection('forward'); // New lesson always enters forward
       const [lessonData, progressData, quizStatusData] = await Promise.all([
         courseService.getLesson(id),
         courseService.getLessonProgress(id),
@@ -256,6 +263,7 @@ export function CoursePlayerPage() {
 
     if (newIndex < 0 || newIndex > maxIndex) return;
 
+    setNavDirection(newIndex >= currentSectionIndex ? 'forward' : 'backward');
     setCurrentSectionIndex(newIndex);
 
     // Save section progress (debounced to avoid too many API calls)
@@ -272,7 +280,31 @@ export function CoursePlayerPage() {
         isSavingRef.current = false;
       }
     }
-  }, [currentLesson, questionsStatus]);
+  }, [currentLesson, questionsStatus, currentSectionIndex]);
+
+  // Phase 60: fullscreen present mode targets the player content area (header
+  // and sidebar live outside it, so they disappear while presenting; the
+  // prev/next footer and dots live inside it and stay).
+  const togglePresent = useCallback(() => {
+    const el = playerContentRef.current;
+    if (!el) return;
+    if (document.fullscreenElement === el) {
+      document.exitFullscreen().catch(() => {});
+    } else {
+      // Optional call: iOS Safari has no Element.requestFullscreen, and a bare
+      // call would throw synchronously (uncaught by .catch).
+      el.requestFullscreen?.().catch(() => {});
+    }
+  }, []);
+
+  useEffect(() => {
+    // Present mode = OUR element is fullscreen. A student fullscreening the
+    // embedded YouTube player must not flip the presenting UI.
+    const onFullscreenChange = () =>
+      setIsPresenting(document.fullscreenElement === playerContentRef.current);
+    document.addEventListener('fullscreenchange', onFullscreenChange);
+    return () => document.removeEventListener('fullscreenchange', onFullscreenChange);
+  }, []);
 
   const handleMarkComplete = async () => {
     if (!currentLesson || !progress) return;
@@ -434,6 +466,9 @@ export function CoursePlayerPage() {
   const isOnQuizSection = hasQuiz && currentSectionIndex === totalSections - 1;
   const currentSection = !isOnQuizSection && hasContentSections ? contentSections[currentSectionIndex] : null;
   const isLastSection = currentSectionIndex === totalSections - 1;
+  // Phase 60: slide-layout pages swap the scrolling document for a slide stage
+  // that fills the content area (overflow scrolls inside the stage).
+  const isSlidePage = currentSection?.layout === 'slide';
 
   // Calculate progress
   const completedCount = course?.units.reduce(
@@ -468,12 +503,20 @@ export function CoursePlayerPage() {
         } else if (nextLesson) {
           handleLessonSelect(nextLesson.id);
         }
+      } else if (e.key === 'f' || e.key === 'F') {
+        // Phase 60: enter present mode from slide pages; always allow exiting.
+        // Never hijack browser shortcuts (Cmd/Ctrl+F find-in-page).
+        if (e.metaKey || e.ctrlKey || e.altKey) return;
+        if (isSlidePage || isPresenting) {
+          e.preventDefault();
+          togglePresent();
+        }
       }
     };
 
     window.addEventListener('keydown', handleKeyPress);
     return () => window.removeEventListener('keydown', handleKeyPress);
-  }, [previousLesson, nextLesson, handleLessonSelect, hasSections, currentSectionIndex, totalSections, handleSectionChange]);
+  }, [previousLesson, nextLesson, handleLessonSelect, hasSections, currentSectionIndex, totalSections, handleSectionChange, isSlidePage, isPresenting, togglePresent]);
 
   if (isLoading) {
     return (
@@ -525,34 +568,59 @@ export function CoursePlayerPage() {
       );
     }
 
-    // Render section content
+    const sectionVideo =
+      currentSection.video_type === 'youtube' && currentSection.video_id ? (
+        <VideoPlayer
+          videoType="youtube"
+          videoId={currentSection.video_id}
+          initialPosition={currentSectionIndex === 0 ? (progress?.video_position || 0) : 0}
+          onProgress={handleVideoProgress}
+          onEnded={handleVideoEnded}
+        />
+      ) : null;
+
+    // Phase 60: slide-layout page — PowerPoint-style stage instead of the
+    // scrolling document card.
+    if (currentSection.layout === 'slide') {
+      return (
+        <SlideStage
+          slideKey={`${currentLesson?.id}-${currentSectionIndex}`}
+          title={currentSection.title}
+          content={currentSection.content}
+          video={sectionVideo}
+          direction={navDirection}
+          isPresenting={isPresenting}
+          onTogglePresent={togglePresent}
+        />
+      );
+    }
+
+    // Render section content (doc layout — unchanged scrolling document).
+    // Keyed so the entry transition replays on every page change.
     return (
-      <div className="animate-in fade-in slide-in-from-right-4 duration-300">
+      <div
+        key={`${currentLesson?.id}-${currentSectionIndex}`}
+        className={`animate-in fade-in duration-300 ${
+          navDirection === 'forward' ? 'slide-in-from-right-4' : 'slide-in-from-left-4'
+        }`}
+      >
         {/* Section title */}
         {currentSection.title && (
           <h3 className="text-xl font-semibold mb-4">{currentSection.title}</h3>
         )}
 
         {/* Section video */}
-        {currentSection.video_type === 'youtube' && currentSection.video_id && (
+        {sectionVideo && (
           <div className="mb-8 mx-auto w-full max-w-[calc((100vh-15rem)*1.7778)]">
-            <VideoPlayer
-              videoType="youtube"
-              videoId={currentSection.video_id}
-              initialPosition={currentSectionIndex === 0 ? (progress?.video_position || 0) : 0}
-              onProgress={handleVideoProgress}
-              onEnded={handleVideoEnded}
-            />
+            {sectionVideo}
           </div>
         )}
 
         {/* Section content */}
         {currentSection.content && (
           <Card>
-            <CardContent className="prose prose-neutral dark:prose-invert max-w-none py-6">
-              <ReactMarkdown remarkPlugins={[remarkGfm]}>
-                {currentSection.content}
-              </ReactMarkdown>
+            <CardContent className="py-6">
+              <LessonMarkdown content={currentSection.content} />
             </CardContent>
           </Card>
         )}
@@ -637,19 +705,23 @@ export function CoursePlayerPage() {
           totalCount={totalCount}
         />
 
-        {/* Content area */}
-        <div className="flex-1 flex flex-col overflow-hidden">
+        {/* Content area — the fullscreen target for present mode (header and
+            sidebar sit outside it, so presenting hides them; the nav footer
+            stays). bg-background so fullscreen isn't black. */}
+        <div ref={playerContentRef} className="flex-1 flex flex-col overflow-hidden bg-background">
           {isLessonLoading ? (
             <div className="flex-1 flex items-center justify-center">
               <Loader2 className="h-8 w-8 animate-spin text-primary" />
             </div>
           ) : currentLesson ? (
             <>
-              {/* Lesson content */}
-              <div className="flex-1 overflow-y-auto">
-                <div className="w-full px-6 py-6 lg:px-10 lg:py-8">
-                  {/* Lesson header */}
-                  <div className="mb-6">
+              {/* Lesson content. Slide pages: no page scroll — the stage fills
+                  the area and long content scrolls inside it (phase 60). */}
+              <div className={isSlidePage ? 'flex-1 overflow-hidden' : 'flex-1 overflow-y-auto'}>
+                <div className={`w-full px-6 py-6 lg:px-10 lg:py-8 ${isSlidePage ? 'h-full flex flex-col' : ''}`}>
+                  {/* Lesson header (hidden while presenting a slide, so the
+                      stage gets the whole screen) */}
+                  <div className={`mb-6 ${isPresenting && isSlidePage ? 'hidden' : ''}`}>
                     <h2 className="text-3xl font-bold mb-2">{currentLesson.title}</h2>
 
                     {/* Section title (only show if section has a title) */}
@@ -723,10 +795,16 @@ export function CoursePlayerPage() {
                   </div>
 
                   {/* Section/Lesson content */}
-                  {renderSectionContent()}
+                  {isSlidePage ? (
+                    <div className="flex-1 min-h-0">{renderSectionContent()}</div>
+                  ) : (
+                    renderSectionContent()
+                  )}
 
-                  {/* Attachments - show on last content section or quiz section */}
-                  {(!hasContentSections || isOnQuizSection || (!hasQuiz && isLastSection)) && (
+                  {/* Attachments - show on last content section or quiz section
+                      (hidden while presenting so the stage keeps the screen) */}
+                  {!isPresenting &&
+                    (!hasContentSections || isOnQuizSection || (!hasQuiz && isLastSection)) && (
                     <LessonAttachmentsList attachments={currentLesson.attachments || []} />
                   )}
                 </div>

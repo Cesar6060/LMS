@@ -633,6 +633,11 @@ class LessonSection(models.Model):
         ('youtube', 'YouTube'),
     ]
 
+    LAYOUT_CHOICES = [
+        ('doc', 'Document'),
+        ('slide', 'Slide'),
+    ]
+
     lesson = models.ForeignKey(
         Lesson,
         on_delete=models.CASCADE,
@@ -657,6 +662,12 @@ class LessonSection(models.Model):
         max_length=100,
         blank=True,
         help_text='YouTube video ID'
+    )
+    layout = models.CharField(
+        max_length=10,
+        choices=LAYOUT_CHOICES,
+        default='doc',
+        help_text='How the player renders this page: scrolling document or slide stage'
     )
     order = models.PositiveIntegerField(default=0)
     created_at = models.DateTimeField(auto_now_add=True)
