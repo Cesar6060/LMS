@@ -25,16 +25,20 @@ Reviews: code-reviewer APPROVE WITH NITS (all fixed, 2nd commit);
 adversarial-tester 36 HELD / 0 BROKEN; db-migration-checker SAFE.
 
 ## In progress / not done
-- **Apply migration 0022 to Neon BEFORE merging PR #78** (user, from dev
-  machine): `DATABASE_URL=<neon> python manage.py migrate courses`.
-- PR #78 merge — user decision. Deploy needs no new env vars.
+- SHIPPED 2026-07-30 (user instructed): migration 0022 applied to Neon
+  (via Neon MCP run_sql_transaction — exact sqlmigrate SQL + migration
+  row; column verified, 264 prod sections all 'doc'), THEN PR #78
+  merged (02:38Z). Post-deploy verified: deep health 200 x3; prod
+  lesson API returns `layout`; new Pages bundle live (LessonMarkdown
+  chunk); prod player renders docs + highlighted java, 0 console errors.
 - A stray `feat/phase-60-slide-pages` branch was pushed to the archived
   origin repo (dev-learning-platform) by mistake; deletion was
   permission-blocked. Harmless — delete manually if it bothers you.
 
 ## Next steps
-1. User: migrate Neon (above), merge PR #78, then check
-   api.stemquests.com/api/health/?deep=1 and flip a real page to Slide.
+1. User: flip a real page to Slide in the prod editor when ready (one
+   real `F`-key fullscreen press is the only thing never tested on a
+   visible window).
 2. Deferred review nits (any future phase): debounce editor live preview
    (re-highlights per keystroke); attachments on a last slide page steal
    stage height when long; Mark Complete hidden while presenting a slide.

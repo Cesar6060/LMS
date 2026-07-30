@@ -87,8 +87,13 @@ mode.
       only (reuse existing permission test pattern — students already can't
       write sections); clone command preserves layout; lesson detail
       response includes `layout` in nested sections.
-- [ ] After merge/deploy: apply the new migration to Neon (single additive
+- [x] After merge/deploy: apply the new migration to Neon (single additive
       column, default `'doc'`, no backfill needed) — note in handoff.
+      (Done 2026-07-30: applied via Neon MCP as the exact `sqlmigrate`
+      SQL + django_migrations row — direct DATABASE_URL access is
+      permission-blocked, same as phase 59. Verified: column present,
+      latest courses migration = 0022, all 264 prod sections `'doc'`.
+      Applied BEFORE merging PR #78.)
 
 ## Frontend tasks
 
