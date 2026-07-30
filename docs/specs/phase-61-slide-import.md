@@ -219,27 +219,27 @@ multipart request per slide.
 
 ## Verification
 
-- [ ] `docker compose restart backend`; full `pytest` in the container
+- [x] `docker compose restart backend`; full `pytest` in the container
       green including every new test above; `makemigrations --check` clean
       (exactly one new migration, 0023).
-- [ ] `cd frontend && npx tsc --noEmit` — 0 errors; `npm run lint` — 0
+- [x] `cd frontend && npx tsc --noEmit` — 0 errors; `npm run lint` — 0
       errors; vitest suite green.
-- [ ] `/verify-stack` PASS, output shown.
-- [ ] Manual (instructor): export a real Google Slides deck (≥ 10 pages,
+- [x] `/verify-stack` PASS, output shown.
+- [x] Manual (instructor): export a real Google Slides deck (≥ 10 pages,
       with text) to PDF → Import slides into a local lesson → deselect one
       page in the preview grid → import → progress bar advances → rows
       show thumbnails titled "Slide N"; open one, edit its alt text, save;
       insert a markdown page between two slides via insert-below (defaults
       to slide layout) and confirm it lands in position; delete a slide
       page and confirm the lesson renumbers.
-- [ ] Manual (student): open that lesson — slides render crisply on the
+- [x] Manual (student): open that lesson — slides render crisply on the
       stage (light + dark), the inserted markdown page renders on the
       stage between them, present mode + arrows/dots/resume work across
       image and markdown pages, quiz gating unchanged; img alt text
       present in the DOM.
-- [ ] Manual (failure path): kill the backend mid-import — succeeded pages
+- [x] Manual (failure path): kill the backend mid-import — succeeded pages
       survive, grid marks the failures, Retry remaining completes the deck.
-- [ ] Demo: import-slide as the demo user → 403 `demo_blocked`; run
+- [x] Demo: import-slide as the demo user → 403 `demo_blocked`; run
       `clone_course_for_demo` on a course with an image slide → cloned
       section shows the image and its file name differs from the original.
 - [ ] After merge/deploy: apply migration 0023 to Neon (additive columns,

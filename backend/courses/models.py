@@ -669,13 +669,20 @@ class LessonSection(models.Model):
         default='doc',
         help_text='How the player renders this page: scrolling document or slide stage'
     )
+    # db_default keeps a server-side default on the columns (Django's normal
+    # AddField drops it post-backfill). Required because migration 0023 is
+    # applied to Neon BEFORE the phase-61 code deploys: the still-running old
+    # code INSERTs sections without these columns, which would violate
+    # NOT NULL the moment the default is dropped.
     image = models.ImageField(
         upload_to='slide_images/%Y/%m/',
         blank=True,
+        db_default='',
         help_text='Slide image (set only by the slide-import endpoint)'
     )
     image_alt = models.TextField(
         blank=True,
+        db_default='',
         help_text='Alt text for the slide image (extracted from the PDF text layer, editable)'
     )
     order = models.PositiveIntegerField(default=0)
