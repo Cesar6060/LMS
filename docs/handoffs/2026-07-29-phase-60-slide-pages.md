@@ -36,15 +36,38 @@ adversarial-tester 36 HELD / 0 BROKEN; db-migration-checker SAFE.
   permission-blocked. Harmless — delete manually if it bothers you.
 
 ## Next steps
-1. User: flip a real page to Slide in the prod editor when ready (one
+1. **PHASE 61 — slide deck import (plan next session).** User's real
+   intent behind "slides": author in PowerPoint/Google Slides/Canva and
+   upload the deck; each slide becomes a lesson page; must be able to
+   remove a slide and insert markdown pages between slides. Scoping
+   interview settled direction (2026-07-30, this session):
+   - KEEP per-page mixing (phase 60 model) — "remove a slide" /
+     "md page in between" are page-level ops; a per-lesson md-vs-slide
+     switch would forbid them. No lesson-level layout field.
+   - Import path: "export deck to PDF, upload PDF" — one pipeline covers
+     all three tools; rasterize per page (pdf.js client-side; Render
+     free tier can't run LibreOffice for PPTX) → one LessonSection per
+     slide with layout='slide' + an IMAGE (new field — images-per-slide
+     was explicitly out of scope in phase 60). Bulk-create pattern
+     exists (paste-to-split). Storage solved: prod media is on R2
+     (USE_R2, settings.py ~153); attachments already upload there.
+   - Rejected: PPTX parsing (LibreOffice/paid API), published-embed
+     iframes (public publishing, no per-slide pages, nav conflict),
+     slides→markdown conversion (loses visual design).
+   - Mitigation to spec: extract PDF text layer per page as alt text
+     (image slides aren't selectable/searchable).
+   - Open scoping Q: do inserted md-between pages default to doc
+     (scrolling) or slide (text on stage)? Both supported; pick default.
+   Write docs/specs/phase-61-slide-import.md first.
+2. User: flip a real page to Slide in the prod editor when ready (one
    real `F`-key fullscreen press is the only thing never tested on a
    visible window).
-2. Deferred review nits (any future phase): debounce editor live preview
+3. Deferred review nits (any future phase): debounce editor live preview
    (re-highlights per keystroke); attachments on a last slide page steal
    stage height when long; Mark Complete hidden while presenting a slide.
-3. Pre-existing items re-flagged: empty-body section create is valid;
+4. Pre-existing items re-flagged: empty-body section create is valid;
    no-slash POST /sections returns DEBUG HTML 500 locally (prod: 404).
-4. Carried: XP double-award schema fix, JAVA101 answer-rotation reseed,
+5. Carried: XP double-award schema fix, JAVA101 answer-rotation reseed,
    phase-56 regression click-through, school-device login test, Sentry
    LoginPage TypeError, promote warning-filter 3-way check to a test.
 
