@@ -4,21 +4,33 @@ import type { LessonAttachment } from '@/types';
 
 interface LessonAttachmentsListProps {
   attachments: LessonAttachment[];
+  /**
+   * Phase 62 — cap the file list and scroll it inside the card. Only wanted on
+   * slide pages, where this card is a flex sibling of the stage inside an
+   * `h-full flex flex-col` and a long list would otherwise subtract from the
+   * stage's height. Doc pages scroll as a whole, so a nested scroll region
+   * there would just hide files and trap the wheel.
+   */
+  capHeight?: boolean;
 }
 
-export function LessonAttachmentsList({ attachments }: LessonAttachmentsListProps) {
+export function LessonAttachmentsList({ attachments, capHeight = false }: LessonAttachmentsListProps) {
   if (!attachments || attachments.length === 0) {
     return null;
   }
 
   return (
-    <Card className="mt-6">
+    // `shrink-0` so the card keeps its own height instead of being squeezed;
+    // it's inert outside a flex parent, so doc pages are unaffected.
+    <Card className="mt-6 shrink-0">
       <CardContent className="py-4">
         <div className="flex items-center gap-2 mb-3">
           <Paperclip className="h-4 w-4 text-muted-foreground" />
           <h3 className="font-medium">Lesson Materials</h3>
         </div>
-        <div className="space-y-2">
+        {/* When capped, the list scrolls rather than the card — the "Lesson
+            Materials" heading stays put above it. */}
+        <div className={`space-y-2 ${capHeight ? 'max-h-40 overflow-y-auto' : ''}`}>
           {attachments.map((attachment) => {
             const fileType = attachment.file_type.toLowerCase();
             const isImage = ['png', 'jpg', 'jpeg', 'gif', 'webp'].includes(fileType);

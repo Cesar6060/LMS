@@ -1,7 +1,5 @@
 import type { ReactNode } from 'react';
-import { Button } from '@/components/ui/Button';
 import { LessonMarkdown } from './LessonMarkdown';
-import { Maximize, Minimize } from 'lucide-react';
 
 interface SlideStageProps {
   /** Changes per page so the entry animation replays on navigation. */
@@ -17,15 +15,32 @@ interface SlideStageProps {
   image?: { url: string; alt: string };
   /** Which way the deck moved — picks the slide-in direction. */
   direction: 'forward' | 'backward';
-  isPresenting: boolean;
-  onTogglePresent: () => void;
 }
 
 /**
- * Phase 60 — the slide-layout page renderer: a centered 16:9-ish stage with
+ * Phase 60 — the slide-layout page renderer: a centered 16:9 stage with
  * scaled-up typography. Long content scrolls inside the stage body (decided in
- * scoping: no auto-fit/shrink). The width cap ties the stage to viewport
- * height so it keeps slide proportions beside the collapsible sidebar.
+ * scoping: no auto-fit/shrink).
+ *
+ * Phase 62 — the 16:9 constraint is now relative to the stage's own box, not
+ * the viewport. The old cap derived width from viewport height minus a fixed
+ * chrome allowance, so anything that shrank the parent (a tall attachments
+ * card) shortened the stage while it kept the viewport-derived width, and the
+ * ratio broke. Now the card sets `aspect-video` with `height: auto`, so height
+ * always follows from width; the only extra constraint is a width cap taken
+ * from the wrapper's own height (`cqh`, hence `container-type: size`), which
+ * binds when the box is wider than 16:9. Deliberately only ONE cross-axis
+ * container-query cap: constraining both axes that way left Chrome resolving
+ * one of them against a stale container size after a relayout. `max-h-full`
+ * doesn't preserve the ratio — where container queries are unsupported it just
+ * stops the card overflowing its box.
+ *
+ * Below `md` the ratio is dropped (`max-md:aspect-auto max-md:h-full`): a phone
+ * in portrait is far taller than 16:9, so enforcing it would leave a ~220px
+ * stage with `prose-lg` text scrolling inside. Presenting happens on laptops
+ * and projectors, which is where true 16:9 earns its keep; phones keep the
+ * fill-height reading view they had before. The Present button lives in the
+ * player content area now (see PresentButton).
  */
 export function SlideStage({
   slideKey,
@@ -34,33 +49,15 @@ export function SlideStage({
   video,
   image,
   direction,
-  isPresenting,
-  onTogglePresent,
 }: SlideStageProps) {
   return (
-    <div className="h-full w-full flex items-center justify-center px-4 py-2 sm:px-6 sm:py-4">
+    <div className="h-full w-full flex items-center justify-center px-4 py-2 sm:px-6 sm:py-4 [container-type:size]">
       <div
         key={slideKey}
-        className={`relative flex h-full w-full mx-auto max-w-[calc((100vh-10rem)*1.7778)] flex-col overflow-hidden rounded-xl border bg-card shadow-lg animate-in fade-in duration-300 ${
+        className={`relative flex aspect-video h-auto max-h-full max-md:aspect-auto max-md:h-full w-full mx-auto max-w-[calc(100cqh*1.7778)] flex-col overflow-hidden rounded-xl border bg-card shadow-lg animate-in fade-in duration-300 ${
           direction === 'forward' ? 'slide-in-from-right-8' : 'slide-in-from-left-8'
         }`}
       >
-        {/* No button where the Fullscreen API is unavailable (e.g. iPhone
-            Safari) — presenting can't work there. */}
-        {document.fullscreenEnabled && (
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={onTogglePresent}
-            className="absolute top-4 right-4 z-10 gap-2"
-            aria-label={isPresenting ? 'Exit fullscreen (Esc)' : 'Present fullscreen (F)'}
-            title={isPresenting ? 'Exit fullscreen (Esc)' : 'Present fullscreen (F)'}
-          >
-            {isPresenting ? <Minimize className="h-4 w-4" /> : <Maximize className="h-4 w-4" />}
-            <span className="hidden md:inline">{isPresenting ? 'Exit' : 'Present'}</span>
-          </Button>
-        )}
-
         {image ? (
           /* Imported slide: the image IS the page (title baked in). A video
              on the same page still renders above it. */
