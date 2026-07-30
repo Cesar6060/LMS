@@ -12,13 +12,19 @@ export function LessonAttachmentsList({ attachments }: LessonAttachmentsListProp
   }
 
   return (
-    <Card className="mt-6">
+    // Phase 62: `shrink-0` + a capped, self-scrolling body. On a slide page this
+    // card is a flex sibling of the stage inside an `h-full flex flex-col`, so
+    // without the cap a long file list subtracted from the stage's height
+    // instead of scrolling itself.
+    <Card className="mt-6 shrink-0">
       <CardContent className="py-4">
         <div className="flex items-center gap-2 mb-3">
           <Paperclip className="h-4 w-4 text-muted-foreground" />
           <h3 className="font-medium">Lesson Materials</h3>
         </div>
-        <div className="space-y-2">
+        {/* The list scrolls, not the card — the "Lesson Materials" heading
+            stays put and the card's height stops growing with the file count. */}
+        <div className="space-y-2 max-h-40 overflow-y-auto">
           {attachments.map((attachment) => {
             const fileType = attachment.file_type.toLowerCase();
             const isImage = ['png', 'jpg', 'jpeg', 'gif', 'webp'].includes(fileType);

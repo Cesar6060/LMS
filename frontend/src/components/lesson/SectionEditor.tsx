@@ -21,6 +21,7 @@ import { YouTubeVideoPreview } from '@/components/lesson/YouTubeVideoPreview';
 import { useToast } from '@/contexts/useToast';
 import type { LessonSection } from '@/types';
 import { LessonMarkdown } from '@/components/lesson/LessonMarkdown';
+import { useDebounce } from '@/hooks/useDebounce';
 import { cn } from '@/lib/utils';
 import {
   Loader2, Plus, Trash2, ChevronUp, ChevronDown,
@@ -64,6 +65,34 @@ interface ImportPage {
 }
 
 type ImportPhase = 'pick' | 'rendering' | 'preview' | 'uploading';
+
+/** Milliseconds a preview waits after the last keystroke before re-rendering. */
+const PREVIEW_DEBOUNCE_MS = 200;
+
+interface DebouncedPreviewProps {
+  content: string;
+  /** Extra prose classes, e.g. `prose-lg` for the slide mini stage. */
+  className?: string;
+  /** Shown while the debounced content is empty. */
+  emptyText: string;
+}
+
+/**
+ * Phase 62 — a preview that re-renders markdown (and highlight.js) only after
+ * typing pauses, while its textarea stays fully controlled off the live state so
+ * keystrokes remain instant. It exists as a component rather than a hook call in
+ * the editor body because the paste modal needs one per card, and hooks cannot
+ * be called inside `previewCards.map()`.
+ */
+function DebouncedMarkdownPreview({ content, className, emptyText }: DebouncedPreviewProps) {
+  const debouncedContent = useDebounce(content, PREVIEW_DEBOUNCE_MS);
+
+  if (!debouncedContent) {
+    return <p className="text-muted-foreground text-sm">{emptyText}</p>;
+  }
+
+  return <LessonMarkdown content={debouncedContent} className={className} />;
+}
 
 export function SectionEditor({ lessonId, lessonTitle, onSaveStatus }: SectionEditorProps) {
   const report = useCallback(
@@ -924,27 +953,19 @@ export function SectionEditor({ lessonId, lessonTitle, onSaveStatus }: SectionEd
                             {editingSection.title}
                           </h3>
                         )}
-                        {editingSection.content ? (
-                          <LessonMarkdown
-                            content={editingSection.content}
-                            className="prose-lg"
-                          />
-                        ) : (
-                          <p className="text-muted-foreground text-sm">
-                            Preview appears here as you type.
-                          </p>
-                        )}
+                        <DebouncedMarkdownPreview
+                          content={editingSection.content}
+                          className="prose-lg"
+                          emptyText="Preview appears here as you type."
+                        />
                       </div>
                     </CardContent>
                   ) : (
                     <CardContent className="py-4">
-                      {editingSection?.content ? (
-                        <LessonMarkdown content={editingSection.content} />
-                      ) : (
-                        <p className="text-muted-foreground text-sm">
-                          Preview appears here as you type.
-                        </p>
-                      )}
+                      <DebouncedMarkdownPreview
+                        content={editingSection?.content || ''}
+                        emptyText="Preview appears here as you type."
+                      />
                     </CardContent>
                   )}
                 </Card>
@@ -1061,13 +1082,11 @@ export function SectionEditor({ lessonId, lessonTitle, onSaveStatus }: SectionEd
                             />
                             <Card className="overflow-y-auto max-h-[200px]">
                               <CardContent className="py-3">
-                                {card.content ? (
-                                  <LessonMarkdown content={card.content} className="prose-sm" />
-                                ) : (
-                                  <p className="text-muted-foreground text-sm">
-                                    (No content)
-                                  </p>
-                                )}
+                                <DebouncedMarkdownPreview
+                                  content={card.content}
+                                  className="prose-sm"
+                                  emptyText="(No content)"
+                                />
                               </CardContent>
                             </Card>
                           </div>

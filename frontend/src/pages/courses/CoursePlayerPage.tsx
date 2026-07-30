@@ -8,6 +8,7 @@ import { LessonQuizSection } from '@/components/lesson/LessonQuizSection';
 import { LessonAttachmentsList } from '@/components/lesson/LessonAttachmentsList';
 import { LessonMarkdown } from '@/components/lesson/LessonMarkdown';
 import { SlideStage } from '@/components/lesson/SlideStage';
+import { PresentButton } from '@/components/lesson/PresentButton';
 import { courseService } from '@/services/courses';
 import { quizzesService } from '@/services/quizzes';
 import { useAuth } from '@/contexts/useAuth';
@@ -470,6 +471,14 @@ export function CoursePlayerPage() {
   // that fills the content area (overflow scrolls inside the stage).
   const isSlidePage = currentSection?.layout === 'slide';
 
+  // Phase 62: Mark Complete (or the completed badge) is the one part of the
+  // lesson header that survives present mode, so the header block only
+  // collapses when neither is showing — otherwise its margin would leave a gap
+  // above the stage while presenting.
+  const showMarkComplete = (!hasSections || isLastSection) && !quizGates;
+  const showCompletedBadge = quizGates && !!progress?.completed;
+  const headerHasContent = !isPresenting || showMarkComplete || showCompletedBadge;
+
   // Calculate progress
   const completedCount = course?.units.reduce(
     (acc, unit) => acc + unit.lessons.filter(l => l.is_completed).length,
@@ -504,10 +513,11 @@ export function CoursePlayerPage() {
           handleLessonSelect(nextLesson.id);
         }
       } else if (e.key === 'f' || e.key === 'F') {
-        // Phase 60: enter present mode from slide pages; always allow exiting.
+        // Phase 62: present from any lesson page except the quiz (projecting it
+        // spoils the answers); always allow exiting, including from the quiz.
         // Never hijack browser shortcuts (Cmd/Ctrl+F find-in-page).
         if (e.metaKey || e.ctrlKey || e.altKey) return;
-        if (isSlidePage || isPresenting) {
+        if (!isOnQuizSection || isPresenting) {
           e.preventDefault();
           togglePresent();
         }
@@ -516,7 +526,7 @@ export function CoursePlayerPage() {
 
     window.addEventListener('keydown', handleKeyPress);
     return () => window.removeEventListener('keydown', handleKeyPress);
-  }, [previousLesson, nextLesson, handleLessonSelect, hasSections, currentSectionIndex, totalSections, handleSectionChange, isSlidePage, isPresenting, togglePresent]);
+  }, [previousLesson, nextLesson, handleLessonSelect, hasSections, currentSectionIndex, totalSections, handleSectionChange, isOnQuizSection, isPresenting, togglePresent]);
 
   if (isLoading) {
     return (
@@ -594,8 +604,6 @@ export function CoursePlayerPage() {
               : undefined
           }
           direction={navDirection}
-          isPresenting={isPresenting}
-          onTogglePresent={togglePresent}
         />
       );
     }
@@ -723,25 +731,41 @@ export function CoursePlayerPage() {
 
         {/* Content area — the fullscreen target for present mode (header and
             sidebar sit outside it, so presenting hides them; the nav footer
-            stays). bg-background so fullscreen isn't black. */}
-        <div ref={playerContentRef} className="flex-1 flex flex-col overflow-hidden bg-background">
+            stays). bg-background so fullscreen isn't black. `relative` is the
+            positioning context for the floating Present button (phase 62). */}
+        <div ref={playerContentRef} className="relative flex-1 flex flex-col overflow-hidden bg-background">
           {isLessonLoading ? (
             <div className="flex-1 flex items-center justify-center">
               <Loader2 className="h-8 w-8 animate-spin text-primary" />
             </div>
           ) : currentLesson ? (
             <>
+              {/* Phase 62: the Present toggle sits inside the fullscreen
+                  element (so one control both enters and exits) and outside
+                  the scroll container (so it stays pinned on long doc pages).
+                  Hidden on the quiz page — projecting it spoils the answers —
+                  but kept as Exit if the class paged into the quiz while
+                  already presenting. */}
+              {(!isOnQuizSection || isPresenting) && (
+                <PresentButton isPresenting={isPresenting} onToggle={togglePresent} />
+              )}
+
               {/* Lesson content. Slide pages: no page scroll — the stage fills
                   the area and long content scrolls inside it (phase 60). */}
               <div className={isSlidePage ? 'flex-1 overflow-hidden' : 'flex-1 overflow-y-auto'}>
                 <div className={`w-full px-6 py-6 lg:px-10 lg:py-8 ${isSlidePage ? 'h-full flex flex-col' : ''}`}>
-                  {/* Lesson header (hidden while presenting a slide, so the
-                      stage gets the whole screen) */}
-                  <div className={`mb-6 ${isPresenting && isSlidePage ? 'hidden' : ''}`}>
-                    <h2 className="text-3xl font-bold mb-2">{currentLesson.title}</h2>
+                  {/* Lesson header. Phase 62: presenting hides the title,
+                      section subtitle and quiz badge so the page gets the whole
+                      screen, but Mark Complete survives — a student used to
+                      have to leave fullscreen to finish the lesson. The whole
+                      block (and its margin) collapses when nothing survives. */}
+                  <div className={headerHasContent ? 'mb-6' : 'hidden'}>
+                    {!isPresenting && (
+                      <h2 className="text-3xl font-bold mb-2">{currentLesson.title}</h2>
+                    )}
 
                     {/* Section title (only show if section has a title) */}
-                    {hasSections && totalSections > 1 && currentSection?.title && (
+                    {!isPresenting && hasSections && totalSections > 1 && currentSection?.title && (
                       <p className="text-sm text-muted-foreground mb-2">
                         {currentSection.title}
                       </p>
@@ -749,7 +773,7 @@ export function CoursePlayerPage() {
 
                     {/* Lesson questions requirement badge - only when the quiz
                         gates completion, and not while on the quiz page itself */}
-                    {quizGates && !progress?.completed && !isOnQuizSection && (
+                    {!isPresenting && quizGates && !progress?.completed && !isOnQuizSection && (
                       <div className={`inline-flex items-center gap-2 px-3 py-1.5 rounded-lg mb-3 ${
                         questionsStatus.can_complete_lesson
                           ? 'bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400'
@@ -780,7 +804,7 @@ export function CoursePlayerPage() {
                     {/* Show Mark Complete on the last page unless the quiz gates
                         completion (then completion happens via the quiz page). When
                         the quiz is optional practice, completion stays available here. */}
-                    {(!hasSections || isLastSection) && !quizGates && (
+                    {showMarkComplete && (
                       <div className="flex items-center gap-3">
                         <Button
                           variant={progress?.completed ? 'default' : 'outline'}
@@ -802,7 +826,7 @@ export function CoursePlayerPage() {
 
                     {/* Show completion status when the quiz gates completion (the
                         Mark Complete button is hidden in that case) */}
-                    {quizGates && progress?.completed && (
+                    {showCompletedBadge && (
                       <div className="flex items-center gap-2 text-green-600 dark:text-green-400">
                         <CheckCircle className="h-5 w-5" />
                         <span className="font-medium">Lesson Completed</span>
