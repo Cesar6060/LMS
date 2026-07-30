@@ -20,7 +20,7 @@ Upgrade the backend from Django 4.2.30 LTS to the latest Django 5.2.x LTS patch.
 - [x] `python manage.py makemigrations --check --dry-run` inside the container — "No changes detected". No migration rehearsal needed.
 - [x] Added `error::django.utils.deprecation.RemovedInDjango60Warning` after the ignore lines in `backend/pytest.ini`. Nothing errored — suite green on first run.
 - [x] Full backend suite: 631 passed in 113s under 5.2.16, settings-reload tests included, zero deprecation errors.
-- [x] Admin verified on local under CSP: login + courses changelist render correctly, console shows no CSP violations. Changelist still carries an inline `style` attribute, so `'unsafe-inline'` for style-src is still required; comment updated to say "Django 5.2 admin".
+- [x] Admin verified on local under CSP: login + courses changelist render correctly, console shows no CSP violations. Server-rendered 5.2 admin pages we serve carry zero inline styles (test-client grep over login/index/changelist: 0 hits); `'unsafe-inline'` kept as headroom for the conditional `<style>` block in admin/change_list.html and third-party widgets — comment rewritten to say exactly that.
 - [x] [P] Stale version references updated: `backend/config/settings.py` CSP comment, `README.md` tech-stack table, `CLAUDE.md` line 6 — all now say Django 5.2.
 - [x] Neon prod schema check (2026-07-29): direct `migrate --check` from dev machine was permission-blocked, so equivalent evidence gathered via Neon MCP — all 84 migrations in the local Django 5.2.16 plan (`showmigrations --plan`) are present in prod `django_migrations`; only extras in prod are 4 historical `authtoken` rows from a long-removed app. No unapplied migrations, no schema drift.
 
