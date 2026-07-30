@@ -36,8 +36,16 @@ db-migration-checker UNSAFE → fixed via `db_default`.
   `image_url` + `image_alt`; import-slide route live (401 unauth vs 404 on a
   bogus sibling route); demo user → 403; Pages serving the new bundle with
   pdf.js present but NOT referenced eagerly in index.html.
-- `THROTTLE_SLIDE_IMPORT` not set in Render (optional; suggested `300/hour`).
-  Unset falls back to the global `THROTTLE_USER` ceiling.
+- SHIPPED 2026-07-30 (user instructed): `THROTTLE_SLIDE_IMPORT=300/hour` set on
+  stemquest-api-va via the Render REST API (single-key
+  `PUT /v1/services/<id>/env-vars/<key>` — NEVER the bulk PUT, which replaces
+  every var; 32 → 33 vars, others untouched), then the service was restarted
+  because that API call does NOT auto-trigger a deploy. Old gunicorn master
+  took SIGTERM 05:00:57Z, traffic resumed by 05:01:17Z, no startup errors;
+  endpoint re-checked 401 unauth / 403 demo, sections API healthy. NOTE: the
+  var's presence *inside* the running process is inferred from restart
+  ordering — `render ssh` is interactive-only, so it could not be observed
+  directly.
 - Stray `feat/phase-61-slide-import` branch pushed to the archived `origin`
   repo again — deletion permission-blocked. Delete manually if it bothers you.
 - Deferred (in PR body): Pillow `verify()` accepts trailing bytes after a valid
@@ -48,11 +56,12 @@ db-migration-checker UNSAFE → fixed via `db_default`.
 ## Next steps
 1. Real-deck smoke test in prod: export an actual Google Slides deck to PDF and
    import it into a live lesson (local testing used a Chrome-generated 13-page
-   PDF). This is the one flow never exercised against R2 signed URLs.
-2. Optionally set `THROTTLE_SLIDE_IMPORT=300/hour` in the Render dashboard.
-4. Carried from phase 60: debounce editor live preview; attachments steal stage
+   PDF). This is the one flow never exercised against R2 signed URLs, and it
+   doubles as the confirmation that `THROTTLE_SLIDE_IMPORT` loaded (a deck
+   import that completes without a 429 is the practical check).
+2. Carried from phase 60: debounce editor live preview; attachments steal stage
    height on a long last slide; Mark Complete hidden while presenting.
-5. Carried: XP double-award schema fix, JAVA101 answer-rotation reseed,
+3. Carried: XP double-award schema fix, JAVA101 answer-rotation reseed,
    phase-56 regression click-through, school-device login test, Sentry
    LoginPage TypeError, promote warning-filter 3-way check to a test.
 
