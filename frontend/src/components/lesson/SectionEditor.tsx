@@ -84,11 +84,11 @@ interface DebouncedPreviewProps {
  * the editor body because the paste modal needs one per card, and hooks cannot
  * be called inside `previewCards.map()`.
  *
- * Key it by the thing being edited where a stable id exists: the debounced state
- * lives inside, so swapping the content prop on a surviving instance shows the
- * previous content for one debounce interval. The paste cards have no id and are
- * keyed by index, so removing a card mid-typing does flash the removed card's
- * markdown in that slot for ~200ms before it self-corrects.
+ * ALWAYS key it by the thing being edited: the debounced state lives inside, so
+ * swapping the content prop on a surviving instance renders the previous
+ * content for one debounce interval. That is why the paste cards carry their
+ * own `key` rather than using the array index — removing a card would otherwise
+ * show the removed card's markdown in the slot that shifted up.
  */
 function DebouncedMarkdownPreview({ content, className, emptyText }: DebouncedPreviewProps) {
   const debouncedContent = useDebounce(content, PREVIEW_DEBOUNCE_MS);
@@ -118,7 +118,11 @@ export function SectionEditor({ lessonId, lessonTitle, onSaveStatus }: SectionEd
   // Paste-to-split modal state
   const [showPasteModal, setShowPasteModal] = useState(false);
   const [pasteText, setPasteText] = useState('');
-  const [previewCards, setPreviewCards] = useState<Array<{ title: string; content: string }>>([]);
+  // Phase 62: cards carry a stable `key` because the preview is debounced —
+  // keying the row by array index made a removal reuse the surviving instance,
+  // which then showed the REMOVED card's markdown until the timer fired.
+  const [previewCards, setPreviewCards] = useState<Array<{ key: number; title: string; content: string }>>([]);
+  const previewCardKeyRef = useRef(0);
   const [hasPreviewed, setHasPreviewed] = useState(false);
   const [isBulkSaving, setIsBulkSaving] = useState(false);
   const [pasteError, setPasteError] = useState('');
@@ -340,7 +344,9 @@ export function SectionEditor({ lessonId, lessonTitle, onSaveStatus }: SectionEd
 
   const handlePreviewSplit = () => {
     setPasteError('');
-    setPreviewCards(splitSections(pasteText));
+    setPreviewCards(
+      splitSections(pasteText).map(card => ({ ...card, key: previewCardKeyRef.current++ }))
+    );
     setHasPreviewed(true);
   };
 
@@ -1059,7 +1065,7 @@ export function SectionEditor({ lessonId, lessonTitle, onSaveStatus }: SectionEd
                       {previewCards.length} page{previewCards.length === 1 ? '' : 's'} to add
                     </p>
                     {previewCards.map((card, index) => (
-                      <Card key={index} className="overflow-hidden">
+                      <Card key={card.key} className="overflow-hidden">
                         <CardContent className="p-4 space-y-3">
                           <div className="flex items-center gap-2">
                             <span className="text-sm font-medium text-muted-foreground whitespace-nowrap">
