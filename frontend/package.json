@@ -54,7 +54,7 @@
     "highlight.js": "^11.11.1",
     "jsdom": "^29.1.1",
     "postcss": "^8.5.24",
-    "tailwindcss": "^3.4.17",
+    "tailwindcss": "^4.3.3",
     "typescript": "~5.6.3",
     "typescript-eslint": "^8.18.2",
     "vite": "^6.0.5",
