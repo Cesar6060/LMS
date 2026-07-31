@@ -455,14 +455,13 @@ export type AvatarSlot =
   | 'backdrop'
   // Phase 64
   | 'companion'
-  | 'aura'
   | 'held';
 
 /** All eight slots, in catalog order — iterate this instead of hard-coding
  *  a slot list, so adding a slot can't silently drop items from a UI. */
 export const AVATAR_SLOTS: readonly AvatarSlot[] = [
   'color', 'headgear', 'eyes', 'accessory', 'backdrop',
-  'companion', 'aura', 'held',
+  'companion', 'held',
 ] as const;
 
 /** Which gate an item is behind (Phase 64). */

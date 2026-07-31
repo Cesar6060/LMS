@@ -22,13 +22,12 @@ const CATALOG_KEYS: Record<AvatarSlot, string[]> = {
   accessory: ['none', 'bowtie', 'scarf', 'medal', 'backpack', 'cape', 'jetpack', 'sash', 'wings', 'marksman_pin'],
   backdrop: ['plain', 'none', 'grid', 'stars', 'sunset', 'forest', 'galaxy', 'arcade', 'aurora_sky'],
   companion: ['none', 'drone', 'chip', 'robo_cat', 'owl', 'dragon', 'phoenix'],
-  aura: ['none', 'sparkle', 'pulse', 'electric', 'rainbow', 'flame_ring', 'golden'],
   held: ['none', 'wrench', 'controller', 'codex', 'debug_blade', 'torch', 'trophy'],
 };
 
 const DEFAULTS: AvatarEquipped = {
   color: 'classic', headgear: 'none', eyes: 'none', accessory: 'none',
-  backdrop: 'plain', companion: 'none', aura: 'none', held: 'none',
+  backdrop: 'plain', companion: 'none', held: 'none',
 };
 
 const POSES = ['idle', 'cheer', 'encourage', 'celebrate'] as const;

@@ -24,7 +24,13 @@ SLOTS = (
     # Phase 64. Appended, not interleaved — the tuple order drives iteration
     # in update_avatar and avatar_payload, and the original five keep their
     # relative order so payload key order is stable.
-    'companion', 'aura', 'held',
+    #
+    # The 'aura' slot was retired after phase 64: its rings framed the whole
+    # figure and made every other cosmetic hard to read. The GameProfile
+    # column is deliberately LEFT IN PLACE — dropping it is irreversible and
+    # would break any still-running old code. Absent from SLOTS, it simply
+    # stops being read or served.
+    'companion', 'held',
 )
 
 # The level-1 default key per slot — what a fresh profile wears, and what a
@@ -36,7 +42,6 @@ SLOT_DEFAULTS = {
     'accessory': 'none',
     'backdrop': 'plain',
     'companion': 'none',
-    'aura': 'none',
     'held': 'none',
 }
 
@@ -237,31 +242,6 @@ CATALOG = [
      'description': 'Thirty days without missing one',
      'required_level': 1, 'unlock_type': UNLOCK_STREAK,
      'required_streak': 30},
-
-    # -- Auras (Phase 64) ---------------------------------------------------
-    {'key': 'none', 'slot': 'aura', 'name': 'No Aura',
-     'description': 'Understated',
-     'required_level': 1, 'unlock_type': UNLOCK_LEVEL},
-    {'key': 'sparkle', 'slot': 'aura', 'name': 'Sparkles',
-     'description': 'A gentle shimmer',
-     'required_level': 3, 'unlock_type': UNLOCK_LEVEL},
-    {'key': 'pulse', 'slot': 'aura', 'name': 'Energy Pulse',
-     'description': 'A slow ring of power',
-     'required_level': 6, 'unlock_type': UNLOCK_LEVEL},
-    {'key': 'electric', 'slot': 'aura', 'name': 'Static Arc',
-     'description': 'Crackling with charge',
-     'required_level': 10, 'unlock_type': UNLOCK_LEVEL},
-    {'key': 'rainbow', 'slot': 'aura', 'name': 'Rainbow Shimmer',
-     'description': 'The full spectrum',
-     'required_level': 14, 'unlock_type': UNLOCK_LEVEL},
-    {'key': 'flame_ring', 'slot': 'aura', 'name': 'Flame Ring',
-     'description': 'A week-long streak, still burning',
-     'required_level': 1, 'unlock_type': UNLOCK_STREAK,
-     'required_streak': 7},
-    {'key': 'golden', 'slot': 'aura', 'name': 'Golden Glow',
-     'description': 'The glow of a finished course',
-     'required_level': 1, 'unlock_type': UNLOCK_BADGE,
-     'required_badge': 'course_done'},
 
     # -- Held items (Phase 64) ----------------------------------------------
     {'key': 'none', 'slot': 'held', 'name': 'Empty Hands',

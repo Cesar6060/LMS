@@ -491,14 +491,13 @@ consciously accepted — nothing was silently dropped.
 
 ### Accepted, not fixed
 
-- **Companions overlap the jetpack's right thruster at `size={150}`.** The spec asked
-  companions to clear the jetpack/cape. Cape, wings and backpack are clean; the
-  jetpack is not — the companion draws last and covers the right thruster. Verified
-  visually rather than assumed. Fully separating them would mean redrawing all six
-  creatures inside a ~24-unit-wide strip, which would cost more legibility at the
-  72px course-map size than the overlap costs at 150px. The overlap reads as the
-  companion standing in front of the pack, not as a rendering fault. Revisit only if
-  it looks wrong in the live hero.
+- ~~**Companions overlap the jetpack's right thruster at `size={150}`.**~~
+  **FIXED after merge** (commit `1a1ce4d`, "declutter the avatar composition"). The
+  fix for the crowded hero extended the viewBox to reserve a 20-unit margin and
+  offset the companion group into it, which cleared this collision as a side effect —
+  no creature had to be redrawn. Verified visually against jetpack, cape, wings and
+  backpack. This entry is kept rather than deleted so the record shows it was
+  accepted, then resolved.
 - **`mascot_name` has no content moderation** beyond character-class validation.
   Out of scope by design: the name is self-only and never rendered on a shared
   surface, and React escapes it. Worth revisiting if it is ever surfaced to other
