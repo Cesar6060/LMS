@@ -23,30 +23,51 @@ errors (1 pre-existing warning), vitest 101, build OK, editor chunk 13.21 kB
 gzip (unchanged from phase 62).
 
 ## In progress / not done
-- **PR #81 is unmerged and CI was still running.** Check it before merging.
-- Everything in the spec's checklist is done; 10 deviations are recorded in its
-  "Assumptions / deviations" section.
-- Carried, untouched by this phase: phase-62 manual fullscreen pass on prod;
-  confirming the phase-62 Pages bundle actually shipped (a monitor timed out
-  waiting for it — worth re-checking); real-deck slide-import smoke test;
-  XP double-award schema fix; JAVA101 answer-rotation reseed; phase-56
-  regression click-through; school-device login test; Sentry LoginPage
+- **SHIPPED 2026-07-30 (user merged):** PR #81 merged as `8968bfc`, both CI
+  checks green. Post-deploy verified on prod, not inferred:
+  - Shared throttle cache works. `POST /api/auth/demo-login/` allowed exactly
+    10 then 429'd on the 11th, and all 6 follow-ups also 429'd with zero 200s
+    leaking through. Under the old per-worker LocMemCache those 10 would have
+    split ~5/5 across workers (first 429 near #21, with 200s alternating in
+    after). This is simultaneously the proof that the phase-63 backend is
+    deployed and that the fix works.
+  - 12 unauthenticated API GETs all returned 401, no spurious 429s — the cache
+    dir is writable and MAX_ENTRIES is sane.
+  - Throttle window expired cleanly; demo-login recovered to 200.
+- **CLOSED — phase-62 Pages bundle DID ship.** `.max-md\:aspect-auto`
+  (phase-62-only class) is present in the served
+  `https://stemquests.com/assets/index-BDsu5Bnn.css`. The monitor that timed
+  out waiting for it was a false alarm; do not re-investigate.
+- **CLOSED — phase-62 manual fullscreen pass.** User confirmed working on prod
+  2026-07-30. This was the last untested path from phase 62.
+- **CLOSED — school-device login test** (open since phase 57). User confirmed
+  working on a real school device 2026-07-30.
+- Still open, carried: phase-61 real-deck slide-import smoke test (see the
+  throttle note in Next steps); XP double-award schema fix; JAVA101
+  answer-rotation reseed; phase-56 regression click-through; Sentry LoginPage
   TypeError.
 - Deferred deliberately: `UserSerializer.preferences` (reverse OneToOne, 1
   query per user across 7 nesting sites) — the only remaining N+1 of any size.
 
 ## Next steps
-1. Merge PR #81 once CI is green.
-2. **After the Render deploy, re-check rate limits.** They were being enforced
-   at ~2x their configured values; they will now bite as written. If any value
-   was tuned against the doubled behaviour it may need raising. Leave
-   `THROTTLE_CACHE_DIR` unset — the default is correct on Render.
-3. Confirm throttling still fires in prod (demo-login at 10/min is the safe one
-   to hammer) and that normal browsing is NOT throttled — a bad `MAX_ENTRIES`
-   or an unwritable cache dir would show up as either no throttling or
-   spurious 429s.
-4. Phase-62 remainders (manual fullscreen pass, bundle confirmation) and the
-   phase-61 real-deck smoke test.
+1. **Decide on `THROTTLE_SLIDE_IMPORT`.** Phase 63 halved its real-world
+   ceiling and this is the one scope where the doubling was load-bearing. One
+   slide = one upload and decks cap at 100 pages
+   (`frontend/src/lib/slideImport.ts:17`), so at 300/hour it went from ~6 full
+   decks per hour to exactly 3, before retries — and a cancelled-then-retried
+   import burns the budget twice. Raising it to 600/hour restores the previous
+   effective behaviour. For every other scope the halving IS the intended fix;
+   only this one had headroom that mattered. Gotcha: setting the var via the
+   Render API does NOT trigger a deploy — restart the service after.
+2. Phase-61 real-deck smoke test — export a Google Slides deck to PDF and
+   import it into a live lesson. Still the one flow never exercised against R2
+   signed URLs, and now also the practical check on item 1.
+3. Next phase candidate: **XP double-award** (carried since phase 58). Oldest
+   open correctness bug — `XPEvent.source_id` is a bare int keyed on
+   lesson/quiz PKs, so rebuilding course content re-awards XP students already
+   earned. Verify the "needs a migration" claim against the gamification models
+   before scoping; that assumption is inherited from the phase-58 handoff and
+   has not been checked.
 
 ## Decisions made
 - **FileBasedCache, not DatabaseCache on Neon.** The `anon`/`user` scopes run on
