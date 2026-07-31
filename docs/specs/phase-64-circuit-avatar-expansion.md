@@ -97,9 +97,11 @@ caller can't reintroduce a per-item query.
 ## Backend tasks
 
 ### Model + migration
-- [x] `GameProfile`: add `avatar_companion` (`CharField(max_length=30, default='none')`),
-      `avatar_aura` (default `'none'`), `avatar_held` (default `'none'`).
+- [x] `GameProfile`: add `avatar_companion`, `avatar_aura`, `avatar_held` —
+      `CharField(max_length=30, default='none', db_default='none')`.
       Extend the Phase-33 comment block to mention the three unlock axes.
+      **`db_default` is load-bearing**, see Deviations #1: without it the
+      migration drops the DB default and old code 500s during the deploy window.
 - [x] `makemigrations gamification` → one migration adding all three fields. Three
       `AddField`s with literal defaults: additive, reversible, no data migration, no
       table rewrite risk. **Do not apply to Neon** — dev/CI only in this phase.
@@ -356,8 +358,10 @@ caller can't reintroduce a per-item query.
 - [x] `[P]` Vitest: `getSceneTheme` returns a fully-populated theme for every backdrop
       key in the catalog — fails if `forest`/`arcade`/`aurora_sky` fall through to
       `DEFAULT_THEME`.
-- [x] `[P]` Vitest: `Held` places the item at the cheer-pose hand coordinate, not the
-      idle one, when `pose="cheer"`.
+- [x] `[P]` Vitest: `Held` places the item at the **celebrate**-pose hand coordinate,
+      not the idle one. (Spec originally said `cheer`; that is unimplementable —
+      `cheer` raises only the LEFT arm, so the right hand, and therefore the held
+      item, is identical for idle/cheer/encourage. Corrected during implementation.)
 
 ---
 
@@ -431,3 +435,71 @@ caller can't reintroduce a per-item query.
   split it across two subagents.
 - The three backdrop files (`mascot/Backdrops.tsx`, `BackdropScene.tsx`, `backdrop.ts`)
   are deliberately **not** marked `[P]` relative to each other.
+
+---
+
+## Deviations and findings (recorded during implementation)
+
+Found by the finish-phase review pass. Everything here was either fixed or is
+consciously accepted — nothing was silently dropped.
+
+### Fixed
+
+1. **`db_default` on the three new fields** (found by `db-migration-checker`, and
+   reproduced). `AddField(default=...)` backfills and then issues
+   `ALTER COLUMN ... DROP DEFAULT`, leaving `NOT NULL` columns with no database
+   default. Because migrations are applied to Neon by hand *before* the new code
+   deploys, and `GameProfile` rows are created lazily by `get_or_create()` on the
+   dashboard and in every XP award, a student without a profile row would have hit
+   an `IntegrityError` 500 during the deploy window. The three fields now carry
+   `db_default='none'` as well as `default='none'`, so the migration keeps the
+   database default. Verified: the exact INSERT the old code generates (omitting
+   all three columns) now succeeds and Postgres fills in `'none'`.
+   **Note for future phases:** the phase-33 avatar fields have the same shape and
+   the same latent hazard. Any new `NOT NULL` field on `GameProfile` should use
+   `db_default`.
+
+2. **NUL byte in `mascot_name` returned a 500, not a 400** (found by
+   `adversarial-tester`, reproduced). The name branch only did `strip()` and a
+   length check, so `'a\x00b'` passed validation and raised an unhandled
+   `psycopg.DataError` inside `save()`. Added `clean_mascot_name()`, which NFKC-
+   normalizes and rejects any Unicode "other" category (`Cc` control, `Cf` format,
+   `Cs`/`Co`/`Cn`). This also closes the zero-width-space "blank name" bypass and
+   the RTL-override display-spoof the same pass flagged as SUSPICIOUS. Pinned by
+   `TestAvatarNameHardening`. Pre-existing since phase 33, fixed here because this
+   phase touched the branch.
+
+3. **The query-count guard did not guard anything** (found by `code-reviewer`,
+   demonstrated). It compared a 0-badge request to a 2-badge request; a per-item
+   badge query costs the same in both, so the N+1 it was meant to catch passed
+   straight through. Replaced with an absolute query budget plus a second test that
+   triples the catalog and asserts the query count is unchanged.
+
+4. **Instructor boundary was untested on the cosmetic path.** The only instructor
+   test sent `mascot_name` — but this phase's central edit moved the demo guard into
+   that branch, leaving the role check as the sole gate for slot-only bodies. Added
+   `test_instructor_403_on_cosmetic_only_body`.
+
+5. **Rename-only PATCH paid for an unused badge query.** Now skipped, passing `None`
+   (not an empty set — an empty set would render every badge-gated item as locked in
+   the response). Guarded by `test_rename_only_patch_still_reports_badge_unlocks`.
+
+6. **The "every catalog key has art" test could not fail.** Layers return `null` for
+   unknown keys, so a key with no SVG branch rendered an invisible cosmetic and
+   passed. Now compares each non-default key's render against the default, with
+   `useId` values normalized out so the comparison isn't vacuous. All 71 keys pass.
+
+### Accepted, not fixed
+
+- **Companions overlap the jetpack's right thruster at `size={150}`.** The spec asked
+  companions to clear the jetpack/cape. Cape, wings and backpack are clean; the
+  jetpack is not — the companion draws last and covers the right thruster. Verified
+  visually rather than assumed. Fully separating them would mean redrawing all six
+  creatures inside a ~24-unit-wide strip, which would cost more legibility at the
+  72px course-map size than the overlap costs at 150px. The overlap reads as the
+  companion standing in front of the pack, not as a rendering fault. Revisit only if
+  it looks wrong in the live hero.
+- **`mascot_name` has no content moderation** beyond character-class validation.
+  Out of scope by design: the name is self-only and never rendered on a shared
+  surface, and React escapes it. Worth revisiting if it is ever surfaced to other
+  users or into an HTML email.

@@ -1,4 +1,5 @@
 from datetime import date, timedelta
+from unittest import mock
 
 import pytest
 from rest_framework import status
@@ -774,6 +775,21 @@ class TestAvatarPhase64:
         ).status_code == status.HTTP_200_OK
         assert GameProfile.objects.get(user=student).avatar_eyes == 'laser'
 
+    def test_rename_only_patch_still_reports_badge_unlocks(
+            self, api_client, student):
+        """
+        Guard on the rename-only shortcut in update_avatar: skipping the badge
+        query must not make the response claim badge-gated items are locked.
+        """
+        self._award(student, 'perfect_quiz')
+        api_client.force_authenticate(user=student)
+        response = api_client.patch(self.AVATAR_URL, {'mascot_name': 'Sparky'})
+        assert response.status_code == status.HTTP_200_OK
+        laser = self._item(response.data['catalog'], 'eyes', 'laser')
+        assert laser['unlocked'] is True, (
+            'rename-only PATCH returned a payload with badge unlocks missing'
+        )
+
     def test_badge_gate_ignores_level(self, api_client, student):
         """A max-level student without the badge still cannot equip it."""
         self._profile(student, total_xp=xp_for_level(20))
@@ -852,36 +868,94 @@ class TestAvatarPhase64:
 
     # -- query discipline (Phase 63 rule) ----------------------------------
 
+    # The profile endpoint's whole query budget. Deliberately an ABSOLUTE
+    # number, not a before/after comparison: a per-item badge lookup would
+    # cost the same in both halves of a comparison and sail straight through
+    # it. If this number goes up, something started scaling with the catalog.
+    PROFILE_QUERY_BUDGET = 8
+
     def test_profile_avatar_block_costs_no_per_item_queries(
             self, api_client, student):
         """
         The avatar block ships 71 catalog items and each badge-gated one needs
-        the earned badge set. That set must be fetched once for the request —
-        adding a badge must not add queries.
+        the earned badge set. That set must be fetched once for the request,
+        never once per item.
         """
         from django.db import connection
         from django.test.utils import CaptureQueriesContext
 
         self._profile(student, total_xp=xp_for_level(15))
-        api_client.force_authenticate(user=student)
-
-        with CaptureQueriesContext(connection) as before:
-            assert api_client.get(self.PROFILE_URL).status_code == status.HTTP_200_OK
-
         self._award(student, 'perfect_quiz')
         self._award(student, 'course_done')
+        api_client.force_authenticate(user=student)
 
-        with CaptureQueriesContext(connection) as after:
+        with CaptureQueriesContext(connection) as ctx:
             response = api_client.get(self.PROFILE_URL)
 
+        assert response.status_code == status.HTTP_200_OK
         assert len(response.data['avatar']['catalog']) == len(AVATAR_CATALOG)
-        assert len(after.captured_queries) == len(before.captured_queries), (
-            f'{len(before.captured_queries)} queries with 0 badges vs '
-            f'{len(after.captured_queries)} with 2 — the badge set is being '
-            're-fetched per gated item'
+        # 71 catalog items, 7 badges — if either count could drive the query
+        # count, this budget would be blown many times over.
+        assert len(ctx.captured_queries) <= self.PROFILE_QUERY_BUDGET, (
+            f'{len(ctx.captured_queries)} queries for a profile with '
+            f'{len(AVATAR_CATALOG)} catalog items — budget is '
+            f'{self.PROFILE_QUERY_BUDGET}. Something is scaling with the '
+            'catalog or the badge list.'
+        )
+
+    def test_avatar_payload_query_count_is_flat_in_catalog_size(
+            self, api_client, student):
+        """
+        Directly pins the property the budget above protects: tripling the
+        catalog must not change the query count by even one.
+        """
+        from django.db import connection
+        from django.test.utils import CaptureQueriesContext
+        from gamification import services
+
+        self._profile(student, total_xp=xp_for_level(15))
+        self._award(student, 'perfect_quiz')
+        api_client.force_authenticate(user=student)
+
+        with CaptureQueriesContext(connection) as small:
+            api_client.get(self.PROFILE_URL)
+
+        tripled = list(AVATAR_CATALOG) * 3
+        with mock.patch.object(services, 'CATALOG', tripled):
+            with CaptureQueriesContext(connection) as big:
+                response = api_client.get(self.PROFILE_URL)
+
+        assert len(response.data['avatar']['catalog']) == len(tripled)
+        assert len(big.captured_queries) == len(small.captured_queries), (
+            f'{len(small.captured_queries)} queries for {len(AVATAR_CATALOG)} '
+            f'items vs {len(big.captured_queries)} for {len(tripled)} — the '
+            'payload is querying per catalog item'
         )
 
     # -- demo policy -------------------------------------------------------
+
+    @pytest.mark.parametrize('body', [
+        {'headgear': 'none'},
+        {'companion': 'none'},
+        {'color': 'classic'},
+        {'aura': 'none', 'held': 'none'},
+    ])
+    def test_instructor_403_on_cosmetic_only_body(
+            self, api_client, instructor, body):
+        """
+        Phase 64 moved the demo guard out of the view body and into the
+        mascot_name branch, leaving the instructor check at the top as the
+        only thing gating this endpoint. The pre-existing instructor test
+        sends mascot_name, so nothing covered a slot-only body — this does.
+        Every key here is an always-unlocked default, so a 403 can only come
+        from the role check.
+        """
+        api_client.force_authenticate(user=instructor)
+        response = api_client.patch(self.AVATAR_URL, body, format='json')
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+        assert not GameProfile.objects.filter(user=instructor).exists(), (
+            'the instructor check must reject before get_or_create runs'
+        )
 
     def test_demo_can_equip_cosmetics(self, api_client, settings, student):
         # Lv 2 so 'cap' is genuinely unlocked — this test is about the demo
@@ -914,6 +988,127 @@ class TestAvatarPhase64:
         profile = GameProfile.objects.get(user=student)
         assert profile.mascot_name == 'Circuit'
         assert profile.avatar_headgear == 'none'
+
+
+@pytest.mark.django_db
+class TestAvatarNameHardening:
+    """
+    `mascot_name` is free text that goes straight to a Postgres column, so
+    length is not the only rule that matters. Found by the phase-64
+    adversarial pass: a bare NUL byte passed the length check and blew up as
+    an unhandled 500 inside save().
+    """
+    AVATAR_URL = '/api/gamification/avatar/'
+
+    @pytest.mark.parametrize('name,label', [
+        ('a\x00b', 'NUL byte'),
+        ('a\x07b', 'BEL control char'),
+        ('bad\nname', 'newline'),
+        ('​', 'zero-width space only'),
+        ('​hi', 'zero-width space embedded'),
+        ('‮evil', 'RTL override'),
+    ])
+    def test_control_and_format_chars_rejected_with_400(
+            self, api_client, student, name, label):
+        api_client.force_authenticate(user=student)
+        response = api_client.patch(
+            self.AVATAR_URL, {'mascot_name': name}, format='json'
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, (
+            f'{label} should be a clean 400, not a 500'
+        )
+        assert GameProfile.objects.get(user=student).mascot_name == 'Circuit'
+
+    @pytest.mark.parametrize('name,expected', [
+        ('Sparky', 'Sparky'),
+        ('  Sparky  ', 'Sparky'),
+        ('Robo 9000', 'Robo 9000'),
+        ('Ünïcødé Bot', 'Ünïcødé Bot'),
+        ('x' * 20, 'x' * 20),
+    ])
+    def test_legitimate_names_still_accepted(
+            self, api_client, student, name, expected):
+        api_client.force_authenticate(user=student)
+        response = api_client.patch(
+            self.AVATAR_URL, {'mascot_name': name}, format='json'
+        )
+        assert response.status_code == status.HTTP_200_OK
+        assert response.data['mascot_name'] == expected
+
+    def test_oversized_payload_is_a_400_not_a_crash(self, api_client, student):
+        api_client.force_authenticate(user=student)
+        response = api_client.patch(
+            self.AVATAR_URL, {'mascot_name': 'x' * 100_000}, format='json'
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+
+
+@pytest.mark.django_db
+class TestAvatarNoIdor:
+    """
+    The endpoint is scoped entirely to request.user and takes no id of any
+    kind. This pins that: a future refactor must not add a user-targeting
+    parameter.
+    """
+    AVATAR_URL = '/api/gamification/avatar/'
+
+    @pytest.mark.parametrize('smuggled', ['user', 'user_id', 'profile', 'id'])
+    def test_extra_user_field_cannot_target_another_profile(
+            self, api_client, student, smuggled):
+        victim = User.objects.create_user(
+            email='victim@test.com', password='pw', is_instructor=False
+        )
+        GameProfile.objects.create(user=victim, total_xp=5000)
+        api_client.force_authenticate(user=student)
+
+        response = api_client.patch(
+            self.AVATAR_URL, {smuggled: victim.id, 'headgear': 'none'}
+        )
+        assert response.status_code == status.HTTP_200_OK
+        assert GameProfile.objects.get(user=victim).avatar_headgear == 'none'
+        assert GameProfile.objects.get(user=victim).mascot_name == 'Circuit'
+        # The write landed on the caller, not the victim.
+        assert GameProfile.objects.filter(user=student).exists()
+
+
+@pytest.mark.django_db
+class TestAvatarAllOrNothingOrdering:
+    """
+    All-or-nothing must hold regardless of the order fields appear in the
+    body. `update_avatar` iterates the fixed SLOTS tuple and saves once at the
+    end, so client key order is irrelevant — this pins that property.
+    """
+    AVATAR_URL = '/api/gamification/avatar/'
+
+    @pytest.fixture
+    def lv2(self, student):
+        profile, _ = GameProfile.objects.get_or_create(user=student)
+        profile.total_xp = xp_for_level(2)
+        profile.save()
+        return profile
+
+    @pytest.mark.parametrize('body', [
+        {'headgear': 'cap', 'companion': 'dragon'},          # valid, then locked
+        {'companion': 'dragon', 'headgear': 'cap'},          # locked, then valid
+        {'mascot_name': 'Sparky', 'companion': 'dragon'},    # rename + locked
+        {'companion': 'dragon', 'mascot_name': 'Sparky'},    # locked + rename
+        {'headgear': 'cap', 'eyes': 'cap'},                  # valid + wrong-slot key
+        {'eyes': 'cap', 'headgear': 'cap'},                  # wrong-slot key + valid
+        {'color': 'ember', 'aura': 'sparkle', 'held': 'debug_blade'},  # last one locked
+    ])
+    def test_mixed_body_persists_nothing(self, api_client, student, lv2, body):
+        api_client.force_authenticate(user=student)
+        response = api_client.patch(self.AVATAR_URL, body, format='json')
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+
+        profile = GameProfile.objects.get(user=student)
+        assert profile.mascot_name == 'Circuit'
+        assert profile.avatar_headgear == 'none'
+        assert profile.avatar_color == 'classic'
+        assert profile.avatar_eyes == 'none'
+        assert profile.avatar_aura == 'none'
+        assert profile.avatar_held == 'none'
+        assert profile.avatar_companion == 'none'
 
 
 @pytest.mark.django_db

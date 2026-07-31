@@ -46,6 +46,29 @@ describe('Mascot cosmetic layers', () => {
     }
   });
 
+  it.each(slots)('draws something different for every non-default %s key', (slot) => {
+    // "Doesn't throw" is too weak on its own: every layer module returns null
+    // for an unknown key, so a catalog entry with no SVG branch would render
+    // an invisible cosmetic and still pass. Comparing against the default
+    // render is what actually catches missing art.
+    const base = render(
+      <Mascot customization={DEFAULTS} />
+    ).container.innerHTML;
+
+    for (const key of CATALOG_KEYS[slot]) {
+      if (key === DEFAULTS[slot]) continue;
+      const html = render(
+        <Mascot customization={{ ...DEFAULTS, [slot]: key }} />
+      ).container.innerHTML;
+      // useId makes ids differ per instance, so normalize them away before
+      // comparing — otherwise every render looks "different" and the test
+      // passes vacuously, which is the exact failure mode being fixed.
+      const norm = (s: string) => s.replace(/:r[0-9a-z]+:/g, 'ID').replace(/«r\w+»/g, 'ID');
+      expect(norm(html), `${slot}/${key} renders identically to the default`)
+        .not.toEqual(norm(base));
+    }
+  });
+
   it('renders an unknown key as the plain robot rather than crashing', () => {
     const { container } = render(
       <Mascot customization={{ ...DEFAULTS, headgear: 'not_a_real_hat' }} />
@@ -119,6 +142,13 @@ describe('backdrop scene themes', () => {
       expect(theme, key).toBeDefined();
       for (const field of ['numeral', 'accent', 'label', 'bubble', 'button'] as const) {
         expect(theme[field], `${key}.${field}`).toBeTruthy();
+      }
+      // `track` is the one field where '' is meaningful — it means "keep
+      // progress-gaming's own styling". That's fine on a light scene, but a
+      // dark one needs an explicit override or the XP bar vanishes into it.
+      expect(typeof theme.track, `${key}.track`).toBe('string');
+      if (theme.dark) {
+        expect(theme.track, `dark scene ${key} must override the XP track`).toBeTruthy();
       }
     }
   });

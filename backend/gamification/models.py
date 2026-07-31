@@ -39,9 +39,17 @@ class GameProfile(models.Model):
     avatar_eyes = models.CharField(max_length=30, default='none')
     avatar_accessory = models.CharField(max_length=30, default='none')
     avatar_backdrop = models.CharField(max_length=30, default='plain')
-    avatar_companion = models.CharField(max_length=30, default='none')
-    avatar_aura = models.CharField(max_length=30, default='none')
-    avatar_held = models.CharField(max_length=30, default='none')
+    # These three carry db_default as well as default, unlike the phase-33
+    # fields above. Migrations are applied to Neon by hand BEFORE the new code
+    # deploys, and `AddField(default=...)` backfills and then DROPs the database
+    # default — leaving NOT NULL columns the running (old) code doesn't know to
+    # populate. GameProfile rows are created lazily by `get_or_create` on the
+    # dashboard and in every XP award, so during that window a student without a
+    # profile row would 500. `db_default` keeps the default in the schema and
+    # closes the gap.
+    avatar_companion = models.CharField(max_length=30, default='none', db_default='none')
+    avatar_aura = models.CharField(max_length=30, default='none', db_default='none')
+    avatar_held = models.CharField(max_length=30, default='none', db_default='none')
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
