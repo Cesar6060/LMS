@@ -74,6 +74,45 @@ const SCENE_THEMES: Record<string, SceneTheme> = {
     button:
       'border-violet-400/40 bg-indigo-950/65 text-indigo-50 backdrop-blur-md hover:bg-indigo-950/85 hover:text-indigo-50',
   },
+  // -- Phase 64 ------------------------------------------------------------
+  // All three are dark scenes, so every field must be filled: falling through
+  // to DEFAULT_THEME would put dark theme-token text on a near-black scene.
+  forest: {
+    dark: true,
+    numeral:
+      'bg-gradient-to-b from-emerald-100 via-emerald-300 to-teal-500 bg-clip-text text-transparent drop-shadow-[0_1px_2px_rgba(0,0,0,0.45)]',
+    accent: 'text-emerald-300',
+    label: 'text-emerald-100/85',
+    track: 'bg-white/15',
+    bubble:
+      'border-emerald-300/50 bg-gradient-to-br from-white to-emerald-50 text-zinc-900 shadow-[0_4px_20px_rgba(52,211,153,0.28)]',
+    button:
+      'border-emerald-300/35 bg-emerald-950/70 text-emerald-50 backdrop-blur-md hover:bg-emerald-950/90 hover:text-emerald-50',
+  },
+  arcade: {
+    dark: true,
+    numeral:
+      'bg-gradient-to-b from-cyan-200 via-fuchsia-400 to-fuchsia-600 bg-clip-text text-transparent drop-shadow-[0_1px_3px_rgba(0,0,0,0.5)]',
+    accent: 'text-cyan-300',
+    label: 'text-fuchsia-100/90',
+    track: 'bg-white/20',
+    bubble:
+      'border-fuchsia-400/50 bg-gradient-to-br from-white to-fuchsia-100 text-zinc-900 shadow-[0_4px_20px_rgba(244,114,182,0.32)]',
+    button:
+      'border-cyan-300/40 bg-indigo-950/70 text-cyan-50 backdrop-blur-md hover:bg-indigo-950/90 hover:text-cyan-50',
+  },
+  aurora_sky: {
+    dark: true,
+    numeral:
+      'bg-gradient-to-b from-emerald-200 via-teal-300 to-indigo-400 bg-clip-text text-transparent drop-shadow-[0_1px_2px_rgba(0,0,0,0.5)]',
+    accent: 'text-teal-300',
+    label: 'text-slate-200',
+    track: 'bg-white/15',
+    bubble:
+      'border-teal-300/45 bg-gradient-to-br from-white to-teal-50 text-zinc-900 shadow-[0_4px_20px_rgba(45,212,191,0.28)]',
+    button:
+      'border-teal-300/35 bg-slate-950/70 text-slate-100 backdrop-blur-md hover:bg-slate-950/90 hover:text-slate-100',
+  },
 };
 
 export function getSceneTheme(key: string | null | undefined): SceneTheme {

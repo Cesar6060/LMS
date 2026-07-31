@@ -443,10 +443,30 @@ export interface NewBadge {
 }
 
 // ============================================================
-// Phase 33: Circuit avatar customization
+// Phase 33: Circuit avatar customization (widened Phase 64)
 // ============================================================
 
-export type AvatarSlot = 'color' | 'headgear' | 'eyes' | 'accessory' | 'backdrop';
+/** Slot order matches `gamification.avatar_catalog.SLOTS`. */
+export type AvatarSlot =
+  | 'color'
+  | 'headgear'
+  | 'eyes'
+  | 'accessory'
+  | 'backdrop'
+  // Phase 64
+  | 'companion'
+  | 'aura'
+  | 'held';
+
+/** All eight slots, in catalog order — iterate this instead of hard-coding
+ *  a slot list, so adding a slot can't silently drop items from a UI. */
+export const AVATAR_SLOTS: readonly AvatarSlot[] = [
+  'color', 'headgear', 'eyes', 'accessory', 'backdrop',
+  'companion', 'aura', 'held',
+] as const;
+
+/** Which gate an item is behind (Phase 64). */
+export type AvatarUnlockType = 'level' | 'badge' | 'streak';
 
 /** A cosmetic item in the code catalog, annotated with unlock state. */
 export interface AvatarItem {
@@ -454,7 +474,15 @@ export interface AvatarItem {
   slot: AvatarSlot;
   name: string;
   description: string;
+  /** Always present; badge/streak items carry 1 so the level gate never
+   *  double-blocks them — read `unlock_label` for display, not this. */
   required_level: number;
+  unlock_type: AvatarUnlockType;
+  /** Human-readable gate for the locked chip: "Lv 9", "Sharpshooter badge",
+   *  "14-day streak". Computed server-side so the UI never re-implements it. */
+  unlock_label: string;
+  required_badge?: string;
+  required_streak?: number;
   unlocked: boolean;
 }
 

@@ -562,6 +562,8 @@ class TestAvatar:
         assert avatar['equipped'] == {
             'color': 'classic', 'headgear': 'none',
             'eyes': 'none', 'accessory': 'none', 'backdrop': 'plain',
+            # Phase 64 slots
+            'companion': 'none', 'aura': 'none', 'held': 'none',
         }
         assert len(avatar['catalog']) == len(AVATAR_CATALOG)
 
@@ -578,9 +580,12 @@ class TestAvatar:
         catalog = api_client.get(self.PROFILE_URL).data['avatar']['catalog']
         ember = next(i for i in catalog if i['slot'] == 'color' and i['key'] == 'ember')
         assert ember['unlocked'] is True
-        # Level-1 defaults are always unlocked
+        # Level-1 defaults are always unlocked. Scoped to level-gated items:
+        # badge/streak items also carry required_level 1 (so the level gate
+        # never double-blocks them) but are locked until their own gate opens.
         assert all(
-            i['unlocked'] for i in catalog if i['required_level'] == 1
+            i['unlocked'] for i in catalog
+            if i['unlock_type'] == 'level' and i['required_level'] == 1
         )
 
     def test_equip_unlocked_item_persists(self, api_client, student):
@@ -660,3 +665,299 @@ class TestAvatar:
         api_client.force_authenticate(user=instructor)
         response = api_client.get(self.PROFILE_URL)
         assert response.data == {'is_gamified': False}
+
+
+# --------------------------------------------------------------------------
+# Avatar expansion: new slots, badge/streak gates, demo policy (Phase 64)
+# --------------------------------------------------------------------------
+
+@pytest.mark.django_db
+class TestAvatarPhase64:
+    AVATAR_URL = '/api/gamification/avatar/'
+    PROFILE_URL = '/api/gamification/profile/'
+
+    def _profile(self, student, **fields):
+        profile, _ = GameProfile.objects.get_or_create(user=student)
+        for key, value in fields.items():
+            setattr(profile, key, value)
+        profile.save()
+        return profile
+
+    def _award(self, student, badge_key):
+        UserBadge.objects.create(
+            user=student, badge=Badge.objects.get(key=badge_key)
+        )
+
+    def _item(self, catalog, slot, key):
+        return next(i for i in catalog if i['slot'] == slot and i['key'] == key)
+
+    def _catalog(self, api_client):
+        return api_client.get(self.PROFILE_URL).data['avatar']['catalog']
+
+    # -- new slots ---------------------------------------------------------
+
+    def test_all_eight_slots_default(self, api_client, student):
+        api_client.force_authenticate(user=student)
+        equipped = api_client.get(self.PROFILE_URL).data['avatar']['equipped']
+        assert equipped == {
+            'color': 'classic', 'headgear': 'none', 'eyes': 'none',
+            'accessory': 'none', 'backdrop': 'plain',
+            'companion': 'none', 'aura': 'none', 'held': 'none',
+        }
+
+    def test_equip_new_slots_persists(self, api_client, student):
+        self._profile(student, total_xp=xp_for_level(8))
+        api_client.force_authenticate(user=student)
+        response = api_client.patch(self.AVATAR_URL, {
+            'companion': 'robo_cat', 'aura': 'pulse', 'held': 'codex',
+        })
+        assert response.status_code == status.HTTP_200_OK
+        profile = GameProfile.objects.get(user=student)
+        assert profile.avatar_companion == 'robo_cat'
+        assert profile.avatar_aura == 'pulse'
+        assert profile.avatar_held == 'codex'
+
+    @pytest.mark.parametrize('slot,key', [
+        ('companion', 'drone'), ('aura', 'sparkle'), ('held', 'wrench'),
+    ])
+    def test_stale_key_falls_back_on_new_slots(
+            self, api_client, student, slot, key):
+        profile = self._profile(student, total_xp=xp_for_level(15))
+        setattr(profile, f'avatar_{slot}', key)
+        profile.save()
+        # Simulate the item being retired from the catalog later.
+        setattr(profile, f'avatar_{slot}', 'retired_item')
+        profile.save()
+        api_client.force_authenticate(user=student)
+        equipped = api_client.get(self.PROFILE_URL).data['avatar']['equipped']
+        assert equipped[slot] == 'none'
+
+    # -- extended level ladder ---------------------------------------------
+
+    @pytest.mark.parametrize('level,slot,key', [
+        (9, 'color', 'violet'),
+        (15, 'companion', 'dragon'),
+    ])
+    def test_level_gate_boundary_beyond_lv8(
+            self, api_client, student, level, slot, key):
+        """The ladder now runs past Lv 8 — check both ends of the new range."""
+        floor_xp = xp_for_level(level)
+        api_client.force_authenticate(user=student)
+
+        self._profile(student, total_xp=floor_xp - 1)
+        assert self._item(self._catalog(api_client), slot, key)['unlocked'] is False
+        assert api_client.patch(
+            self.AVATAR_URL, {slot: key}
+        ).status_code == status.HTTP_400_BAD_REQUEST
+
+        self._profile(student, total_xp=floor_xp)
+        assert self._item(self._catalog(api_client), slot, key)['unlocked'] is True
+        assert api_client.patch(
+            self.AVATAR_URL, {slot: key}
+        ).status_code == status.HTTP_200_OK
+
+    # -- badge gate --------------------------------------------------------
+
+    def test_badge_gate_blocks_then_opens(self, api_client, student):
+        self._profile(student, total_xp=0)
+        api_client.force_authenticate(user=student)
+
+        assert self._item(self._catalog(api_client), 'eyes', 'laser')['unlocked'] is False
+        response = api_client.patch(self.AVATAR_URL, {'eyes': 'laser'})
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert 'Sharpshooter badge' in response.data['detail']
+
+        self._award(student, 'perfect_quiz')
+        assert self._item(self._catalog(api_client), 'eyes', 'laser')['unlocked'] is True
+        assert api_client.patch(
+            self.AVATAR_URL, {'eyes': 'laser'}
+        ).status_code == status.HTTP_200_OK
+        assert GameProfile.objects.get(user=student).avatar_eyes == 'laser'
+
+    def test_badge_gate_ignores_level(self, api_client, student):
+        """A max-level student without the badge still cannot equip it."""
+        self._profile(student, total_xp=xp_for_level(20))
+        api_client.force_authenticate(user=student)
+        assert self._item(self._catalog(api_client), 'aura', 'golden')['unlocked'] is False
+
+    # -- streak gate -------------------------------------------------------
+
+    def test_streak_gate_reads_longest_not_current(self, api_client, student):
+        """
+        The regression guard for the Phase 64 decision: streak unlocks are
+        permanent, so they read longest_streak. A student mid-streak whose
+        longest is short must NOT have the item; a student whose streak broke
+        after a long run must keep it.
+        """
+        api_client.force_authenticate(user=student)
+
+        self._profile(student, current_streak=30, longest_streak=0)
+        assert self._item(
+            self._catalog(api_client), 'companion', 'phoenix'
+        )['unlocked'] is False
+        assert api_client.patch(
+            self.AVATAR_URL, {'companion': 'phoenix'}
+        ).status_code == status.HTTP_400_BAD_REQUEST
+
+        self._profile(student, current_streak=0, longest_streak=30)
+        assert self._item(
+            self._catalog(api_client), 'companion', 'phoenix'
+        )['unlocked'] is True
+        assert api_client.patch(
+            self.AVATAR_URL, {'companion': 'phoenix'}
+        ).status_code == status.HTTP_200_OK
+
+    def test_streak_unlock_is_never_revoked(self, api_client, student):
+        """Equipped streak item survives the streak breaking."""
+        self._profile(student, current_streak=30, longest_streak=30)
+        api_client.force_authenticate(user=student)
+        assert api_client.patch(
+            self.AVATAR_URL, {'companion': 'phoenix'}
+        ).status_code == status.HTTP_200_OK
+
+        # Streak breaks — longest_streak is untouched by design.
+        self._profile(student, current_streak=0)
+        equipped = api_client.get(self.PROFILE_URL).data['avatar']['equipped']
+        assert equipped['companion'] == 'phoenix', (
+            'a broken streak must not silently downgrade an equipped item'
+        )
+
+    def test_badge_unlock_is_never_revoked(self, api_client, student):
+        self._award(student, 'perfect_quiz')
+        api_client.force_authenticate(user=student)
+        api_client.patch(self.AVATAR_URL, {'held': 'trophy'})
+        equipped = api_client.get(self.PROFILE_URL).data['avatar']['equipped']
+        assert equipped['held'] == 'trophy'
+
+    # -- unlock_label ------------------------------------------------------
+
+    @pytest.mark.parametrize('slot,key,expected', [
+        ('color', 'violet', 'Lv 9'),
+        ('eyes', 'laser', 'Sharpshooter badge'),
+        ('headgear', 'flame_crest', '14-day streak'),
+        ('companion', 'phoenix', '30-day streak'),
+        ('aura', 'golden', 'Scholar badge'),
+    ])
+    def test_unlock_label_shape(self, api_client, student, slot, key, expected):
+        api_client.force_authenticate(user=student)
+        item = self._item(self._catalog(api_client), slot, key)
+        assert item['unlock_label'] == expected
+
+    def test_every_catalog_item_reports_gate_fields(self, api_client, student):
+        api_client.force_authenticate(user=student)
+        for item in self._catalog(api_client):
+            assert item['unlock_type'] in ('level', 'badge', 'streak')
+            assert item['unlock_label'], f"{item['slot']}/{item['key']} has a blank label"
+            assert isinstance(item['unlocked'], bool)
+
+    # -- query discipline (Phase 63 rule) ----------------------------------
+
+    def test_profile_avatar_block_costs_no_per_item_queries(
+            self, api_client, student):
+        """
+        The avatar block ships 71 catalog items and each badge-gated one needs
+        the earned badge set. That set must be fetched once for the request —
+        adding a badge must not add queries.
+        """
+        from django.db import connection
+        from django.test.utils import CaptureQueriesContext
+
+        self._profile(student, total_xp=xp_for_level(15))
+        api_client.force_authenticate(user=student)
+
+        with CaptureQueriesContext(connection) as before:
+            assert api_client.get(self.PROFILE_URL).status_code == status.HTTP_200_OK
+
+        self._award(student, 'perfect_quiz')
+        self._award(student, 'course_done')
+
+        with CaptureQueriesContext(connection) as after:
+            response = api_client.get(self.PROFILE_URL)
+
+        assert len(response.data['avatar']['catalog']) == len(AVATAR_CATALOG)
+        assert len(after.captured_queries) == len(before.captured_queries), (
+            f'{len(before.captured_queries)} queries with 0 badges vs '
+            f'{len(after.captured_queries)} with 2 — the badge set is being '
+            're-fetched per gated item'
+        )
+
+    # -- demo policy -------------------------------------------------------
+
+    def test_demo_can_equip_cosmetics(self, api_client, settings, student):
+        # Lv 2 so 'cap' is genuinely unlocked — this test is about the demo
+        # gate, not the level gate.
+        self._profile(student, total_xp=xp_for_level(2))
+        settings.DEMO_ACCOUNT_EMAIL = student.email
+        api_client.force_authenticate(user=student)
+        response = api_client.patch(self.AVATAR_URL, {'headgear': 'cap'})
+        assert response.status_code == status.HTTP_200_OK
+        assert GameProfile.objects.get(user=student).avatar_headgear == 'cap'
+
+    def test_demo_rename_still_blocked(self, api_client, settings, student):
+        settings.DEMO_ACCOUNT_EMAIL = student.email
+        api_client.force_authenticate(user=student)
+        response = api_client.patch(self.AVATAR_URL, {'mascot_name': 'Vandal'})
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+        assert response.data['code'] == 'demo_blocked'
+        assert GameProfile.objects.get(user=student).mascot_name == 'Circuit'
+
+    def test_demo_mixed_body_persists_nothing(self, api_client, settings, student):
+        """A rename smuggled in beside valid cosmetics must roll the whole
+        request back, not save the cosmetics as a consolation prize."""
+        self._profile(student, total_xp=xp_for_level(2))
+        settings.DEMO_ACCOUNT_EMAIL = student.email
+        api_client.force_authenticate(user=student)
+        response = api_client.patch(
+            self.AVATAR_URL, {'mascot_name': 'Vandal', 'headgear': 'cap'}
+        )
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+        profile = GameProfile.objects.get(user=student)
+        assert profile.mascot_name == 'Circuit'
+        assert profile.avatar_headgear == 'none'
+
+
+@pytest.mark.django_db
+class TestAvatarCatalogIntegrity:
+    """
+    The catalog validates itself at import (ImproperlyConfigured), but these
+    pin the rules a bad edit is most likely to break with a readable failure.
+    """
+
+    def test_every_required_badge_exists(self):
+        from gamification.catalog import BADGE_CATALOG
+        known = {b['key'] for b in BADGE_CATALOG}
+        for item in AVATAR_CATALOG:
+            if item['unlock_type'] == 'badge':
+                assert item['required_badge'] in known, (
+                    f"{item['slot']}/{item['key']} gates on an unknown badge"
+                )
+
+    def test_every_slot_has_an_unconditional_level_1_default(self):
+        from gamification.avatar_catalog import SLOTS, SLOT_DEFAULTS, get_item
+        for slot in SLOTS:
+            default = get_item(slot, SLOT_DEFAULTS[slot])
+            assert default is not None, f'{slot} default missing from catalog'
+            assert default['unlock_type'] == 'level'
+            assert default['required_level'] == 1
+
+    def test_keys_are_unique_within_each_slot(self):
+        seen = set()
+        for item in AVATAR_CATALOG:
+            pair = (item['slot'], item['key'])
+            assert pair not in seen, f'duplicate {pair}'
+            seen.add(pair)
+
+    def test_slots_cover_the_model_fields(self):
+        from gamification.avatar_catalog import SLOTS
+        for slot in SLOTS:
+            assert hasattr(GameProfile(), f'avatar_{slot}'), (
+                f'SLOTS lists {slot!r} but GameProfile has no avatar_{slot}'
+            )
+
+    def test_badge_and_streak_items_do_not_double_gate_on_level(self):
+        for item in AVATAR_CATALOG:
+            if item['unlock_type'] in ('badge', 'streak'):
+                assert item['required_level'] == 1, (
+                    f"{item['slot']}/{item['key']} would be blocked by the "
+                    'level gate as well as its own'
+                )
