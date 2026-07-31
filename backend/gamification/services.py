@@ -15,7 +15,9 @@ from django.db import transaction
 from django.db.models import F
 from django.utils import timezone
 
-from .avatar_catalog import CATALOG, SLOTS, SLOT_DEFAULTS, get_item
+from .avatar_catalog import (
+    CATALOG, SLOTS, SLOT_DEFAULTS, get_item, is_unlocked, unlock_label,
+)
 from .leveling import level_for_xp, level_progress
 from .models import GameProfile, XPEvent, Badge, UserBadge
 
@@ -252,35 +254,64 @@ def award_lesson_quiz_pass(user, lesson, today=None):
     return _award(user, XPEvent.SOURCE_LESSON_QUIZ, lesson.id, XP_LESSON_QUIZ, today=today)
 
 
-def avatar_payload(profile):
+def earned_badge_keys_for(user):
     """
-    The avatar block for a student's profile (Phase 33). ``unlocked`` is
-    derived from the profile's level; an equipped key that no longer exists
-    in the catalog resolves to the slot default.
+    The set of badge keys this user has earned. One query, no model
+    instances — callers that already hold the badge data should build the
+    set themselves and pass it in rather than calling this.
     """
+    return set(
+        UserBadge.objects.filter(user=user).values_list('badge__key', flat=True)
+    )
+
+
+def avatar_payload(profile, earned_badge_keys=None):
+    """
+    The avatar block for a student's profile (Phase 33, widened Phase 64).
+
+    ``unlocked`` runs the three-axis gate in ``avatar_catalog.is_unlocked``;
+    an equipped key that is stale (no longer in the catalog) or not yet
+    unlocked resolves to the slot default.
+
+    ``earned_badge_keys`` is threaded in by callers that already fetched the
+    user's badges (the profile view serializes them anyway), so building this
+    payload adds no query on the hot path. When omitted it costs exactly one
+    query — never one per catalog item.
+    """
+    if earned_badge_keys is None:
+        earned_badge_keys = earned_badge_keys_for(profile.user)
+
     level = profile.level
+    longest_streak = profile.longest_streak
+
     equipped = {}
     for slot in SLOTS:
         key = getattr(profile, f'avatar_{slot}')
         item = get_item(slot, key)
-        if item is None or level < item['required_level']:
+        if item is None or not is_unlocked(item, level, earned_badge_keys, longest_streak):
             key = SLOT_DEFAULTS[slot]
         equipped[slot] = key
+
     return {
         'mascot_name': profile.mascot_name,
         'equipped': equipped,
         'catalog': [
-            {**item, 'unlocked': level >= item['required_level']}
+            {
+                **item,
+                'unlocked': is_unlocked(item, level, earned_badge_keys, longest_streak),
+                'unlock_label': unlock_label(item),
+            }
             for item in CATALOG
         ],
     }
 
 
-def profile_payload(profile):
+def profile_payload(profile, earned_badge_keys=None):
     """
     Build the read-endpoint dict for a student's GameProfile (level ring +
     streak fields + avatar block). Badge lists are attached by the
-    serializer/view.
+    serializer/view, which also passes ``earned_badge_keys`` down so the
+    avatar block reuses that query instead of issuing its own.
     """
     ring = level_progress(profile.total_xp)
     return {
@@ -289,6 +320,6 @@ def profile_payload(profile):
         'longest_streak': profile.longest_streak,
         'last_activity_date': profile.last_activity_date,
         'streak_freezes': profile.streak_freezes,
-        'avatar': avatar_payload(profile),
+        'avatar': avatar_payload(profile, earned_badge_keys),
         **ring,
     }

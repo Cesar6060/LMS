@@ -77,7 +77,7 @@ export function LessonQuizSection({ lessonId, onStatusChange, onComplete, isLess
         {gamificationModals}
         <div className="text-center py-10">
           <div className="flex justify-center mb-4">
-            <Mascot pose="celebrate" size={110} />
+            <Mascot pose="celebrate" size={146} />
           </div>
           <h3 className="text-3xl font-bold text-green-600 dark:text-green-400 mb-2">
             Mastered!

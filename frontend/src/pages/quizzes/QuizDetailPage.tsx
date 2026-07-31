@@ -142,7 +142,7 @@ export function QuizDetailPage() {
         <Card className={`mb-6 ${passed ? 'border-green-500' : 'border-red-500'}`}>
           <CardHeader className="text-center">
             <div className="flex justify-center mb-4">
-              <Mascot pose={passed ? 'celebrate' : 'encourage'} size={96} />
+              <Mascot pose={passed ? 'celebrate' : 'encourage'} size={128} />
             </div>
             <CardTitle className="text-2xl">
               {passed ? 'Quiz Passed!' : 'Mastered — But Not Passed Yet'}

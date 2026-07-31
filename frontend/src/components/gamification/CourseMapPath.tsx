@@ -122,7 +122,7 @@ function MapNode({ node, x, y, courseCode, scene }: MapNodeProps) {
           )}
           aria-hidden="true"
         >
-          <Mascot pose="cheer" size={72} hideBackdrop />
+          <Mascot pose="cheer" size={96} hideBackdrop />
         </div>
       )}
 

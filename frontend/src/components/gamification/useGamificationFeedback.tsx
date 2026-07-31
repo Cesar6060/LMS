@@ -1,5 +1,6 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { useAuth } from '@/contexts/useAuth';
+import { useAvatarContext } from '@/contexts/AvatarContext';
 import { useToast } from '@/contexts/useToast';
 import type { GamificationDelta, NewBadge } from '@/types';
 import { LevelUpModal } from './LevelUpModal';
@@ -19,11 +20,15 @@ type Celebration =
  */
 export function useGamificationFeedback() {
   const { user } = useAuth();
+  const { refresh: refreshAvatar } = useAvatarContext();
   const { show } = useToast();
   const isInstructor = !!user?.is_instructor;
 
   const [queue, setQueue] = useState<Celebration[]>([]);
   const [active, setActive] = useState<Celebration | null>(null);
+  // True once a celebration has played, so the avatar refresh below fires
+  // after the queue drains rather than on first mount.
+  const celebrated = useRef(false);
 
   const celebrate = useCallback(
     (delta?: GamificationDelta | null) => {
@@ -52,10 +57,23 @@ export function useGamificationFeedback() {
   // Play celebrations one at a time.
   useEffect(() => {
     if (!active && queue.length) {
+      celebrated.current = true;
       setActive(queue[0]);
       setQueue((prev) => prev.slice(1));
     }
   }, [active, queue]);
+
+  // Once every celebration has been dismissed, pull a fresh avatar block so
+  // the customizer shows newly-unlocked cosmetics without a page reload. The
+  // modals themselves read the static catalog, so they don't wait on this.
+  useEffect(() => {
+    if (!active && queue.length === 0 && celebrated.current) {
+      celebrated.current = false;
+      // No-op for instructors and outside the provider — refresh() already
+      // guards both.
+      void refreshAvatar();
+    }
+  }, [active, queue, refreshAvatar]);
 
   const gamificationModals = (
     <>

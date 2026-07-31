@@ -180,7 +180,7 @@ export function DashboardHero({
           {/* Mascot with speech-bubble greeting (design 1a) */}
           <div className="mt-6 flex flex-col items-center justify-center gap-3 sm:flex-row sm:items-start sm:gap-0">
             <div className="text-center">
-              <Mascot pose="idle" size={150} hideBackdrop />
+              <Mascot pose="idle" size={200} hideBackdrop />
               <div
                 className={cn(
                   'mt-1 font-gaming text-xl font-bold uppercase tracking-[0.14em] sm:text-2xl',

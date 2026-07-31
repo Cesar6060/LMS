@@ -24,15 +24,32 @@ class GameProfile(models.Model):
         default=0, help_text='Earned on level-up (max 2), auto-consumed on missed days'
     )
     # Phase 33: Circuit avatar. Equipped keys reference the code catalog
-    # (gamification.avatar_catalog); unlock state is derived from level, so
-    # there are no per-user unlock rows. A stale key (item later removed from
-    # the catalog) renders as the slot default.
+    # (gamification.avatar_catalog); unlock state is derived from data already
+    # on this model plus earned badges, so there are no per-user unlock rows.
+    # A stale key (item later removed from the catalog) renders as the slot
+    # default.
+    #
+    # Phase 64 widened this to eight slots and three unlock axes: derived
+    # level, an earned badge key, or ``longest_streak``. Streak gates read
+    # ``longest_streak`` and never ``current_streak`` so an unlock, once
+    # earned, is permanent — the same guarantee level and badge gates give.
     mascot_name = models.CharField(max_length=20, default='Circuit')
     avatar_color = models.CharField(max_length=30, default='classic')
     avatar_headgear = models.CharField(max_length=30, default='none')
     avatar_eyes = models.CharField(max_length=30, default='none')
     avatar_accessory = models.CharField(max_length=30, default='none')
     avatar_backdrop = models.CharField(max_length=30, default='plain')
+    # These three carry db_default as well as default, unlike the phase-33
+    # fields above. Migrations are applied to Neon by hand BEFORE the new code
+    # deploys, and `AddField(default=...)` backfills and then DROPs the database
+    # default — leaving NOT NULL columns the running (old) code doesn't know to
+    # populate. GameProfile rows are created lazily by `get_or_create` on the
+    # dashboard and in every XP award, so during that window a student without a
+    # profile row would 500. `db_default` keeps the default in the schema and
+    # closes the gap.
+    avatar_companion = models.CharField(max_length=30, default='none', db_default='none')
+    avatar_aura = models.CharField(max_length=30, default='none', db_default='none')
+    avatar_held = models.CharField(max_length=30, default='none', db_default='none')
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
