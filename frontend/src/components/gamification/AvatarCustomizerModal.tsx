@@ -28,7 +28,7 @@ import { Loader2, Lock, RotateCcw } from 'lucide-react';
 const TAB_GROUPS: { id: string; label: string; slots: AvatarSlot[] }[] = [
   { id: 'look', label: 'Look', slots: ['color', 'eyes'] },
   { id: 'gear', label: 'Gear', slots: ['headgear', 'accessory', 'held'] },
-  { id: 'extras', label: 'Extras', slots: ['companion', 'aura', 'backdrop'] },
+  { id: 'extras', label: 'Extras', slots: ['companion', 'backdrop'] },
 ];
 
 const SLOT_LABELS: Record<AvatarSlot, string> = {
@@ -38,7 +38,6 @@ const SLOT_LABELS: Record<AvatarSlot, string> = {
   accessory: 'Accessory',
   held: 'Held item',
   companion: 'Companion',
-  aura: 'Aura',
   backdrop: 'Backdrop',
 };
 
@@ -46,13 +45,13 @@ const DEFAULT_NAME = 'Circuit';
 
 /**
  * Slots loud enough to drown out whatever an item tile is trying to show.
- * A tile previews the pending look with one item swapped in — but with an
- * aura ringing the figure and a companion beside it, every tile in the Eyes
- * section looks identical and you can't tell what you're picking. So a tile
- * mutes these three unless they ARE the slot being chosen. The big preview
- * on the left always shows the full, unmuted look.
+ * A tile previews the pending look with one item swapped in — but with a
+ * busy backdrop and a companion beside the figure, every tile in the Eyes
+ * section looks alike and you can't tell what you're picking. So a tile
+ * mutes these unless they ARE the slot being chosen. The big preview on
+ * the left always shows the full, unmuted look.
  */
-const DOMINANT_SLOTS: AvatarSlot[] = ['aura', 'companion', 'backdrop'];
+const DOMINANT_SLOTS: AvatarSlot[] = ['companion', 'backdrop'];
 
 /** Neutral value for each muted slot — 'none' is a valid key in all three. */
 const MUTED = Object.fromEntries(

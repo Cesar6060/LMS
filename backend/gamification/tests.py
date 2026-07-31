@@ -563,8 +563,8 @@ class TestAvatar:
         assert avatar['equipped'] == {
             'color': 'classic', 'headgear': 'none',
             'eyes': 'none', 'accessory': 'none', 'backdrop': 'plain',
-            # Phase 64 slots
-            'companion': 'none', 'aura': 'none', 'held': 'none',
+            # Phase 64 slots ('aura' was retired after phase 64)
+            'companion': 'none', 'held': 'none',
         }
         assert len(avatar['catalog']) == len(AVATAR_CATALOG)
 
@@ -697,29 +697,40 @@ class TestAvatarPhase64:
 
     # -- new slots ---------------------------------------------------------
 
-    def test_all_eight_slots_default(self, api_client, student):
+    def test_every_slot_defaults(self, api_client, student):
         api_client.force_authenticate(user=student)
         equipped = api_client.get(self.PROFILE_URL).data['avatar']['equipped']
         assert equipped == {
             'color': 'classic', 'headgear': 'none', 'eyes': 'none',
             'accessory': 'none', 'backdrop': 'plain',
-            'companion': 'none', 'aura': 'none', 'held': 'none',
+            'companion': 'none', 'held': 'none',
         }
+
+    def test_retired_aura_slot_is_not_served(self, api_client, student):
+        """The slot was retired after phase 64. Its GameProfile column is
+        deliberately still there, but nothing should read or serve it."""
+        api_client.force_authenticate(user=student)
+        avatar = api_client.get(self.PROFILE_URL).data['avatar']
+        assert 'aura' not in avatar['equipped']
+        assert not [i for i in avatar['catalog'] if i['slot'] == 'aura']
+        # And it can't be equipped through the back door.
+        response = api_client.patch(self.AVATAR_URL, {'aura': 'golden'})
+        assert response.status_code == status.HTTP_200_OK
+        assert 'aura' not in response.data['equipped']
 
     def test_equip_new_slots_persists(self, api_client, student):
         self._profile(student, total_xp=xp_for_level(8))
         api_client.force_authenticate(user=student)
         response = api_client.patch(self.AVATAR_URL, {
-            'companion': 'robo_cat', 'aura': 'pulse', 'held': 'codex',
+            'companion': 'robo_cat', 'held': 'codex',
         })
         assert response.status_code == status.HTTP_200_OK
         profile = GameProfile.objects.get(user=student)
         assert profile.avatar_companion == 'robo_cat'
-        assert profile.avatar_aura == 'pulse'
         assert profile.avatar_held == 'codex'
 
     @pytest.mark.parametrize('slot,key', [
-        ('companion', 'drone'), ('aura', 'sparkle'), ('held', 'wrench'),
+        ('companion', 'drone'), ('held', 'wrench'),
     ])
     def test_stale_key_falls_back_on_new_slots(
             self, api_client, student, slot, key):
@@ -794,7 +805,7 @@ class TestAvatarPhase64:
         """A max-level student without the badge still cannot equip it."""
         self._profile(student, total_xp=xp_for_level(20))
         api_client.force_authenticate(user=student)
-        assert self._item(self._catalog(api_client), 'aura', 'golden')['unlocked'] is False
+        assert self._item(self._catalog(api_client), 'color', 'aurora')['unlocked'] is False
 
     # -- streak gate -------------------------------------------------------
 
@@ -852,7 +863,7 @@ class TestAvatarPhase64:
         ('eyes', 'laser', 'Sharpshooter badge'),
         ('headgear', 'flame_crest', '14-day streak'),
         ('companion', 'phoenix', '30-day streak'),
-        ('aura', 'golden', 'Scholar badge'),
+        ('color', 'aurora', 'Scholar badge'),
     ])
     def test_unlock_label_shape(self, api_client, student, slot, key, expected):
         api_client.force_authenticate(user=student)
@@ -1094,7 +1105,7 @@ class TestAvatarAllOrNothingOrdering:
         {'companion': 'dragon', 'mascot_name': 'Sparky'},    # locked + rename
         {'headgear': 'cap', 'eyes': 'cap'},                  # valid + wrong-slot key
         {'eyes': 'cap', 'headgear': 'cap'},                  # wrong-slot key + valid
-        {'color': 'ember', 'aura': 'sparkle', 'held': 'debug_blade'},  # last one locked
+        {'color': 'ember', 'companion': 'drone', 'held': 'debug_blade'},  # last one locked
     ])
     def test_mixed_body_persists_nothing(self, api_client, student, lv2, body):
         api_client.force_authenticate(user=student)
@@ -1106,7 +1117,6 @@ class TestAvatarAllOrNothingOrdering:
         assert profile.avatar_headgear == 'none'
         assert profile.avatar_color == 'classic'
         assert profile.avatar_eyes == 'none'
-        assert profile.avatar_aura == 'none'
         assert profile.avatar_held == 'none'
         assert profile.avatar_companion == 'none'
 

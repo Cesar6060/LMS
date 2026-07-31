@@ -3,7 +3,6 @@ import { cn } from '@/lib/utils';
 import { useAvatarContext } from '@/contexts/AvatarContext';
 import { Backdrop } from '@/components/gamification/mascot/Backdrops';
 import { BehindBodyAccessory, ChestAccessory } from '@/components/gamification/mascot/Accessories';
-import { Aura } from '@/components/gamification/mascot/Aura';
 import { Companion } from '@/components/gamification/mascot/Companion';
 import { Eyes } from '@/components/gamification/mascot/Eyes';
 import { Headgear } from '@/components/gamification/mascot/Headgear';
@@ -45,9 +44,9 @@ interface MascotProps {
  * layer here made the file unworkable. Unknown keys fall back to drawing
  * nothing, so a catalog entry with no art degrades instead of crashing.
  *
- * Draw order is load-bearing: backdrop → behind-body accessory → aura →
- * antenna → head → eyes → eye cosmetics → mouth → headgear → arms → body →
- * chest accessory → held → feet → companion.
+ * Draw order is load-bearing: backdrop → behind-body accessory → antenna →
+ * head → eyes → eye cosmetics → mouth → headgear → arms → body → chest
+ * accessory → held → feet → companion.
  */
 export function Mascot({ pose = 'idle', size = 96, className, customization, hideBackdrop = false }: MascotProps) {
   const { avatar } = useAvatarContext();
@@ -62,7 +61,6 @@ export function Mascot({ pose = 'idle', size = 96, className, customization, hid
   const accessory = equipped?.accessory ?? 'none';
   const backdrop = hideBackdrop ? 'none' : equipped?.backdrop ?? 'plain';
   const companion = equipped?.companion ?? 'none';
-  const aura = equipped?.aura ?? 'none';
   const held = equipped?.held ?? 'none';
   const name = avatar?.mascot_name ?? 'Circuit';
   // Gradient ids must be unique per mascot instance — the customizer grid
@@ -98,8 +96,8 @@ export function Mascot({ pose = 'idle', size = 96, className, customization, hid
       aria-label={`${name} the robot (${pose})`}
     >
       {/*
-        The body is authored in a 0..120 box, but satellite layers (aura rings,
-        the companion) need somewhere to go that isn't on top of it. Extending
+        The body is authored in a 0..120 box, but satellite layers (the
+        companion, held items) need somewhere to go that isn't on top of it. Extending
         the viewBox to -20..140 reserves a 20-unit margin on every side without
         moving a single body coordinate — the robot simply renders ~14% smaller
         with room around it. Layers may draw out to r=80 from the (60,60) centre.
@@ -110,9 +108,6 @@ export function Mascot({ pose = 'idle', size = 96, className, customization, hid
 
         {/* Behind-the-body accessories */}
         <BehindBodyAccessory {...layer} itemKey={accessory} />
-
-        {/* Aura — behind Circuit, in front of the backdrop */}
-        <Aura {...layer} itemKey={aura} />
 
         {/* Antenna */}
         <line x1="60" y1="22" x2="60" y2="10" stroke={outline} strokeWidth="3" strokeLinecap="round" />
