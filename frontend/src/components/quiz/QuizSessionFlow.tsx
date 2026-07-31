@@ -261,7 +261,7 @@ export function QuizSessionFlow<TResult>({
               : 'border-red-500 bg-red-50 dark:bg-red-900/20'
           )}
         >
-          <Mascot pose={feedback.isCorrect ? 'cheer' : 'encourage'} size={72} className="flex-shrink-0" />
+          <Mascot pose={feedback.isCorrect ? 'cheer' : 'encourage'} size={96} className="flex-shrink-0" />
           <div className="flex-1 min-w-0">
             <p
               className={cn(

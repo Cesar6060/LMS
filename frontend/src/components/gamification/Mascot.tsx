@@ -97,7 +97,14 @@ export function Mascot({ pose = 'idle', size = 96, className, customization, hid
       role="img"
       aria-label={`${name} the robot (${pose})`}
     >
-      <svg viewBox="0 0 120 120" width={size} height={size}>
+      {/*
+        The body is authored in a 0..120 box, but satellite layers (aura rings,
+        the companion) need somewhere to go that isn't on top of it. Extending
+        the viewBox to -20..140 reserves a 20-unit margin on every side without
+        moving a single body coordinate — the robot simply renders ~14% smaller
+        with room around it. Layers may draw out to r=80 from the (60,60) centre.
+      */}
+      <svg viewBox="-20 -20 160 160" width={size} height={size}>
         {/* Backdrop container (drawn first, behind everything) */}
         <Backdrop {...layer} itemKey={backdrop} />
 
@@ -186,8 +193,16 @@ export function Mascot({ pose = 'idle', size = 96, className, customization, hid
         <circle cx="48" cy="108" r="5" fill={outline} opacity="0.7" />
         <circle cx="72" cy="108" r="5" fill={outline} opacity="0.7" />
 
-        {/* Companion (front-most, lower right) */}
-        <Companion {...layer} itemKey={companion} />
+        {/*
+          Companion (front-most, lower right). Its art is authored against the
+          old 0..120 box, where it unavoidably overlapped the jetpack's right
+          thruster (x 85–96). Offsetting the whole group into the margin the
+          viewBox now reserves clears that collision without touching a single
+          creature's coordinates — they keep their own local frame.
+        */}
+        <g transform="translate(24 14)">
+          <Companion {...layer} itemKey={companion} />
+        </g>
       </svg>
     </div>
   );

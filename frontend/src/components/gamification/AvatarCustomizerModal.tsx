@@ -44,6 +44,33 @@ const SLOT_LABELS: Record<AvatarSlot, string> = {
 
 const DEFAULT_NAME = 'Circuit';
 
+/**
+ * Slots loud enough to drown out whatever an item tile is trying to show.
+ * A tile previews the pending look with one item swapped in — but with an
+ * aura ringing the figure and a companion beside it, every tile in the Eyes
+ * section looks identical and you can't tell what you're picking. So a tile
+ * mutes these three unless they ARE the slot being chosen. The big preview
+ * on the left always shows the full, unmuted look.
+ */
+const DOMINANT_SLOTS: AvatarSlot[] = ['aura', 'companion', 'backdrop'];
+
+/** Neutral value for each muted slot — 'none' is a valid key in all three. */
+const MUTED = Object.fromEntries(
+  DOMINANT_SLOTS.map((slot) => [slot, 'none'])
+) as Partial<AvatarEquipped>;
+
+function tilePreview(
+  pending: AvatarEquipped,
+  slot: AvatarSlot,
+  key: string
+): Partial<AvatarEquipped> {
+  const muted = { ...MUTED };
+  // Keep the slot being previewed — muting it would hide the very thing the
+  // tile exists to show.
+  delete muted[slot];
+  return { ...pending, ...muted, [slot]: key };
+}
+
 /** Level gates sort ahead of the achievement gates in the "next unlock" hint —
  *  a level is the one a student can always make progress toward today. */
 const GATE_ORDER: Record<AvatarItem['unlock_type'], number> = {
@@ -173,8 +200,8 @@ export function AvatarCustomizerModal({ open, onOpenChange }: AvatarCustomizerMo
             >
               <Mascot
                 pose="idle"
-                size={56}
-                customization={{ ...pending, [slot]: item.key }}
+                size={75}
+                customization={tilePreview(pending, slot, item.key)}
               />
               <span className="text-center leading-tight">{item.name}</span>
               {!item.unlocked && (
@@ -210,7 +237,7 @@ export function AvatarCustomizerModal({ open, onOpenChange }: AvatarCustomizerMo
               item lists scroll. */}
           <div className="flex flex-col items-center gap-4 sm:w-52 flex-shrink-0 sm:sticky sm:top-0 sm:self-start">
             <div className="rounded-xl border border-border bg-muted/30 p-4">
-              <Mascot pose="idle" size={140} customization={pending} />
+              <Mascot pose="idle" size={186} customization={pending} />
             </div>
             <div className="w-full">
               <label htmlFor="mascot-name" className="block text-sm font-medium mb-1.5">

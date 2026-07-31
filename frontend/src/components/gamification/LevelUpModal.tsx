@@ -39,7 +39,7 @@ export function LevelUpModal({ open, level, onClose }: LevelUpModalProps) {
           </DialogDescription>
         </DialogHeader>
         <div className="flex items-center justify-center gap-2 py-4">
-          <Mascot pose="celebrate" size={104} hideBackdrop />
+          <Mascot pose="celebrate" size={138} hideBackdrop />
           <LevelRing level={level} progressPct={0} size={112} strokeWidth={9} />
         </div>
         <UnlockedItems items={unlocked} />

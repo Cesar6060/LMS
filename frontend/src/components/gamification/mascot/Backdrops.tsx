@@ -5,6 +5,10 @@ import type { LayerProps } from './types';
  * The backdrop panel inside the mascot SVG (Phase 33, extended Phase 64).
  * Drawn first, behind everything.
  *
+ * The panel fills the full extended viewBox (-18..138) rather than the old
+ * 0..120 body box, so a customizer tile stays framed after the phase-64
+ * margin was added.
+ *
  * Every key here must ALSO exist in `BackdropScene.tsx` (container-scale) and
  * in `backdrop.ts` (`SceneTheme`). A backdrop present in only one of the three
  * renders a mismatched dashboard hero — see the phase-64 spec.
@@ -12,14 +16,14 @@ import type { LayerProps } from './types';
 export function Backdrop({ itemKey, primary, gradientId }: LayerProps) {
   if (itemKey === 'plain') {
     return (
-      <rect x="2" y="2" width="116" height="116" rx="14" fill="hsl(var(--muted))" opacity="0.5" />
+      <rect x="-18" y="-18" width="156" height="156" rx="18" fill="hsl(var(--muted))" opacity="0.5" />
     );
   }
 
   if (itemKey === 'grid') {
     return (
       <>
-        <rect x="2" y="2" width="116" height="116" rx="14" fill="hsl(var(--muted))" opacity="0.5" />
+        <rect x="-18" y="-18" width="156" height="156" rx="18" fill="hsl(var(--muted))" opacity="0.5" />
         <g stroke={primary} strokeWidth="1" opacity="0.25">
           <line x1="2" y1="30" x2="118" y2="30" />
           <line x1="2" y1="60" x2="118" y2="60" />
@@ -35,7 +39,7 @@ export function Backdrop({ itemKey, primary, gradientId }: LayerProps) {
   if (itemKey === 'stars') {
     return (
       <>
-        <rect x="2" y="2" width="116" height="116" rx="14" fill="#0f172a" opacity="0.85" />
+        <rect x="-18" y="-18" width="156" height="156" rx="18" fill="#0f172a" opacity="0.85" />
         <path d={starPath(18, 20, 3.5)} fill="#e2e8f0" opacity="0.9" />
         <path d={starPath(100, 16, 2.8)} fill="#facc15" opacity="0.9" />
         <path d={starPath(106, 62, 3.2)} fill="#e2e8f0" opacity="0.8" />
@@ -55,7 +59,7 @@ export function Backdrop({ itemKey, primary, gradientId }: LayerProps) {
             <stop offset="100%" stopColor="#ec4899" />
           </linearGradient>
         </defs>
-        <rect x="2" y="2" width="116" height="116" rx="14" fill={`url(#${gradientId}-sunset)`} opacity="0.55" />
+        <rect x="-18" y="-18" width="156" height="156" rx="18" fill={`url(#${gradientId}-sunset)`} opacity="0.55" />
         <circle cx="60" cy="46" r="16" fill="#fde68a" opacity="0.6" />
       </>
     );
@@ -71,7 +75,7 @@ export function Backdrop({ itemKey, primary, gradientId }: LayerProps) {
             <stop offset="100%" stopColor="#0f172a" />
           </linearGradient>
         </defs>
-        <rect x="2" y="2" width="116" height="116" rx="14" fill={`url(#${gradientId}-galaxy)`} opacity="0.85" />
+        <rect x="-18" y="-18" width="156" height="156" rx="18" fill={`url(#${gradientId}-galaxy)`} opacity="0.85" />
         <ellipse cx="88" cy="26" rx="14" ry="5" fill="#a78bfa" opacity="0.45" transform="rotate(-18 88 26)" />
         <path d={starPath(22, 24, 3)} fill="#e2e8f0" opacity="0.9" />
         <path d={starPath(102, 80, 2.8)} fill="#e2e8f0" opacity="0.8" />
@@ -91,7 +95,7 @@ export function Backdrop({ itemKey, primary, gradientId }: LayerProps) {
             <stop offset="100%" stopColor="#022c22" />
           </linearGradient>
         </defs>
-        <rect x="2" y="2" width="116" height="116" rx="14" fill={`url(#${gradientId}-forest)`} opacity="0.9" />
+        <rect x="-18" y="-18" width="156" height="156" rx="18" fill={`url(#${gradientId}-forest)`} opacity="0.9" />
         {/* Canopy: overlapping conifer silhouettes along the top edge */}
         <g fill="#065f46" opacity="0.85">
           <path d="M16 46 L26 18 L36 46 Z" />
@@ -119,7 +123,7 @@ export function Backdrop({ itemKey, primary, gradientId }: LayerProps) {
             <stop offset="100%" stopColor="#4c1d95" />
           </linearGradient>
         </defs>
-        <rect x="2" y="2" width="116" height="116" rx="14" fill={`url(#${gradientId}-arcade)`} opacity="0.92" />
+        <rect x="-18" y="-18" width="156" height="156" rx="18" fill={`url(#${gradientId}-arcade)`} opacity="0.92" />
         {/* Perspective floor grid receding to a horizon */}
         <g stroke="#f472b6" strokeWidth="1" opacity="0.5">
           <line x1="2" y1="76" x2="118" y2="76" />
@@ -151,7 +155,7 @@ export function Backdrop({ itemKey, primary, gradientId }: LayerProps) {
             <stop offset="100%" stopColor="#818cf8" stopOpacity="0" />
           </linearGradient>
         </defs>
-        <rect x="2" y="2" width="116" height="116" rx="14" fill={`url(#${gradientId}-aurorasky)`} />
+        <rect x="-18" y="-18" width="156" height="156" rx="18" fill={`url(#${gradientId}-aurorasky)`} />
         <path
           d="M2 34 Q34 14 60 30 Q88 46 118 22 L118 44 Q88 66 60 50 Q34 34 2 54 Z"
           fill={`url(#${gradientId}-aurorasky-ribbon)`}

@@ -31,7 +31,7 @@ export function UnlockedItems({ items }: UnlockedItemsProps) {
             <div className="rounded-lg border border-primary/40 bg-primary/5 p-1">
               <Mascot
                 pose="idle"
-                size={52}
+                size={69}
                 customization={{ ...avatar?.equipped, [item.slot]: item.key }}
               />
             </div>
