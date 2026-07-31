@@ -378,27 +378,36 @@ caller can't reintroduce a per-item query.
       surface every place a 5-key record is built — all must be fixed, not cast.
 - [x] `cd frontend && npm run lint` → 0 errors (1 pre-existing warning is the baseline).
 - [x] `cd frontend && npx vitest run` → 101 existing + the 4 new suites above.
+- [x] **Measured:** pytest 737 (was 710, +27); vitest 116 (was 101, +15); tsc 0;
+      lint 0 errors / 1 pre-existing warning. Bundle: total JS 618 → 623 kB gzip
+      (+5 kB); the `Mascot` chunk itself 2.23 → 6.40 kB gzip (+4.17 kB), well
+      under the ~15 kB threshold below. Baseline measured by building `main` in
+      a throwaway worktree, not estimated.
 - [x] `npm run build` succeeds (needs `VITE_API_URL`). Note the bundle delta: 43 new
       inline SVG layers land in the main chunk. Record the before/after gzip size in
       the handoff; investigate if it grows by more than ~15 kB gzip.
 
-### Manual click-through (student account above Lv 15, or XP-boosted in dev)
-- [x] Dashboard → **Customize** → modal shows 3 tabs (Look / Gear / Extras), all
+### Manual click-through
+
+> Not performed by the implementation session — these need the running app
+> and a live account. Unticked deliberately; see the handoff.
+ (student account above Lv 15, or XP-boosted in dev)
+- [ ] Dashboard → **Customize** → modal shows 3 tabs (Look / Gear / Extras), all
       8 slots reachable, preview pinned while scrolling.
-- [x] Equip a companion + an aura + a held item + a new backdrop → Save → toast →
+- [ ] Equip a companion + an aura + a held item + a new backdrop → Save → toast →
       dashboard hero updates immediately, and the hero's numerals/buttons/bubble
       restyle to the new scene (not `DEFAULT_THEME` on a dark backdrop).
-- [x] Course map page: Circuit renders at `size={72}` with the companion and held item
+- [ ] Course map page: Circuit renders at `size={72}` with the companion and held item
       still legible and not overlapping the path node; page background is the new scene.
-- [x] Quiz feedback (`cheer`) and quiz pass (`celebrate`): the held item stays **in the
+- [ ] Quiz feedback (`cheer`) and quiz pass (`celebrate`): the held item stays **in the
       hand** at both raised-arm positions — this is the specific check for decision #3.
-- [x] Locked-item chips read the right gate: a level item shows "Lv 12", `laser` eyes
+- [ ] Locked-item chips read the right gate: a level item shows "Lv 12", `laser` eyes
       show "Sharpshooter badge", `phoenix` shows "30-day streak".
-- [x] Earn a level → LevelUpModal lists the cosmetics unlocked at that level.
+- [ ] Earn a level → LevelUpModal lists the cosmetics unlocked at that level.
       Earn `perfect_quiz` → BadgeEarnedModal lists Laser Eyes / Marksman Pin / Trophy.
       Earn `xp_100` → BadgeEarnedModal shows **no** cosmetics section.
-- [x] Both light and dark theme on the three new backdrops.
-- [x] **Demo account** (`stemquests.com`, or DEMO_ACCOUNT_EMAIL locally): Customize
+- [ ] Both light and dark theme on the three new backdrops.
+- [ ] **Demo account** (`stemquests.com`, or DEMO_ACCOUNT_EMAIL locally): Customize
       opens, a slot equip saves successfully, the rename input is disabled with the
       demo note. Caveat: the demo profile is low-level, so verify with an item unlocked
       at Lv 1–2 (`cap`, `wrench`, `drone`).
