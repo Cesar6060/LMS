@@ -119,21 +119,45 @@ def _update_streak(profile, today):
 # XP
 # ---------------------------------------------------------------------------
 
-def _award_xp(user, source_type, source_id, amount):
+def _award_xp(user, source_type, source_key, amount, source_id=None):
     """
     Award ``amount`` XP for a source exactly once. Returns whether a new
     XPEvent (and therefore an XP increment) was created. Assumes the user's
     GameProfile already exists.
+
+    ``source_key`` is the guarantee (Phase 65) — it is the target's
+    ``content_key``, which survives a delete-and-recreate, so a content rebuild
+    can no longer pay a student twice. ``source_id`` is history: still written
+    on every row as the audit trail of which primary key paid, never read for
+    correctness.
+
+    AMOUNT-DRIFT HAZARD: ``amount`` rides in ``defaults``, so an XPEvent that
+    already exists keeps whatever amount it was first written with — forever,
+    even if ``XP_LESSON`` and friends later change. Nothing reconciles that.
+    ``manage.py audit_xp`` reports the drift; correcting it would silently move
+    student totals and is a decision of its own, deliberately not automated.
     """
     _event, created = XPEvent.objects.get_or_create(
         user=user,
         source_type=source_type,
-        source_id=source_id,
-        defaults={'amount': amount},
+        source_key=source_key,
+        defaults={'amount': amount, 'source_id': source_id},
     )
     if created:
         GameProfile.objects.filter(user=user).update(total_xp=F('total_xp') + amount)
     return created
+
+
+def _source_key_for(obj, source_type):
+    """
+    The dedupe key for a lesson/quiz. Falls back to ``legacy:<type>:<pk>`` when
+    ``content_key`` is null — only reachable in the migrate-then-deploy window,
+    where the column exists but old rows created by still-running old code have
+    no key. Deduping on ``None`` would make every keyless award collide into one
+    row, so the pk-derived fallback is what keeps them distinct.
+    """
+    key = getattr(obj, 'content_key', None)
+    return key or f'legacy:{source_type}:{obj.id}'
 
 
 # ---------------------------------------------------------------------------
@@ -141,6 +165,17 @@ def _award_xp(user, source_type, source_id, amount):
 # ---------------------------------------------------------------------------
 
 def _badge_satisfied(user, profile, badge):
+    """
+    Whether ``badge``'s criteria are satisfied RIGHT NOW.
+
+    ASYMMETRY, AND IT IS INTENTIONAL (Phase 65, decision 4): ``lessons_done``,
+    ``course_complete`` and ``perfect_quiz`` are evaluated against live
+    progress rows, so deleting content makes this return False again — while
+    ``UserBadge`` rows are never revoked, so the badge the student already
+    earned stays earned. An earned thing is permanent; this function only ever
+    decides whether to grant, never whether to take away. Same rule as
+    ``longest_streak``. Pinned by ``TestBadgeAsymmetry``.
+    """
     from courses.models import Lesson, LessonProgress, LessonQuizAttempt
     from quizzes.models import QuizAttempt
 
@@ -177,7 +212,14 @@ def _badge_satisfied(user, profile, badge):
 
 
 def _evaluate_badges(user, profile):
-    """get_or_create every satisfied catalog badge; return the newly created."""
+    """
+    get_or_create every satisfied catalog badge; return the newly created.
+
+    Grant-only: a badge whose criteria stop being satisfied (content deleted,
+    progress rows gone) is simply not re-granted — the existing ``UserBadge``
+    is left alone. See ``_badge_satisfied`` for why that asymmetry is the
+    intended behavior and not a leak.
+    """
     new_badges = []
     for badge in Badge.objects.all():
         if _badge_satisfied(user, profile, badge):
@@ -191,7 +233,8 @@ def _evaluate_badges(user, profile):
 # Public award functions
 # ---------------------------------------------------------------------------
 
-def _award(user, source_type, source_id, amount, advance_streak=False, today=None):
+def _award(user, source_type, source_key, amount, source_id=None,
+           advance_streak=False, today=None):
     """Shared award pipeline. Returns a GamificationResult."""
     if user.is_instructor:
         return GamificationResult()  # inert — instructors accrue nothing
@@ -200,10 +243,14 @@ def _award(user, source_type, source_id, amount, advance_streak=False, today=Non
         profile, _ = GameProfile.objects.get_or_create(user=user)
         before_xp = profile.total_xp
 
-        created = _award_xp(user, source_type, source_id, amount)
+        created = _award_xp(user, source_type, source_key, amount, source_id=source_id)
 
         freezes_used = 0
-        if advance_streak:
+        # Gated on `created` (Phase 65): re-completing content the student was
+        # already paid for is a no-op award and must not extend a streak. A
+        # deliberate semantic change — previously any call with
+        # advance_streak=True ticked the streak whether or not XP moved.
+        if advance_streak and created:
             resolved_today = _resolve_today(user, today)
             freezes_used = _update_streak(profile, resolved_today)
 
@@ -239,19 +286,28 @@ def _award(user, source_type, source_id, amount, advance_streak=False, today=Non
 def award_lesson_completion(user, lesson, today=None):
     """+50 XP for completing a lesson, advance the streak, evaluate badges."""
     return _award(
-        user, XPEvent.SOURCE_LESSON, lesson.id, XP_LESSON,
-        advance_streak=True, today=today,
+        user, XPEvent.SOURCE_LESSON,
+        _source_key_for(lesson, XPEvent.SOURCE_LESSON), XP_LESSON,
+        source_id=lesson.id, advance_streak=True, today=today,
     )
 
 
 def award_quiz_pass(user, quiz, today=None):
     """+20 XP for passing a unit quiz (no streak change), evaluate badges."""
-    return _award(user, XPEvent.SOURCE_QUIZ, quiz.id, XP_QUIZ, today=today)
+    return _award(
+        user, XPEvent.SOURCE_QUIZ,
+        _source_key_for(quiz, XPEvent.SOURCE_QUIZ), XP_QUIZ,
+        source_id=quiz.id, today=today,
+    )
 
 
 def award_lesson_quiz_pass(user, lesson, today=None):
     """+20 XP for passing a lesson comprehension quiz, evaluate badges."""
-    return _award(user, XPEvent.SOURCE_LESSON_QUIZ, lesson.id, XP_LESSON_QUIZ, today=today)
+    return _award(
+        user, XPEvent.SOURCE_LESSON_QUIZ,
+        _source_key_for(lesson, XPEvent.SOURCE_LESSON_QUIZ), XP_LESSON_QUIZ,
+        source_id=lesson.id, today=today,
+    )
 
 
 def earned_badge_keys_for(user):

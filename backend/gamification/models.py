@@ -69,10 +69,20 @@ class XPEvent(models.Model):
     """
     Immutable ledger row for a single XP award.
 
-    The ``unique_together`` constraint is the correctness core of the whole
-    feature: it guarantees each source (a lesson completion, a quiz pass) can
-    award XP at most once, so re-completing / re-passing never re-awards and
-    the backfill is idempotent.
+    The uniqueness on ``(user, source_type, source_key)`` is the correctness
+    core of the whole feature: it guarantees each source (a lesson completion,
+    a quiz pass) can award XP at most once, so re-completing / re-passing never
+    re-awards and the backfill is idempotent.
+
+    Phase 65 moved that guarantee from ``source_id`` to ``source_key``. The id
+    is a bare primary key with no foreign key, so a content rebuild that
+    deleted and recreated a lesson handed it a NEW pk and the student was paid
+    again. ``source_key`` holds the target's ``content_key``, which survives
+    delete-and-recreate, so the ledger is now immune to it.
+
+    XP never decreases (decision 4): an ``XPEvent`` whose source is later
+    deleted is kept and its XP stays summed into ``GameProfile.total_xp``. The
+    backfill labels those rows ``orphan:<source_type>:<source_id>``.
     """
     SOURCE_LESSON = 'lesson'
     SOURCE_QUIZ = 'quiz'
@@ -89,17 +99,38 @@ class XPEvent(models.Model):
         related_name='xp_events'
     )
     source_type = models.CharField(max_length=20, choices=SOURCE_TYPE_CHOICES)
-    source_id = models.PositiveIntegerField()
+    # DORMANT (Phase 65): superseded by ``source_key`` as the dedupe key. It is
+    # still written on every award and kept as the audit trail of which primary
+    # key originally paid — that history is the only way to reconcile the rows
+    # a destructive reseed orphaned. Do not dedupe on it; do not read it for
+    # correctness. Dropping the column is a change of its own (same treatment
+    # as the phase-53 ``Lesson.content`` block, courses/models.py:95-114).
+    #
+    # Nullable as of Phase 65. The legacy ``(user, source_type, source_id)``
+    # uniqueness below is still live, so a caller that supplies no id must not
+    # be coerced to a sentinel like 0 — every such row would then collide with
+    # every other one. NULL keeps them distinct under a Postgres unique index.
+    source_id = models.PositiveIntegerField(null=True, blank=True)
+    source_key = models.CharField(
+        max_length=100, null=True, blank=True,
+        help_text="The target's content_key. This is what dedupes; source_id is history.",
+    )
     amount = models.PositiveIntegerField()
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
         db_table = 'gamification_xpevent'
-        unique_together = ['user', 'source_type', 'source_id']
+        # Both constraints are live. The source_id one is legacy and stays only
+        # so old rows keep their guarantee; source_key is what new awards dedupe
+        # on. See the class docstring.
+        unique_together = [
+            ['user', 'source_type', 'source_id'],
+            ['user', 'source_type', 'source_key'],
+        ]
         ordering = ['-created_at']
 
     def __str__(self):
-        return f"{self.user.email} +{self.amount} XP ({self.source_type}#{self.source_id})"
+        return f"{self.user.email} +{self.amount} XP ({self.source_type}#{self.source_key})"
 
 
 class Badge(models.Model):

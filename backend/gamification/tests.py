@@ -1166,3 +1166,287 @@ class TestAvatarCatalogIntegrity:
                     f"{item['slot']}/{item['key']} would be blocked by the "
                     'level gate as well as its own'
                 )
+
+
+# --------------------------------------------------------------------------
+# Phase 65 — content identity: a rebuild must not re-award XP
+# --------------------------------------------------------------------------
+
+@pytest.mark.django_db
+class TestContentRebuildXP:
+    """
+    The regression this phase exists for.
+
+    Every pre-existing "idempotent" test re-awards the SAME, STILL-EXISTING
+    object, which is exactly why the bug survived from phase 58 to 65. These
+    tests delete the object and recreate it — a new primary key, the same
+    ``content_key`` — which is what `populate_robotics_course` and
+    `clone_course_for_demo` did to prod on every run.
+    """
+
+    def test_lesson_rebuild_does_not_re_award(self, student, unit):
+        today = date(2026, 7, 19)
+        lesson = Lesson.objects.create(
+            unit=unit, title='What is a robot?', order=1,
+            content_key='rob101-what-is-a-robot',
+        )
+        award_lesson_completion(student, lesson, today=today)
+        original_pk = lesson.pk
+
+        # The destructive rebuild: content wiped and recreated from source.
+        lesson.delete()
+        rebuilt = Lesson.objects.create(
+            unit=unit, title='What is a robot?', order=1,
+            content_key='rob101-what-is-a-robot',
+        )
+        assert rebuilt.pk != original_pk, 'test is meaningless without a new pk'
+
+        result = award_lesson_completion(student, rebuilt, today=today)
+
+        assert result.xp_awarded == 0
+        assert GameProfile.objects.get(user=student).total_xp == 50
+        assert XPEvent.objects.filter(user=student).count() == 1
+
+    def test_unit_quiz_rebuild_does_not_re_award(self, student, unit):
+        quiz = Quiz.objects.create(
+            unit=unit, title='Unit 1 Quiz', order=1,
+            content_key='rob101-quiz-intro',
+        )
+        award_quiz_pass(student, quiz)
+        quiz.delete()
+
+        rebuilt = Quiz.objects.create(
+            unit=unit, title='Unit 1 Quiz', order=1,
+            content_key='rob101-quiz-intro',
+        )
+        result = award_quiz_pass(student, rebuilt)
+
+        assert result.xp_awarded == 0
+        assert GameProfile.objects.get(user=student).total_xp == 20
+        assert XPEvent.objects.filter(user=student).count() == 1
+
+    def test_lesson_quiz_rebuild_does_not_re_award(self, student, unit):
+        lesson = Lesson.objects.create(
+            unit=unit, title='Sensors', order=1, content_key='rob101-sensors',
+        )
+        award_lesson_quiz_pass(student, lesson)
+        lesson.delete()
+
+        rebuilt = Lesson.objects.create(
+            unit=unit, title='Sensors', order=1, content_key='rob101-sensors',
+        )
+        result = award_lesson_quiz_pass(student, rebuilt)
+
+        assert result.xp_awarded == 0
+        assert GameProfile.objects.get(user=student).total_xp == 20
+        assert XPEvent.objects.filter(user=student).count() == 1
+
+    def test_all_three_source_types_survive_one_rebuild(self, student, unit):
+        """A lesson pays twice (completion + its quiz); a rebuild pays neither."""
+        today = date(2026, 7, 19)
+        lesson = Lesson.objects.create(
+            unit=unit, title='Motors', order=1, content_key='rob101-motors',
+        )
+        quiz = Quiz.objects.create(
+            unit=unit, title='Q', order=1, content_key='rob101-quiz-motors',
+        )
+        award_lesson_completion(student, lesson, today=today)
+        award_lesson_quiz_pass(student, lesson)
+        award_quiz_pass(student, quiz)
+        assert GameProfile.objects.get(user=student).total_xp == 90
+
+        lesson.delete()
+        quiz.delete()
+        lesson = Lesson.objects.create(
+            unit=unit, title='Motors', order=1, content_key='rob101-motors',
+        )
+        quiz = Quiz.objects.create(
+            unit=unit, title='Q', order=1, content_key='rob101-quiz-motors',
+        )
+        award_lesson_completion(student, lesson, today=today)
+        award_lesson_quiz_pass(student, lesson)
+        award_quiz_pass(student, quiz)
+
+        assert GameProfile.objects.get(user=student).total_xp == 90
+        assert XPEvent.objects.filter(user=student).count() == 3
+
+    def test_different_key_does_award_again(self, student, unit):
+        """
+        The counter-case: genuinely new content IS new. Pins that the fix is
+        "dedupe on identity", not "never award twice".
+        """
+        today = date(2026, 7, 19)
+        lesson = Lesson.objects.create(
+            unit=unit, title='Old lesson', order=1, content_key='rob101-old',
+        )
+        award_lesson_completion(student, lesson, today=today)
+        lesson.delete()
+
+        replacement = Lesson.objects.create(
+            unit=unit, title='A different lesson', order=1,
+            content_key='rob101-brand-new',
+        )
+        result = award_lesson_completion(student, replacement, today=today)
+
+        assert result.xp_awarded == 50
+        assert GameProfile.objects.get(user=student).total_xp == 100
+        assert XPEvent.objects.filter(user=student).count() == 2
+
+    def test_deleting_content_never_takes_xp(self, student, unit):
+        """Decision 4: XP never decreases. The ledger row outlives its source."""
+        today = date(2026, 7, 19)
+        lesson = Lesson.objects.create(
+            unit=unit, title='Doomed', order=1, content_key='rob101-doomed',
+        )
+        award_lesson_completion(student, lesson, today=today)
+        lesson_id = lesson.id
+
+        lesson.delete()
+
+        assert GameProfile.objects.get(user=student).total_xp == 50
+        event = XPEvent.objects.get(user=student)
+        assert event.amount == 50
+        assert event.source_key == 'rob101-doomed'
+        # source_id survives as the audit trail of which pk originally paid.
+        assert event.source_id == lesson_id
+
+    def test_null_content_key_falls_back_to_legacy_and_stays_distinct(
+        self, student, unit
+    ):
+        """
+        Only reachable in the migrate-then-deploy window. Two keyless lessons
+        must not collapse into one ledger row (which deduping on None would do).
+        """
+        first = Lesson.objects.create(
+            unit=unit, title='A', order=1, content_key=None,
+        )
+        second = Lesson.objects.create(
+            unit=unit, title='B', order=2, content_key=None,
+        )
+        today = date(2026, 7, 19)
+
+        assert award_lesson_completion(student, first, today=today).xp_awarded == 50
+        assert award_lesson_completion(student, second, today=today).xp_awarded == 50
+        # ...and each is still individually idempotent.
+        assert award_lesson_completion(student, first, today=today).xp_awarded == 0
+
+        assert GameProfile.objects.get(user=student).total_xp == 100
+        keys = set(XPEvent.objects.filter(user=student).values_list('source_key', flat=True))
+        assert keys == {
+            f'legacy:lesson:{first.id}', f'legacy:lesson:{second.id}',
+        }
+
+    def test_source_id_is_still_written_as_the_audit_trail(self, student, lesson):
+        award_lesson_completion(student, lesson, today=date(2026, 7, 19))
+        event = XPEvent.objects.get(user=student)
+        assert event.source_id == lesson.id
+        assert event.source_key == lesson.content_key
+        assert event.source_key.startswith('auto:')
+
+    def test_model_default_gives_every_row_a_distinct_auto_key(self, unit):
+        """
+        Decision 3: the default is load-bearing — ~120 inline object creations
+        across the test suite rely on it, and it must never collide.
+        """
+        made = [
+            Lesson.objects.create(unit=unit, title=f'L{i}', order=i)
+            for i in range(1, 6)
+        ]
+        keys = {lsn.content_key for lsn in made}
+        assert len(keys) == 5
+        assert all(k.startswith('auto:') for k in keys)
+
+
+@pytest.mark.django_db
+class TestNoOpAwardDoesNotAdvanceStreak:
+    """
+    Phase 65 behavior change: `_update_streak` is now gated on whether an
+    XPEvent was actually created, so re-completing already-paid content no
+    longer extends a streak.
+    """
+
+    def test_re_award_does_not_advance_streak(self, student, lesson):
+        day1 = date(2026, 7, 19)
+        award_lesson_completion(student, lesson, today=day1)
+        profile = GameProfile.objects.get(user=student)
+        assert profile.current_streak == 1
+
+        # The next day, re-complete the SAME lesson: no XP, so no streak tick.
+        result = award_lesson_completion(student, lesson, today=day1 + timedelta(days=1))
+
+        assert result.xp_awarded == 0
+        profile.refresh_from_db()
+        assert profile.current_streak == 1
+        assert profile.last_activity_date == day1
+
+    def test_rebuilt_lesson_does_not_advance_streak(self, student, unit):
+        day1 = date(2026, 7, 19)
+        lesson = Lesson.objects.create(
+            unit=unit, title='L', order=1, content_key='rob101-streak-probe',
+        )
+        award_lesson_completion(student, lesson, today=day1)
+        lesson.delete()
+        rebuilt = Lesson.objects.create(
+            unit=unit, title='L', order=1, content_key='rob101-streak-probe',
+        )
+
+        award_lesson_completion(student, rebuilt, today=day1 + timedelta(days=1))
+
+        profile = GameProfile.objects.get(user=student)
+        assert profile.current_streak == 1
+        assert profile.last_activity_date == day1
+
+    def test_genuine_new_award_still_advances_streak(self, student, lessons):
+        day1 = date(2026, 7, 19)
+        award_lesson_completion(student, lessons[0], today=day1)
+        award_lesson_completion(student, lessons[1], today=day1 + timedelta(days=1))
+
+        profile = GameProfile.objects.get(user=student)
+        assert profile.current_streak == 2
+        assert profile.last_activity_date == day1 + timedelta(days=1)
+
+
+@pytest.mark.django_db
+class TestBadgeAsymmetry:
+    """
+    Pins decision 4: `_badge_satisfied` reads live progress rows, so deleting
+    content un-satisfies a badge — but `UserBadge` is never revoked, so the
+    student keeps it. Intentional, and asserted here so nobody "fixes" it.
+    """
+
+    def test_earned_badge_survives_deleting_the_content_that_earned_it(
+        self, student, unit
+    ):
+        made = [
+            Lesson.objects.create(unit=unit, title=f'L{i}', order=i,
+                                  content_key=f'gam101-l{i}')
+            for i in range(1, 6)
+        ]
+        today = date(2026, 7, 19)
+        for lsn in made:
+            # The badge criteria read progress rows, which the view writes and
+            # the award service does not — so create them the way the real
+            # completion path does.
+            LessonProgress.objects.create(user=student, lesson=lsn, completed=True)
+            award_lesson_completion(student, lsn, today=today)
+
+        badge_key = 'first_lesson'
+        assert UserBadge.objects.filter(user=student, badge__key=badge_key).exists()
+        earned_at = UserBadge.objects.get(user=student, badge__key=badge_key).earned_at
+        badge_count = UserBadge.objects.filter(user=student).count()
+
+        # Wipe the progress that satisfied the criteria.
+        for lsn in made:
+            lsn.delete()
+        assert not LessonProgress.objects.filter(user=student).exists()
+
+        profile = GameProfile.objects.get(user=student)
+        new_badges = _evaluate_badges(student, profile)
+
+        # Not re-awarded (it was never lost) and not revoked.
+        assert new_badges == []
+        assert UserBadge.objects.filter(user=student).count() == badge_count
+        held = UserBadge.objects.get(user=student, badge__key=badge_key)
+        assert held.earned_at == earned_at
+        # ...and the XP that earned it is untouched.
+        assert profile.total_xp == 250

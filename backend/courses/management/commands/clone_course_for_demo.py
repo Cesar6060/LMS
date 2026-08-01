@@ -47,6 +47,19 @@ def _clone(obj, **overrides):
     return obj
 
 
+def demo_key(source_key):
+    """
+    The demo course's key for a piece of source content (Phase 65).
+
+    ``_clone`` copies every concrete field, so without this the clone would
+    carry the source's ``content_key`` verbatim and blow the unique index on
+    the very first run. The ``demo:`` prefix is derived, not random, so it is
+    stable across re-clones — a demo lesson keeps its XP identity — while
+    staying distinct from the source lesson it was copied from.
+    """
+    return f'demo:{source_key}' if source_key else None
+
+
 class Command(BaseCommand):
     help = (
         f'Clones {SOURCE_CODE} into the public demo course {DEMO_CODE} '
@@ -109,7 +122,9 @@ class Command(BaseCommand):
             for quiz in quizzes:
                 old_quiz_pk = quiz.pk
                 questions = list(quiz.questions.all())
-                new_quiz = _clone(quiz, unit=new_unit)
+                new_quiz = _clone(
+                    quiz, unit=new_unit, content_key=demo_key(quiz.content_key)
+                )
                 quiz_map[old_quiz_pk] = new_quiz
                 counts['quizzes'] += 1
                 for question in questions:
@@ -125,7 +140,9 @@ class Command(BaseCommand):
             for lesson in source_unit.lessons.order_by('order'):
                 sections = list(lesson.sections.order_by('order'))
                 questions = list(lesson.questions.order_by('order'))
-                new_lesson = _clone(lesson, unit=new_unit)
+                new_lesson = _clone(
+                    lesson, unit=new_unit, content_key=demo_key(lesson.content_key)
+                )
                 counts['lessons'] += 1
                 for section in sections:
                     self._clone_section(section, new_lesson)
