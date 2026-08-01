@@ -478,3 +478,124 @@ class TestCloneSlideImages:
         assert storage.exists(second_clone.image.name)
         # Source blob untouched by the refresh.
         assert storage.exists(source_slide.image.name)
+
+
+# --------------------------------------------------------------------------
+# Phase 65 — the clone is an upsert, and its keys are demo:-prefixed
+# --------------------------------------------------------------------------
+
+@pytest.mark.django_db
+class TestCloneContentKeys:
+    """
+    ``_clone`` used to copy every concrete field, which after Phase 65 would
+    have carried the source's ``content_key`` into DEMO101 and blown the
+    unique index on the first run. Every clone now derives ``demo:<source
+    key>`` instead — stable across re-clones, distinct from the source.
+    """
+
+    def test_first_clone_succeeds_and_keys_are_demo_prefixed(self, java_course):
+        call_command('clone_course_for_demo')
+
+        demo = Course.objects.get(code='DEMO101')
+        lesson_keys = list(
+            Lesson.objects.filter(unit__course=demo)
+            .values_list('content_key', flat=True)
+        )
+        quiz_keys = list(
+            Quiz.objects.filter(unit__course=demo)
+            .values_list('content_key', flat=True)
+        )
+        assert lesson_keys and quiz_keys
+        assert all(k.startswith('demo:') for k in lesson_keys + quiz_keys)
+
+    def test_demo_keys_never_collide_with_the_source(self, java_course):
+        call_command('clone_course_for_demo')
+
+        demo = Course.objects.get(code='DEMO101')
+        source_keys = set(
+            Lesson.objects.filter(unit__course=java_course)
+            .values_list('content_key', flat=True)
+        )
+        demo_keys = set(
+            Lesson.objects.filter(unit__course=demo)
+            .values_list('content_key', flat=True)
+        )
+        assert source_keys and demo_keys
+        assert source_keys.isdisjoint(demo_keys)
+
+    def test_reclone_is_stable_and_keeps_demo_lesson_pks(self, java_course):
+        """The headline: a refresh updates in place, it does not re-create."""
+        call_command('clone_course_for_demo')
+        demo = Course.objects.get(code='DEMO101')
+        before = dict(
+            Lesson.objects.filter(unit__course=demo)
+            .values_list('content_key', 'pk')
+        )
+        quiz_before = dict(
+            Quiz.objects.filter(unit__course=demo)
+            .values_list('content_key', 'pk')
+        )
+
+        call_command('clone_course_for_demo')
+        call_command('clone_course_for_demo')
+
+        after = dict(
+            Lesson.objects.filter(unit__course=demo)
+            .values_list('content_key', 'pk')
+        )
+        quiz_after = dict(
+            Quiz.objects.filter(unit__course=demo)
+            .values_list('content_key', 'pk')
+        )
+        assert after == before
+        assert quiz_after == quiz_before
+
+    def test_reclone_preserves_demo_student_progress(self, java_course):
+        """
+        The reason the wipe had to go: demo progress used to die on every
+        refresh. Content that still exists in the source now survives.
+        """
+        call_command('clone_course_for_demo')
+        demo = Course.objects.get(code='DEMO101')
+        lesson = Lesson.objects.filter(unit__course=demo).order_by('pk').first()
+        visitor = User.objects.create_user(
+            email='demo-visitor@test.com', password='pw', is_instructor=False
+        )
+        progress = LessonProgress.objects.create(
+            user=visitor, lesson=lesson, completed=True
+        )
+
+        call_command('clone_course_for_demo')
+
+        progress.refresh_from_db()
+        assert progress.completed is True
+        assert progress.lesson_id == lesson.pk
+
+    def test_reclone_drops_content_the_source_no_longer_has(self, java_course):
+        """DEMO101 is a mirror, so its prune is unconditional."""
+        call_command('clone_course_for_demo')
+        demo = Course.objects.get(code='DEMO101')
+        before = Lesson.objects.filter(unit__course=demo).count()
+
+        Lesson.objects.filter(
+            unit__course=java_course, title='Number Types'
+        ).delete()
+        call_command('clone_course_for_demo')
+
+        titles = set(
+            Lesson.objects.filter(unit__course=demo).values_list('title', flat=True)
+        )
+        assert 'Number Types' not in titles
+        assert Lesson.objects.filter(unit__course=demo).count() == before - 1
+
+    def test_source_content_is_not_re_keyed_by_the_clone(self, java_course):
+        before = dict(
+            Lesson.objects.filter(unit__course=java_course)
+            .values_list('pk', 'content_key')
+        )
+        call_command('clone_course_for_demo')
+        after = dict(
+            Lesson.objects.filter(unit__course=java_course)
+            .values_list('pk', 'content_key')
+        )
+        assert after == before

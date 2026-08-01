@@ -12,11 +12,15 @@ Lesson attachments
 deleting an attachment deletes its file, so shared references would be
 destructive.
 
-Idempotent: re-running wipes DEMO101's content and re-copies it from
-JAVA101. The DEMO101 course row itself is preserved, so its
-enrollment_code and existing enrollments survive. Demo-user progress rows
-die with the old lessons — run `seed_demo_account --reset` afterwards to
-restore the baseline.
+Idempotent: re-running upserts DEMO101's content from JAVA101 (Phase 65 —
+it used to wipe and re-copy). The DEMO101 course row is preserved, so its
+enrollment_code and existing enrollments survive, and so now is its
+content: demo-user progress against a lesson that still exists in JAVA101
+survives a refresh instead of dying with the old rows.
+
+DEMO101 is a derived mirror of JAVA101, so unlike the seed commands this
+one prunes unconditionally — content the source no longer has must not
+linger in the demo.
 
 Usage: python manage.py clone_course_for_demo
 """
@@ -29,7 +33,12 @@ from django.core.management.base import BaseCommand, CommandError
 from django.db import transaction
 
 from accounts.models import User
-from courses.models import Course, LessonSection, Unit
+from courses.models import Course, LessonSection
+
+from ._content_upsert import (
+    prune_stale, upsert_lesson, upsert_lesson_questions, upsert_quiz,
+    upsert_quiz_questions, upsert_unit,
+)
 
 SOURCE_CODE = 'JAVA101'
 DEMO_CODE = 'DEMO101'
@@ -37,25 +46,15 @@ DEMO_TITLE = 'Java Fundamentals — Demo'
 DEMO_INSTRUCTOR_EMAIL = 'instructor@demo.com'
 
 
-def _clone(obj, **overrides):
-    """Duplicate a model instance (all concrete fields) with overrides."""
-    obj.pk = None
-    obj._state.adding = True
-    for field, value in overrides.items():
-        setattr(obj, field, value)
-    obj.save()
-    return obj
-
-
 def demo_key(source_key):
     """
     The demo course's key for a piece of source content (Phase 65).
 
-    ``_clone`` copies every concrete field, so without this the clone would
-    carry the source's ``content_key`` verbatim and blow the unique index on
-    the very first run. The ``demo:`` prefix is derived, not random, so it is
-    stable across re-clones — a demo lesson keeps its XP identity — while
-    staying distinct from the source lesson it was copied from.
+    Derived, not random, so it is stable across re-clones — a demo lesson
+    keeps its XP identity through a refresh — while staying distinct from the
+    source lesson it was copied from. Copying the source key verbatim (which
+    the old field-for-field clone did) would blow the unique index on the very
+    first run.
     """
     return f'demo:{source_key}' if source_key else None
 
@@ -93,66 +92,70 @@ class Command(BaseCommand):
             demo.instructor = owner
             demo.is_active = True
             demo.save()
-            # Slide image blobs are per-section copies (see _clone_section),
-            # so deleting the rows without the blobs would orphan a deck's
-            # worth of storage objects on every refresh.
-            for section in LessonSection.objects.filter(
-                lesson__unit__course=demo
-            ).exclude(image=''):
-                section.image.delete(save=False)
-            # Refresh: drop old content, keep the course row (and with it
-            # the enrollment_code and any enrollments).
-            demo.units.all().delete()
 
         counts = {'units': 0, 'lessons': 0, 'sections': 0,
                   'lesson questions': 0, 'quizzes': 0, 'quiz questions': 0}
-        quiz_map = {}
-        unit_pairs = []
+        seen_lesson_keys = set()
+        seen_quiz_keys = set()
 
-        # Pass 1: units and their quizzes (cloned before lessons even
-        # if a lesson references a quiz from another unit).
         for unit in source.units.order_by('order'):
-            # _clone mutates the instance's pk in place — capture first.
-            source_unit_pk = unit.pk
-            quizzes = list(unit.quizzes.all())
-            new_unit = _clone(unit, course=demo)
+            new_unit = upsert_unit(demo, unit.order, unit.title)
             counts['units'] += 1
-            unit_pairs.append((source_unit_pk, new_unit))
 
-            for quiz in quizzes:
-                old_quiz_pk = quiz.pk
-                questions = list(quiz.questions.all())
-                new_quiz = _clone(
-                    quiz, unit=new_unit, content_key=demo_key(quiz.content_key)
+            for quiz in unit.quizzes.order_by('order', 'pk'):
+                key = demo_key(quiz.content_key)
+                seen_quiz_keys.add(key)
+                new_quiz = upsert_quiz(
+                    new_unit, key, quiz.order,
+                    title=quiz.title,
+                    description=quiz.description,
+                    passing_score=quiz.passing_score,
+                    points=quiz.points,
+                    max_attempts=quiz.max_attempts,
                 )
-                quiz_map[old_quiz_pk] = new_quiz
                 counts['quizzes'] += 1
-                for question in questions:
-                    choices = list(question.choices.all())
-                    new_question = _clone(question, quiz=new_quiz)
-                    counts['quiz questions'] += 1
-                    for choice in choices:
-                        _clone(choice, question=new_question)
+                questions = [
+                    {
+                        'text': question.text,
+                        'choices': [
+                            (choice.text, choice.is_correct)
+                            for choice in question.choices.order_by('order', 'pk')
+                        ],
+                    }
+                    for question in quiz.questions.order_by('order', 'pk')
+                ]
+                upsert_quiz_questions(new_quiz, questions)
+                counts['quiz questions'] += len(questions)
 
-        # Pass 2: lessons with sections and comprehension questions.
-        for source_unit_pk, new_unit in unit_pairs:
-            source_unit = Unit.objects.get(pk=source_unit_pk)
-            for lesson in source_unit.lessons.order_by('order'):
-                sections = list(lesson.sections.order_by('order'))
-                questions = list(lesson.questions.order_by('order'))
-                new_lesson = _clone(
-                    lesson, unit=new_unit, content_key=demo_key(lesson.content_key)
+            for lesson in unit.lessons.order_by('order'):
+                key = demo_key(lesson.content_key)
+                seen_lesson_keys.add(key)
+                new_lesson = upsert_lesson(
+                    new_unit, key, lesson.order,
+                    title=lesson.title,
+                    content=lesson.content,
+                    video_type=lesson.video_type,
+                    video_id=lesson.video_id,
+                    requires_quiz=lesson.requires_quiz,
                 )
                 counts['lessons'] += 1
-                for section in sections:
-                    self._clone_section(section, new_lesson)
-                    counts['sections'] += 1
-                for question in questions:
-                    choices = list(question.choices.all())
-                    new_question = _clone(question, lesson=new_lesson)
-                    counts['lesson questions'] += 1
-                    for choice in choices:
-                        _clone(choice, question=new_question)
+                counts['sections'] += self._sync_sections(lesson, new_lesson)
+                questions = [
+                    {
+                        'text': question.text,
+                        'choices': [
+                            (choice.text, choice.is_correct)
+                            for choice in question.choices.order_by('order', 'pk')
+                        ],
+                    }
+                    for question in lesson.questions.order_by('order', 'pk')
+                ]
+                upsert_lesson_questions(new_lesson, questions)
+                counts['lesson questions'] += len(questions)
+
+        # DEMO101 mirrors JAVA101, so anything the source dropped must go —
+        # unlike the seed commands, where pruning is opt-in.
+        prune_stale(demo, seen_lesson_keys, seen_quiz_keys, dry_run=False)
 
         summary = ', '.join(f'{v} {k}' for k, v in counts.items())
         self.stdout.write(self.style.SUCCESS(
@@ -161,26 +164,65 @@ class Command(BaseCommand):
             f'Enrollment code: {demo.enrollment_code}'
         ))
 
-    def _clone_section(self, section, new_lesson):
-        """Clone a section, duplicating its slide image blob if it has one.
-
-        ``_clone`` copies the FileField *name*, so without duplication the
-        original and the clone would share one storage object — and the
-        section DELETE view deletes the blob with the row, which would break
-        whichever section survived.
+    def _sync_sections(self, source_lesson, new_lesson):
         """
-        image_name = section.image.name if section.image else ''
-        if image_name:
-            with section.image.open('rb') as f:
-                content = f.read()
-            new_section = _clone(section, lesson=new_lesson, image='')
-            # save() re-runs upload_to and de-duplicates the basename, so the
-            # clone gets its own object under a new name.
-            new_section.image.save(
-                os.path.basename(image_name), ContentFile(content), save=True
+        Upsert the demo lesson's sections from the source, blobs included.
+
+        Sections are matched on ``(lesson, order)`` and updated in place, so
+        the rows survive a refresh. Slide images cannot be shared: the
+        FileField holds a *name*, so copying it would leave both courses
+        pointing at one storage object — and the section DELETE view deletes
+        the blob with the row, breaking whichever section survived. Each demo
+        section therefore gets its own copy, and its old blob is deleted
+        whenever it is replaced or removed.
+
+        Returns the number of sections in the demo lesson.
+        """
+        sections = list(source_lesson.sections.order_by('order'))
+
+        for i, section in enumerate(sections):
+            new_section, _created = LessonSection.objects.update_or_create(
+                lesson=new_lesson, order=i,
+                defaults={
+                    'title': section.title,
+                    'content': section.content,
+                    'video_type': section.video_type,
+                    'video_id': section.video_id,
+                    'layout': section.layout,
+                    'image_alt': section.image_alt,
+                },
             )
-            return new_section
-        return _clone(section, lesson=new_lesson)
+            self._sync_section_image(section, new_section)
+
+        stale = LessonSection.objects.filter(
+            lesson=new_lesson, order__gte=len(sections)
+        )
+        for section in stale.exclude(image=''):
+            section.image.delete(save=False)
+        stale.delete()
+
+        return len(sections)
+
+    def _sync_section_image(self, section, new_section):
+        """Give ``new_section`` its own copy of ``section``'s slide image."""
+        source_name = section.image.name if section.image else ''
+
+        if new_section.image:
+            # Always replaced rather than diffed: the storage backend gives no
+            # cheap content comparison, and a stale demo slide is worse than a
+            # re-upload. Deleting first is what keeps the old blob from leaking.
+            new_section.image.delete(save=True)
+
+        if not source_name:
+            return
+
+        with section.image.open('rb') as f:
+            content = f.read()
+        # save() re-runs upload_to and de-duplicates the basename, so the copy
+        # gets its own object under a new name.
+        new_section.image.save(
+            os.path.basename(source_name), ContentFile(content), save=True
+        )
 
     def _assert_demo_instructor(self):
         """Create (or re-assert) the demo course's instructor account.
