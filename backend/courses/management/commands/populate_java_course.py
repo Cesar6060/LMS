@@ -9,36 +9,109 @@ This command is NON-DESTRUCTIVE:
 3. Creates (or idempotently refreshes) only the JAVA101 course and its content
    (units -> lessons -> paginated sections + comprehension quizzes, plus a unit
    quiz per unit)
+
+Point 3 was a lie until Phase 65 — see the ``populate_robotics_course``
+docstring for the full account. The command now upserts on each lesson's and
+quiz's author-chosen ``content_key`` instead of wiping the course, so student
+progress survives a refresh. Blueprint-absent content is reported, and deleted
+only under ``--prune``.
 """
 from django.core.management.base import BaseCommand
 from django.contrib.auth import get_user_model
-from courses.models import (
-    Course, Unit, Lesson, LessonSection, LessonQuestion, LessonQuestionChoice
+from django.db import transaction
+from courses.models import Course
+
+from ._content_upsert import (
+    prune_stale, upsert_lesson, upsert_lesson_questions, upsert_quiz,
+    upsert_quiz_questions, upsert_sections, upsert_unit,
 )
-from quizzes.models import Quiz, Question, Choice
 
 User = get_user_model()
 
 
 class Command(BaseCommand):
-    help = 'Create or refresh the JAVA101 Java course (non-destructive; no user or other-course changes)'
+    help = (
+        'Create or refresh the JAVA101 Java course (non-destructive: no user, '
+        'other-course or student-progress changes). --prune also deletes '
+        'JAVA101 content the blueprint no longer lists.'
+    )
+
+    def add_arguments(self, parser):
+        parser.add_argument(
+            '--prune',
+            action='store_true',
+            help=(
+                'Delete JAVA101 lessons/quizzes/units that are not in this '
+                'blueprint. This CASCADES student progress for the removed '
+                'content, which is why it is opt-in. Without it the command '
+                'only warns about them.'
+            ),
+        )
 
     def handle(self, *args, **options):
         self.stdout.write('Populating JAVA101 course...\n')
+
+        # Every content key this run touched; anything else in the course is
+        # blueprint-absent.
+        self.seen_lesson_keys = set()
+        self.seen_quiz_keys = set()
 
         # Find the instructor (never modifies users)
         instructor = self._get_instructor()
         if not instructor:
             return
 
-        # Get or create JAVA101 (touches no other course)
-        course = self._get_or_update_course(instructor)
+        # Atomic so a mid-rebuild failure can't leave students looking at a
+        # half-built course. Robotics has always had this; JAVA101 did not,
+        # so until Phase 65 a failure here left the course partly rebuilt.
+        with transaction.atomic():
+            # Get or create JAVA101 (touches no other course)
+            course = self._get_or_update_course(instructor)
 
-        # Clear only this course's content, then rebuild it
-        self._clear_course_content(course)
-        self._create_course_content(course)
+            self._create_course_content(course)
+            self._report_stale(course, prune=options['prune'])
 
         self.stdout.write(self.style.SUCCESS('\nJAVA101 population complete (non-destructive).'))
+
+    # ---------------- Upsert wrappers (record what the run touched) ---------
+
+    def _unit(self, course, order, title):
+        return upsert_unit(course, order, title)
+
+    def _lesson(self, unit, key, order, **fields):
+        """Upsert a lesson by its permanent content key. See ``_content_upsert``."""
+        self.seen_lesson_keys.add(key)
+        return upsert_lesson(unit, key, order, **fields)
+
+    def _quiz(self, unit, key, order, **fields):
+        """Upsert a unit quiz by its permanent content key."""
+        self.seen_quiz_keys.add(key)
+        return upsert_quiz(unit, key, order, **fields)
+
+    def _report_stale(self, course, *, prune):
+        report = prune_stale(
+            course, self.seen_lesson_keys, self.seen_quiz_keys, dry_run=not prune,
+        )
+        if not (report.lessons or report.quizzes or report.units):
+            return
+        verb = 'Deleted' if report.deleted else 'Found'
+        for lesson in report.lessons:
+            self.stdout.write(self.style.WARNING(
+                f'  {verb} blueprint-absent lesson #{lesson.pk} "{lesson.title}"'
+            ))
+        for quiz in report.quizzes:
+            self.stdout.write(self.style.WARNING(
+                f'  {verb} blueprint-absent quiz #{quiz.pk} "{quiz.title}"'
+            ))
+        for unit in report.units:
+            self.stdout.write(self.style.WARNING(
+                f'  {verb} blueprint-absent unit #{unit.pk} "{unit.title}"'
+            ))
+        if not report.deleted:
+            self.stdout.write(self.style.WARNING(
+                '  Nothing was deleted. Re-run with --prune to remove the above '
+                '(this CASCADES student progress for that content).'
+            ))
 
     def _get_instructor(self):
         """Find the instructor Cesar Villarreal."""
@@ -81,38 +154,32 @@ class Command(BaseCommand):
         )
         return course
 
-    def _clear_course_content(self, course):
-        """Delete all existing units, lessons, and quizzes."""
-        # Delete units (cascades to lessons, sections, questions)
-        deleted = course.units.all().delete()
-        self.stdout.write(f'Cleared existing content: {deleted}')
-
     def _create_course_content(self, course):
         """Create all units, lessons, sections, and quizzes."""
         # Unit 1: Getting Started (4 lessons)
-        unit1 = Unit.objects.create(course=course, title='Getting Started', order=0)
+        unit1 = self._unit(course, 0, 'Getting Started')
         self._create_unit1_getting_started_lessons(unit1)
         self._create_unit1_quiz(unit1)
 
         # Unit 2: Variables & Operators (4 lessons: 2 variables + 2 operators)
-        unit2 = Unit.objects.create(course=course, title='Variables & Operators', order=1)
+        unit2 = self._unit(course, 1, 'Variables & Operators')
         self._create_unit2_variables_lessons(unit2)
         self._create_unit2_operators_lessons(unit2)
         self._create_unit2_quiz(unit2)
 
         # Unit 3: Strings & User Input (3 lessons)
-        unit3 = Unit.objects.create(course=course, title='Strings & User Input', order=2)
+        unit3 = self._unit(course, 2, 'Strings & User Input')
         self._create_unit3_text_lessons(unit3)
         self._create_unit3_quiz(unit3)
 
         # Unit 4: Control Flow (7 lessons: 3 conditionals + 4 loops)
-        unit4 = Unit.objects.create(course=course, title='Control Flow', order=3)
+        unit4 = self._unit(course, 3, 'Control Flow')
         self._create_unit4_conditionals_lessons(unit4)
         self._create_unit4_loops_lessons(unit4)
         self._create_unit4_quiz(unit4)
 
         # Unit 5: Methods & Functions (2 lessons)
-        unit5 = Unit.objects.create(course=course, title='Methods & Functions', order=4)
+        unit5 = self._unit(course, 4, 'Methods & Functions')
         self._create_unit5_methods_lessons(unit5)
         self._create_unit5_quiz(unit5)
 
@@ -121,8 +188,8 @@ class Command(BaseCommand):
     # ================== UNIT 1: Getting Started ==================
     def _create_unit1_getting_started_lessons(self, unit):
         # Lesson 1: Hello World
-        lesson1 = Lesson.objects.create(
-            unit=unit, title='Hello World - Your First Program', order=0
+        lesson1 = self._lesson(
+            unit, 'java101-hello-world-your-first-program', 0, title='Hello World - Your First Program',
         )
         self._create_sections(lesson1, [
             {
@@ -258,8 +325,8 @@ Experiment with different messages. What happens when you use `\\n` inside the q
         ])
 
         # Lesson 2: Comments
-        lesson2 = Lesson.objects.create(
-            unit=unit, title='Comments - Documenting Your Code', order=1
+        lesson2 = self._lesson(
+            unit, 'java101-comments-documenting-your-code', 1, title='Comments - Documenting Your Code',
         )
         self._create_sections(lesson2, [
             {
@@ -382,8 +449,8 @@ Remember: Good code with good variable names often needs fewer comments!'''
         ])
 
         # Lesson 3: Brackets and Code Blocks
-        lesson3 = Lesson.objects.create(
-            unit=unit, title='Code Organization - Brackets & Blocks', order=2
+        lesson3 = self._lesson(
+            unit, 'java101-code-organization-brackets-and-blocks', 2, title='Code Organization - Brackets & Blocks',
         )
         self._create_sections(lesson3, [
             {
@@ -488,8 +555,8 @@ Both compile, but which would you rather debug at 2 AM?'''
         ])
 
         # Lesson 4: Naming Conventions
-        lesson4 = Lesson.objects.create(
-            unit=unit, title='Naming Conventions', order=3
+        lesson4 = self._lesson(
+            unit, 'java101-naming-conventions', 3, title='Naming Conventions',
         )
         self._create_sections(lesson4, [
             {
@@ -616,14 +683,13 @@ final double PI = 3.14159;
         ])
 
     def _create_unit1_quiz(self, unit):
-        quiz = Quiz.objects.create(
-            unit=unit,
+        quiz = self._quiz(
+            unit, 'java101-quiz-program-structure', 0,
             title='Program Structure Quiz',
             description='Test your knowledge of Java basics, comments, and code organization.',
             passing_score=70,
             points=20,
             max_attempts=3,
-            order=0
         )
         questions = [
             {
@@ -648,8 +714,8 @@ final double PI = 3.14159;
     # ================== UNIT 2: Variables & Operators ==================
     def _create_unit2_variables_lessons(self, unit):
         # Lesson 1: Number Types
-        lesson1 = Lesson.objects.create(
-            unit=unit, title='Number Types - int, float, double', order=0
+        lesson1 = self._lesson(
+            unit, 'java101-number-types-int-float-double', 0, title='Number Types - int, float, double',
         )
         self._create_sections(lesson1, [
             {
@@ -773,8 +839,8 @@ System.out.println("Slots remaining: " + usersRemaining);
         ])
 
         # Lesson 2: Text and Boolean Types
-        lesson2 = Lesson.objects.create(
-            unit=unit, title='Text and Boolean Types', order=1
+        lesson2 = self._lesson(
+            unit, 'java101-text-and-boolean-types', 1, title='Text and Boolean Types',
         )
         self._create_sections(lesson2, [
             {
@@ -963,14 +1029,13 @@ System.out.println("Accuracy: " + (accuracy * 100) + "%");  // 70.0%
         ])
 
     def _create_unit2_quiz(self, unit):
-        quiz = Quiz.objects.create(
-            unit=unit,
+        quiz = self._quiz(
+            unit, 'java101-quiz-variables-operators', 0,
             title='Variables & Operators Quiz',
             description='Test your knowledge of Java variables, data types, and operators.',
             passing_score=70,
             points=25,
             max_attempts=3,
-            order=0
         )
         questions = [
             {
@@ -998,8 +1063,8 @@ System.out.println("Accuracy: " + (accuracy * 100) + "%");  // 70.0%
 
     # Operators lessons (part of Unit 2)
     def _create_unit2_operators_lessons(self, unit):
-        lesson3 = Lesson.objects.create(
-            unit=unit, title='Arithmetic Operators', order=2
+        lesson3 = self._lesson(
+            unit, 'java101-arithmetic-operators', 2, title='Arithmetic Operators',
         )
         self._create_sections(lesson3, [
             {
@@ -1108,8 +1173,8 @@ System.out.println("Items in last row: " + lastRowItems); // 2
             }
         ])
 
-        lesson4 = Lesson.objects.create(
-            unit=unit, title='Assignment Operators', order=3
+        lesson4 = self._lesson(
+            unit, 'java101-assignment-operators', 3, title='Assignment Operators',
         )
         self._create_sections(lesson4, [
             {
@@ -1210,8 +1275,8 @@ Most of the time, `count++` and `++count` work the same. The difference only mat
 
     # ================== UNIT 3: Strings & User Input ==================
     def _create_unit3_text_lessons(self, unit):
-        lesson1 = Lesson.objects.create(
-            unit=unit, title='Formatting Text', order=0
+        lesson1 = self._lesson(
+            unit, 'java101-formatting-text', 0, title='Formatting Text',
         )
         self._create_sections(lesson1, [
             {
@@ -1319,8 +1384,8 @@ System.out.printf("Price: %.2f%n", price);  // Price: 20.00
             }
         ])
 
-        lesson2 = Lesson.objects.create(
-            unit=unit, title='String Methods', order=1
+        lesson2 = self._lesson(
+            unit, 'java101-string-methods', 1, title='String Methods',
         )
         self._create_sections(lesson2, [
             {
@@ -1422,8 +1487,8 @@ System.out.println(answer.equalsIgnoreCase("yes"));  // true
         ])
 
         # Lesson 3: User Input
-        lesson3 = Lesson.objects.create(
-            unit=unit, title='User Input', order=2
+        lesson3 = self._lesson(
+            unit, 'java101-user-input', 2, title='User Input',
         )
         self._create_sections(lesson3, [
             {
@@ -1624,14 +1689,13 @@ if (answer.equals("y") || answer.equals("yes")) {
         ])
 
     def _create_unit3_quiz(self, unit):
-        quiz = Quiz.objects.create(
-            unit=unit,
+        quiz = self._quiz(
+            unit, 'java101-quiz-working-with-text', 0,
             title='Working with Text Quiz',
             description='Test your knowledge of strings and user input.',
             passing_score=70,
             points=20,
             max_attempts=3,
-            order=0
         )
         questions = [
             {
@@ -1655,8 +1719,8 @@ if (answer.equals("y") || answer.equals("yes")) {
 
     # ================== UNIT 4: Control Flow ==================
     def _create_unit4_conditionals_lessons(self, unit):
-        lesson1 = Lesson.objects.create(
-            unit=unit, title='Comparison Operators', order=0
+        lesson1 = self._lesson(
+            unit, 'java101-comparison-operators', 0, title='Comparison Operators',
         )
         self._create_sections(lesson1, [
             {
@@ -1731,8 +1795,8 @@ System.out.println(name == "Alice");       // avoid - compares references, not t
             }
         ])
 
-        lesson2 = Lesson.objects.create(
-            unit=unit, title='If Statements', order=1
+        lesson2 = self._lesson(
+            unit, 'java101-if-statements', 1, title='If Statements',
         )
         self._create_sections(lesson2, [
             {
@@ -1905,8 +1969,8 @@ if (!hasKey)
         ])
 
         # Lesson 3: Switch Statements
-        lesson3 = Lesson.objects.create(
-            unit=unit, title='Switch Statements', order=2
+        lesson3 = self._lesson(
+            unit, 'java101-switch-statements', 2, title='Switch Statements',
         )
         self._create_sections(lesson3, [
             {
@@ -2110,14 +2174,13 @@ switch (grade)
         ])
 
     def _create_unit4_quiz(self, unit):
-        quiz = Quiz.objects.create(
-            unit=unit,
+        quiz = self._quiz(
+            unit, 'java101-quiz-control-flow', 0,
             title='Control Flow Quiz',
             description='Test your understanding of conditionals and loops.',
             passing_score=70,
             points=30,
             max_attempts=3,
-            order=0
         )
         questions = [
             {
@@ -2150,8 +2213,8 @@ switch (grade)
     # Loops lessons (part of Unit 4: Control Flow)
     def _create_unit4_loops_lessons(self, unit):
         # Lesson 4: While Loops
-        lesson4 = Lesson.objects.create(
-            unit=unit, title='While Loops', order=3
+        lesson4 = self._lesson(
+            unit, 'java101-while-loops', 3, title='While Loops',
         )
         self._create_sections(lesson4, [
             {
@@ -2335,8 +2398,8 @@ while (true)
         ])
 
         # Lesson 5: For Loops
-        lesson5 = Lesson.objects.create(
-            unit=unit, title='For Loops', order=4
+        lesson5 = self._lesson(
+            unit, 'java101-for-loops', 4, title='For Loops',
         )
         self._create_sections(lesson5, [
             {
@@ -2504,8 +2567,8 @@ System.out.println("]");
         ])
 
         # Lesson 6: Nested Loops
-        lesson6 = Lesson.objects.create(
-            unit=unit, title='Nested Loops', order=5
+        lesson6 = self._lesson(
+            unit, 'java101-nested-loops', 5, title='Nested Loops',
         )
         self._create_sections(lesson6, [
             {
@@ -2638,8 +2701,8 @@ for (int y = 0; y < 3; y++)
         ])
 
         # Lesson 7: For-Each Loops (Enhanced For)
-        lesson7 = Lesson.objects.create(
-            unit=unit, title='For-Each Loops (Enhanced For)', order=6
+        lesson7 = self._lesson(
+            unit, 'java101-for-each-loops-enhanced-for', 6, title='For-Each Loops (Enhanced For)',
         )
         self._create_sections(lesson7, [
             {
@@ -2783,8 +2846,8 @@ for (String name : names)
 
     # ================== UNIT 5: Methods & Functions ==================
     def _create_unit5_methods_lessons(self, unit):
-        lesson1 = Lesson.objects.create(
-            unit=unit, title='Built-in Methods', order=0
+        lesson1 = self._lesson(
+            unit, 'java101-built-in-methods', 0, title='Built-in Methods',
         )
         self._create_sections(lesson1, [
             {
@@ -2909,8 +2972,8 @@ int value = (int) (Math.random() * 11) + 10;
             }
         ])
 
-        lesson2 = Lesson.objects.create(
-            unit=unit, title='Creating Your Own Methods', order=1
+        lesson2 = self._lesson(
+            unit, 'java101-creating-your-own-methods', 1, title='Creating Your Own Methods',
         )
         self._create_sections(lesson2, [
             {
@@ -3077,14 +3140,13 @@ Each method does one job: `addNumbers` and `calculateTax` return values, while `
         ])
 
     def _create_unit5_quiz(self, unit):
-        quiz = Quiz.objects.create(
-            unit=unit,
+        quiz = self._quiz(
+            unit, 'java101-quiz-methods', 0,
             title='Methods Quiz',
             description='Test your understanding of methods and functions.',
             passing_score=70,
             points=25,
             max_attempts=3,
-            order=0
         )
         questions = [
             {
@@ -3116,19 +3178,11 @@ Each method does one job: `addNumbers` and `calculateTax` return values, while `
 
     # ================== Helper Methods ==================
     def _create_sections(self, lesson, sections_data):
-        """Create lesson sections from a list of dictionaries."""
-        for i, section in enumerate(sections_data):
-            LessonSection.objects.create(
-                lesson=lesson,
-                title=section.get('title', ''),
-                content=section.get('content', ''),
-                video_type=section.get('video_type', 'none'),
-                video_id=section.get('video_id', ''),
-                order=i
-            )
+        """Upsert a lesson's sections; trailing extras (and their blobs) go."""
+        upsert_sections(lesson, sections_data)
 
     def _create_lesson_questions(self, lesson, questions_data):
-        """Create comprehension questions for a lesson, and gate on them.
+        """Upsert a lesson's comprehension questions, and gate on them.
 
         Phase 55 (C1): production has `requires_quiz` true on all 40 lessons
         (migration 0020 seeded it wherever questions existed), but this command
@@ -3140,40 +3194,15 @@ Each method does one job: `addNumbers` and `calculateTax` return values, while `
         sites makes the invariant structural: a seeded lesson has the gate on
         if and only if it has questions. `test_seeded_requires_quiz_matches_
         production_rule` pins it.
+
+        NOTE: unlike ROB101 this does NOT rotate the choices, so the correct
+        answer is always option 1. That is the carried "answer always option 1"
+        defect and it is deliberately not fixed here — rotating the choices now
+        would reorder every stored choice and, because children are matched
+        positionally, silently re-point historical student selections.
         """
-        if not questions_data:
-            return
-
-        for i, q in enumerate(questions_data):
-            question = LessonQuestion.objects.create(
-                lesson=lesson,
-                text=q['text'],
-                order=i
-            )
-            for j, (choice_text, is_correct) in enumerate(q['choices']):
-                LessonQuestionChoice.objects.create(
-                    question=question,
-                    text=choice_text,
-                    is_correct=is_correct,
-                    order=j
-                )
-
-        if not lesson.requires_quiz:
-            lesson.requires_quiz = True
-            lesson.save(update_fields=['requires_quiz'])
+        upsert_lesson_questions(lesson, questions_data)
 
     def _create_quiz_questions(self, quiz, questions_data):
-        """Create quiz questions."""
-        for i, q in enumerate(questions_data):
-            question = Question.objects.create(
-                quiz=quiz,
-                text=q['text'],
-                order=i
-            )
-            for j, (choice_text, is_correct) in enumerate(q['choices']):
-                Choice.objects.create(
-                    question=question,
-                    text=choice_text,
-                    is_correct=is_correct,
-                    order=j
-                )
+        """Upsert a unit quiz's questions."""
+        upsert_quiz_questions(quiz, questions_data)
