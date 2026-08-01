@@ -272,3 +272,65 @@ class TestScopingAndReadOnly:
             ),
         }
         assert after == before
+
+
+@pytest.mark.django_db
+class TestStrandedReport:
+    """
+    The canary for the adoption seam: a row pointing at LIVE content under a
+    stale or missing key. `_award_xp` heals these on the next award, so this
+    report is the way to see whether adoption has been exercised yet.
+    """
+
+    def test_stale_key_on_live_content_is_reported(self, student, lesson):
+        award_lesson_completion(student, lesson)
+        # Adoption re-keys the lesson; the ledger row is left behind.
+        Lesson.objects.filter(pk=lesson.pk).update(content_key='aud101-adopted')
+
+        output = run()
+
+        stranded = output.split('STRANDED ROWS')[1].split('LEDGER DRIFT')[0]
+        assert 'audit-student@test.com' in stranded
+        assert 'TOTAL' in stranded
+
+    def test_null_key_on_live_content_is_reported(self, student, lesson):
+        XPEvent.objects.create(
+            user=student, source_type=XPEvent.SOURCE_LESSON,
+            source_id=lesson.id, source_key=None, amount=50,
+        )
+
+        output = run('--verbose')
+
+        assert f'key=None -> live id={lesson.id}' in output
+
+    def test_healthy_rows_are_not_reported(self, student, lesson):
+        award_lesson_completion(student, lesson)
+
+        output = run()
+
+        stranded = output.split('STRANDED ROWS')[1].split('LEDGER DRIFT')[0]
+        assert 'every row resolves by key' in stranded
+
+    def test_an_orphan_is_not_counted_as_stranded(self, student, lesson):
+        """Orphans have no live source; the two reports must not overlap."""
+        award_lesson_completion(student, lesson)
+        lesson.delete()
+
+        output = run()
+
+        stranded = output.split('STRANDED ROWS')[1].split('LEDGER DRIFT')[0]
+        assert 'every row resolves by key' in stranded
+
+    def test_the_report_falls_to_zero_once_the_award_heals_it(
+        self, student, lesson
+    ):
+        award_lesson_completion(student, lesson)
+        Lesson.objects.filter(pk=lesson.pk).update(content_key='aud101-adopted')
+        assert 'TOTAL' in run().split('STRANDED ROWS')[1].split('LEDGER DRIFT')[0]
+
+        lesson.refresh_from_db()
+        award_lesson_completion(student, lesson)   # heals
+
+        stranded = run().split('STRANDED ROWS')[1].split('LEDGER DRIFT')[0]
+        assert 'every row resolves by key' in stranded
+        assert GameProfile.objects.get(user=student).total_xp == 50

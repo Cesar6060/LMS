@@ -81,6 +81,7 @@ class Command(BaseCommand):
 
         self._header('XP LEDGER AUDIT (read-only)')
         self._orphan_report(events)
+        self._stranded_report(events)
         self._ledger_drift_report(profiles)
         self._amount_drift_report(events)
         self._content_key_report()
@@ -168,6 +169,55 @@ class Command(BaseCommand):
         self.stdout.write(
             '  These rows keep their XP by design (XP never decreases). This '
             'is the\n  measure of what earlier destructive reseeds cost.'
+        )
+
+    def _stranded_report(self, events):
+        """
+        Rows pointing at LIVE content under the wrong key.
+
+        Two ways in: adoption stamped a blueprint key onto content whose
+        XPEvent still holds the old ``auto:`` key, or old code inserted the row
+        during the deploy window and left ``source_key`` NULL. Either way the
+        key lookup misses while the source id still resolves.
+
+        ``_award_xp`` heals these lazily on the next award, so a non-zero count
+        here is not damage — it is work queued up. It IS the pre-deploy canary
+        that says adoption has not been exercised yet.
+        """
+        self._section('STRANDED ROWS (live content, stale or missing key)')
+        lesson_keys, quiz_keys, lesson_ids, quiz_ids = self._live_keys_and_ids()
+
+        per_user = defaultdict(int)
+        total = 0
+        for event in events.select_related('user').order_by('user__email', 'id'):
+            if event.source_type == XPEvent.SOURCE_QUIZ:
+                keys, ids = quiz_keys, quiz_ids
+            else:
+                keys, ids = lesson_keys, lesson_ids
+
+            # Key misses, but the id still resolves to live content.
+            if event.source_key in keys or event.source_id not in ids:
+                continue
+
+            per_user[event.user.email] += 1
+            total += 1
+            if self.verbose:
+                self.stdout.write(
+                    f'    {event.user.email}: {event.source_type} '
+                    f'key={event.source_key!r} -> live id={event.source_id}'
+                )
+
+        if not total:
+            self.stdout.write('  None — every row resolves by key.')
+            return
+
+        for email in sorted(per_user):
+            self.stdout.write(f'  {email:<40} {per_user[email]:>8}')
+        self.stdout.write(f'  {"TOTAL":<40} {total:>8}')
+        self.stdout.write(
+            '  Not damage: _award_xp re-keys these in place on the next award, '
+            'and no\n  XP moves. Expected to be non-zero right after adoption '
+            'and to fall to 0.'
         )
 
     def _ledger_drift_report(self, profiles):

@@ -28,7 +28,7 @@ Both halves are fixed:
 
 | Check | Result |
 |---|---|
-| `pytest` | **865 passed** (baseline was 766) |
+| `pytest` | **882 passed** (baseline was 766) |
 | `makemigrations --check` | No changes detected |
 | `migrate --plan` | exactly `courses.0024` → `quizzes.0004` → `gamification.0006` |
 | `npx tsc --noEmit` | 0 errors |
@@ -67,6 +67,60 @@ lesson insert OK  -> (350, None)
 quiz insert OK    -> (88, None)
 xpevent insert OK -> (21, None)
 ```
+
+## The blocker a review pass caught (fixed)
+
+A `code-reviewer` pass on the finished diff found a **release blocker I had
+missed**, and it sat on the exact path this phase ships for. Worth recording
+because the failure mode is subtle.
+
+Phase 65 has two ways a ledger row ends up pointing at the right content under
+the *wrong* key:
+
+1. **Adoption.** The seed stamps a blueprint key onto a row that was carrying
+   `auto:...` — but the `XPEvent` that already paid for it still holds the old
+   key.
+2. **The deploy window.** Old code inserts `XPEvent`s without `source_key` at
+   all, and the migration that would have backfilled them already ran.
+
+In both cases the next award's key lookup misses, and because the legacy
+`(user, source_type, source_id)` uniqueness is still live, the insert that
+follows raises `IntegrityError` — a **500 on an ordinary student action**
+(re-passing a unit quiz, re-mastering a lesson quiz; neither is gated the way
+lesson completion is). Reproduced before fixing:
+
+```
+django.db.utils.IntegrityError: duplicate key value violates unique constraint
+  "gamification_xpevent_user_id_source_type_sour_fc16027d_uniq"
+DETAIL:  Key (user_id, source_type, source_id)=(2, lesson_quiz, 1) already exists.
+```
+
+Note that dropping the legacy index would NOT have fixed this — it would have
+converted the 500 into a silent double award, i.e. the phase-58 bug.
+
+**Fix:** `_award_xp` now heals lazily. If the key misses but the *source id*
+has already been paid under the same source type, the existing row is re-keyed
+in place and no XP moves. No manual backfill step, no separate command. The
+insert is wrapped in a savepoint so a lost race resolves against the unique
+index rather than escaping into the caller's transaction.
+
+`TestStrandedLedgerRows` pins both entry paths, plus that healing does not
+advance a streak, is scoped to one source type, and does not leak across users.
+`TestAdoption.test_xp_earned_before_adoption_is_not_re_awarded_after_it` pins
+the whole thing end to end through the real seed command.
+
+Three smaller findings from the same pass, also fixed:
+
+- **`demo_key(None)` could hijack a lesson from another course.**
+  `filter(content_key=None)` becomes `IS NULL` in SQL, matching an arbitrary
+  keyless row anywhere; the upsert would reassign its unit, and `prune_stale`
+  would then delete it on the same run. `demo_key` is now total, and
+  `upsert_lesson`/`upsert_quiz` raise on a falsy key.
+- **`audit_xp` could not see stranded rows** — the very thing it needs to be
+  the pre-deploy canary for. New `STRANDED ROWS` report.
+- **Blob deletes ran inside the seed transaction.** Storage is not
+  transactional, so a rollback would have left live rows pointing at deleted
+  R2 objects. Deferred to `transaction.on_commit`.
 
 ## Not done — deliberately
 
@@ -150,6 +204,14 @@ Do not read the local drift number as evidence of prod inflation; prod's own
 - **`node_modules` is a container volume** — run `tsc`/`vitest`/`lint` via
   `docker compose exec -T frontend`, not from the host (carried from phase 64).
 - **Never run pytest concurrently with review subagents** (carried).
+- **A live legacy unique index turns a stale key into a 500, not a no-op.**
+  This is the trap behind the blocker above: keeping the old constraint
+  "alongside" the new one is not free, because any row whose key drifts while
+  its id stays put now violates it. If `source_id` is ever dropped, re-check
+  `_award_xp`'s healing path — it is what makes the two constraints coexist.
+- **`transaction.on_commit` callbacks never fire under pytest-django's default
+  transactional test case.** Tests asserting blob cleanup need
+  `django_capture_on_commit_callbacks`.
 
 ## Files to read first
 

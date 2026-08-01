@@ -46,7 +46,7 @@ DEMO_TITLE = 'Java Fundamentals — Demo'
 DEMO_INSTRUCTOR_EMAIL = 'instructor@demo.com'
 
 
-def demo_key(source_key):
+def demo_key(source):
     """
     The demo course's key for a piece of source content (Phase 65).
 
@@ -55,8 +55,13 @@ def demo_key(source_key):
     source lesson it was copied from. Copying the source key verbatim (which
     the old field-for-field clone did) would blow the unique index on the very
     first run.
+
+    Total by construction. A source row can legitimately have no key — old code
+    inserting during the migrate-then-deploy window — and returning None there
+    would hand the upsert a null key, which matches any unkeyed row in any
+    course. Falling back to the source primary key keeps it derived and stable.
     """
-    return f'demo:{source_key}' if source_key else None
+    return f'demo:{source.content_key or f"legacy:{source.pk}"}'
 
 
 class Command(BaseCommand):
@@ -103,7 +108,7 @@ class Command(BaseCommand):
             counts['units'] += 1
 
             for quiz in unit.quizzes.order_by('order', 'pk'):
-                key = demo_key(quiz.content_key)
+                key = demo_key(quiz)
                 seen_quiz_keys.add(key)
                 new_quiz = upsert_quiz(
                     new_unit, key, quiz.order,
@@ -128,7 +133,7 @@ class Command(BaseCommand):
                 counts['quiz questions'] += len(questions)
 
             for lesson in unit.lessons.order_by('order'):
-                key = demo_key(lesson.content_key)
+                key = demo_key(lesson)
                 seen_lesson_keys.add(key)
                 new_lesson = upsert_lesson(
                     new_unit, key, lesson.order,

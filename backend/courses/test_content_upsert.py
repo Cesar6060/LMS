@@ -303,10 +303,16 @@ class TestUpsertSections:
         section = LessonSection.objects.get(lesson=lesson)
         assert (section.video_type, section.video_id) == ('youtube', 'abc123')
 
-    def test_removed_section_takes_its_image_blob_with_it(self, unit):
+    def test_removed_section_takes_its_image_blob_with_it(
+        self, unit, django_capture_on_commit_callbacks
+    ):
         """
         Without this the row DELETE orphans the storage object, and every
         reseed leaks a deck's worth of R2 blobs.
+
+        The delete is deferred to ``on_commit`` on purpose — storage is not
+        transactional, so dropping the blob inline and then rolling back would
+        leave surviving rows pointing at objects that are gone.
         """
         lesson = upsert_lesson(unit, 'ups101-intro', 0, title='Intro')
         upsert_sections(lesson, [
@@ -320,10 +326,33 @@ class TestUpsertSections:
         blob_name = doomed.image.name
         assert storage.exists(blob_name)
 
-        upsert_sections(lesson, [{'title': 'One', 'content': 'a'}])
+        with django_capture_on_commit_callbacks(execute=True):
+            upsert_sections(lesson, [{'title': 'One', 'content': 'a'}])
 
         assert not LessonSection.objects.filter(lesson=lesson, order=1).exists()
         assert not storage.exists(blob_name)
+
+    def test_blob_delete_is_deferred_until_commit(
+        self, unit, django_capture_on_commit_callbacks
+    ):
+        """A rollback must not leave a live row pointing at a deleted object."""
+        lesson = upsert_lesson(unit, 'ups101-intro', 0, title='Intro')
+        upsert_sections(lesson, [
+            {'title': 'One', 'content': 'a'},
+            {'title': 'Two', 'content': 'b'},
+        ])
+        doomed = LessonSection.objects.get(lesson=lesson, order=1)
+        doomed.image.save('slide.gif', _tiny_image(), save=True)
+        doomed.refresh_from_db()
+        storage, blob_name = doomed.image.storage, doomed.image.name
+
+        with django_capture_on_commit_callbacks(execute=False) as callbacks:
+            upsert_sections(lesson, [{'title': 'One', 'content': 'a'}])
+            # Row is gone, blob is not — the delete is still pending.
+            assert storage.exists(blob_name)
+
+        assert len(callbacks) == 1
+        storage.delete(blob_name)
 
     def test_surviving_section_keeps_its_image(self, unit):
         lesson = upsert_lesson(unit, 'ups101-intro', 0, title='Intro')
@@ -624,7 +653,9 @@ class TestPruneStale:
         assert [u.pk for u in report.units] == [orphan_unit.pk]
         assert not Unit.objects.filter(pk=orphan_unit.pk).exists()
 
-    def test_prune_deletes_slide_blobs_of_removed_lessons(self, course):
+    def test_prune_deletes_slide_blobs_of_removed_lessons(
+        self, course, django_capture_on_commit_callbacks
+    ):
         unit, _kept, _quiz = self._seed(course)
         stray = Lesson.objects.create(unit=unit, title='Stray', order=5)
         section = LessonSection.objects.create(lesson=stray, title='S', order=0)
@@ -633,7 +664,8 @@ class TestPruneStale:
         storage, blob_name = section.image.storage, section.image.name
         assert storage.exists(blob_name)
 
-        prune_stale(course, {'ups101-keep'}, {'ups101-quiz-1'}, dry_run=False)
+        with django_capture_on_commit_callbacks(execute=True):
+            prune_stale(course, {'ups101-keep'}, {'ups101-quiz-1'}, dry_run=False)
 
         assert not storage.exists(blob_name)
 
@@ -651,3 +683,41 @@ class TestPruneStale:
         squatter.refresh_from_db()
         assert squatter.order == 1
         assert Lesson.objects.filter(pk=squatter.pk).exists()
+
+
+@pytest.mark.django_db
+class TestNullKeyIsRejected:
+    """
+    ``filter(content_key=None)`` becomes ``IS NULL`` in SQL, which matches an
+    arbitrary keyless row in ANY course. The upsert would reassign that row's
+    unit, and because a null key can never match ``exclude(content_key__in=…)``
+    ``prune_stale`` would then delete it — silent cross-course data loss.
+    """
+
+    @pytest.mark.parametrize('bad_key', [None, ''])
+    def test_upsert_lesson_refuses_a_falsy_key(self, unit, bad_key):
+        with pytest.raises(ValueError, match='non-empty content key'):
+            upsert_lesson(unit, bad_key, 0, title='Intro')
+
+    @pytest.mark.parametrize('bad_key', [None, ''])
+    def test_upsert_quiz_refuses_a_falsy_key(self, unit, bad_key):
+        with pytest.raises(ValueError, match='non-empty content key'):
+            upsert_quiz(unit, bad_key, 0, title='Quiz')
+
+    def test_a_keyless_lesson_in_another_course_is_never_hijacked(
+        self, course, unit, instructor
+    ):
+        other_course = Course.objects.create(
+            code='OTH101', title='Other', instructor=instructor
+        )
+        other_unit = Unit.objects.create(course=other_course, title='U', order=0)
+        bystander = Lesson.objects.create(
+            unit=other_unit, title='Bystander', order=0, content_key=None
+        )
+
+        upsert_lesson(unit, 'ups101-intro', 0, title='Intro')
+        prune_stale(course, {'ups101-intro'}, set(), dry_run=False)
+
+        bystander.refresh_from_db()
+        assert bystander.unit_id == other_unit.pk
+        assert Lesson.objects.filter(pk=bystander.pk).exists()

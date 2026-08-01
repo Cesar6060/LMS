@@ -276,6 +276,38 @@ class TestAdoption:
         pre_existing.refresh_from_db()
         assert pre_existing.content_key == 'rob101-what-is-a-robot'
 
+    def test_xp_earned_before_adoption_is_not_re_awarded_after_it(
+        self, seed_instructor, student
+    ):
+        """
+        The end-to-end prod path: a student is paid for an ``auto:``-keyed
+        lesson, the seed adopts and re-keys that same row, and the student
+        does the thing again. Must not 500 and must not pay twice.
+        """
+        course = Course.objects.create(
+            code='ROB101', title='Robotics 1', instructor=seed_instructor
+        )
+        unit = Unit.objects.create(
+            course=course, title='Robots, Careers & Teamwork', order=0
+        )
+        lesson = Lesson.objects.create(
+            unit=unit, title='What Is a Robot?', order=0
+        )
+        assert lesson.content_key.startswith('auto:')
+        award_lesson_completion(student, lesson)
+        assert GameProfile.objects.get(user=student).total_xp == 50
+
+        call_command('populate_robotics_course')
+
+        lesson.refresh_from_db()
+        assert lesson.content_key == 'rob101-what-is-a-robot'
+
+        award_lesson_completion(student, lesson)
+
+        assert GameProfile.objects.get(user=student).total_xp == 50
+        assert XPEvent.objects.filter(user=student).count() == 1
+        assert XPEvent.objects.get(user=student).source_key == 'rob101-what-is-a-robot'
+
     def test_adoption_leaves_no_auto_keys_behind(self, seed_instructor):
         course = Course.objects.create(
             code='ROB101', title='Robotics 1', instructor=seed_instructor
@@ -361,3 +393,4 @@ class TestInstructorGuard:
         call_command('populate_robotics_course')
 
         assert Course.objects.get(code='ROB101').instructor == seed_instructor
+

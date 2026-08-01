@@ -11,7 +11,7 @@ from datetime import timedelta
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from django.conf import settings
-from django.db import transaction
+from django.db import IntegrityError, transaction
 from django.db.models import F
 from django.utils import timezone
 
@@ -131,21 +131,62 @@ def _award_xp(user, source_type, source_key, amount, source_id=None):
     on every row as the audit trail of which primary key paid, never read for
     correctness.
 
-    AMOUNT-DRIFT HAZARD: ``amount`` rides in ``defaults``, so an XPEvent that
-    already exists keeps whatever amount it was first written with — forever,
-    even if ``XP_LESSON`` and friends later change. Nothing reconciles that.
-    ``manage.py audit_xp`` reports the drift; correcting it would silently move
-    student totals and is a decision of its own, deliberately not automated.
+    STRANDED ROWS: a ledger row can point at the right content under the WRONG
+    key, in two ways that both happen on the way into this scheme:
+
+    * adoption — the seed stamps a blueprint key onto a row that was already
+      carrying ``auto:...``, but the XPEvent that paid for it still holds the
+      old key;
+    * the migrate-then-deploy window — old code inserts XPEvents without
+      ``source_key`` at all, so those rows are NULL and nothing backfills them.
+
+    Either way the key lookup misses, and because the legacy
+    ``(user, source_type, source_id)`` uniqueness is still live, the insert
+    that follows would raise IntegrityError and 500 the request. So when the
+    key misses but the *source id* has already been paid, the existing row is
+    re-keyed in place and no XP moves. That heals the ledger lazily, on the
+    first award after the re-key, with no manual backfill step.
+
+    AMOUNT-DRIFT HAZARD: ``amount`` is only written when the row is created, so
+    an XPEvent that already exists keeps whatever amount it was first written
+    with — forever, even if ``XP_LESSON`` and friends later change. Nothing
+    reconciles that. ``manage.py audit_xp`` reports the drift; correcting it
+    would silently move student totals and is a decision of its own,
+    deliberately not automated.
     """
-    _event, created = XPEvent.objects.get_or_create(
-        user=user,
-        source_type=source_type,
-        source_key=source_key,
-        defaults={'amount': amount, 'source_id': source_id},
-    )
-    if created:
-        GameProfile.objects.filter(user=user).update(total_xp=F('total_xp') + amount)
-    return created
+    already_paid = XPEvent.objects.filter(
+        user=user, source_type=source_type, source_key=source_key,
+    ).exists()
+    if already_paid:
+        return False
+
+    if source_id is not None:
+        stranded = XPEvent.objects.filter(
+            user=user, source_type=source_type, source_id=source_id,
+        ).first()
+        if stranded is not None:
+            # Same source, same pk, already paid — only the key is stale.
+            stranded.source_key = source_key
+            stranded.save(update_fields=['source_key'])
+            return False
+
+    try:
+        # Savepoint so a lost race raises here and not out of the caller's
+        # transaction: the unique indexes, not the checks above, are the
+        # authority on award-once.
+        with transaction.atomic():
+            XPEvent.objects.create(
+                user=user,
+                source_type=source_type,
+                source_key=source_key,
+                source_id=source_id,
+                amount=amount,
+            )
+    except IntegrityError:
+        return False
+
+    GameProfile.objects.filter(user=user).update(total_xp=F('total_xp') + amount)
+    return True
 
 
 def _source_key_for(obj, source_type):

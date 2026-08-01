@@ -1450,3 +1450,106 @@ class TestBadgeAsymmetry:
         assert held.earned_at == earned_at
         # ...and the XP that earned it is untouched.
         assert profile.total_xp == 250
+
+
+@pytest.mark.django_db
+class TestStrandedLedgerRows:
+    """
+    A ledger row can point at the right content under the WRONG key. Two ways
+    in, both on the path INTO this scheme, and both would otherwise raise
+    IntegrityError off the still-live legacy uniqueness on ``source_id`` — a
+    500 on an ordinary student action, on the exact prod adoption path.
+    """
+
+    def test_adoption_rekeys_the_stranded_row_instead_of_500ing(
+        self, student, unit
+    ):
+        """
+        The seed stamps a blueprint key onto an auto:-keyed prod lesson; the
+        XPEvent that paid for it still holds the old key.
+        """
+        lesson = Lesson.objects.create(unit=unit, title='L', order=0)
+        auto_key = lesson.content_key
+        assert auto_key.startswith('auto:')
+        award_lesson_quiz_pass(student, lesson)
+
+        # Adoption, exactly as upsert_lesson performs it.
+        lesson.content_key = 'gam101-adopted'
+        lesson.save(update_fields=['content_key'])
+
+        result = award_lesson_quiz_pass(student, lesson)
+
+        assert result.xp_awarded == 0
+        assert GameProfile.objects.get(user=student).total_xp == 20
+        event = XPEvent.objects.get(user=student)
+        assert event.source_key == 'gam101-adopted'   # healed in place
+        assert event.source_id == lesson.id
+
+    def test_deploy_window_row_with_null_key_is_healed(self, student, unit):
+        """
+        Old code inserts XPEvents without source_key during the migrate-then-
+        deploy window, and nothing backfills them — the migration already ran.
+        """
+        lesson = Lesson.objects.create(
+            unit=unit, title='L', order=0, content_key='gam101-window',
+        )
+        XPEvent.objects.create(
+            user=student, source_type=XPEvent.SOURCE_LESSON,
+            source_id=lesson.id, source_key=None, amount=50,
+        )
+        GameProfile.objects.create(user=student, total_xp=50)
+
+        result = award_lesson_completion(student, lesson, today=date(2026, 7, 19))
+
+        assert result.xp_awarded == 0
+        assert GameProfile.objects.get(user=student).total_xp == 50
+        assert XPEvent.objects.filter(user=student).count() == 1
+        assert XPEvent.objects.get(user=student).source_key == 'gam101-window'
+
+    def test_healing_does_not_advance_the_streak(self, student, unit):
+        """A heal is a no-op award, so the streak rule from above still holds."""
+        lesson = Lesson.objects.create(unit=unit, title='L', order=0)
+        day1 = date(2026, 7, 19)
+        award_lesson_completion(student, lesson, today=day1)
+        lesson.content_key = 'gam101-adopted-2'
+        lesson.save(update_fields=['content_key'])
+
+        award_lesson_completion(student, lesson, today=day1 + timedelta(days=1))
+
+        profile = GameProfile.objects.get(user=student)
+        assert profile.current_streak == 1
+        assert profile.last_activity_date == day1
+
+    def test_healing_is_scoped_to_the_same_source_type(self, student, unit):
+        """
+        A lesson pays under two source types. Healing one must not consume the
+        other's row or block its award.
+        """
+        lesson = Lesson.objects.create(unit=unit, title='L', order=0)
+        award_lesson_completion(student, lesson, today=date(2026, 7, 19))
+        lesson.content_key = 'gam101-two-types'
+        lesson.save(update_fields=['content_key'])
+
+        # Different source type, same pk -> a genuine, separate award.
+        result = award_lesson_quiz_pass(student, lesson)
+
+        assert result.xp_awarded == 20
+        assert GameProfile.objects.get(user=student).total_xp == 70
+        assert XPEvent.objects.filter(user=student).count() == 2
+
+    def test_a_different_student_is_unaffected_by_another_heal(
+        self, student, unit
+    ):
+        other = User.objects.create_user(
+            email='other-student@test.com', password='pw', is_instructor=False
+        )
+        lesson = Lesson.objects.create(unit=unit, title='L', order=0)
+        award_lesson_quiz_pass(student, lesson)
+        lesson.content_key = 'gam101-shared'
+        lesson.save(update_fields=['content_key'])
+
+        award_lesson_quiz_pass(student, lesson)      # heals
+        result = award_lesson_quiz_pass(other, lesson)  # genuinely new
+
+        assert result.xp_awarded == 20
+        assert GameProfile.objects.get(user=other).total_xp == 20

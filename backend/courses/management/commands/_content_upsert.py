@@ -34,6 +34,7 @@ call repeatedly. Anomalies go to the module logger, not the command's output.
 import logging
 from collections import namedtuple
 
+from django.db import transaction
 from django.db.models import Max
 
 from courses.models import (
@@ -68,6 +69,24 @@ def is_adoptable(content_key):
     return not content_key or content_key.startswith('auto:')
 
 
+def _require_key(key, label):
+    """
+    Refuse a falsy content key.
+
+    Not defensive noise: ``filter(content_key=None)`` is rewritten by Django to
+    ``content_key IS NULL``, which matches an ARBITRARY keyless row in ANY
+    course. The upsert would then reassign that row's unit — and since a null
+    key can never match ``exclude(content_key__in=seen)``, ``prune_stale``
+    would delete the hijacked row on the same run. Silent cross-course data
+    loss, so it is a hard error.
+    """
+    if not key:
+        raise ValueError(
+            f'upsert_{label} requires a non-empty content key; got {key!r}. '
+            'A null key would match any unkeyed row in any course.'
+        )
+
+
 def _park_conflicts(model, unit, order, keep_pk=None):
     """Move anything else sitting at ``(unit, order)`` out of the way."""
     conflicting = model.objects.filter(unit=unit, order=order)
@@ -76,6 +95,26 @@ def _park_conflicts(model, unit, order, keep_pk=None):
     for row in conflicting:
         row.order = PARK_OFFSET + row.pk
         row.save(update_fields=['order'])
+
+
+def _delete_blobs_on_commit(sections):
+    """
+    Delete slide-image storage objects, but only once the transaction lands.
+
+    Storage is not transactional: deleting a blob inline and then rolling back
+    would leave surviving rows pointing at objects that are gone. Both seeders
+    call ``prune_stale`` inside ``transaction.atomic()``, so the deletes are
+    deferred to ``on_commit``.
+    """
+    names = [(s.image.storage, s.image.name) for s in sections if s.image]
+    if not names:
+        return
+
+    def _delete():
+        for storage, name in names:
+            storage.delete(name)
+
+    transaction.on_commit(_delete)
 
 
 def _delete_lesson_blobs(lessons):
@@ -89,10 +128,9 @@ def _delete_lesson_blobs(lessons):
     lesson_ids = [lesson.pk for lesson in lessons]
     if not lesson_ids:
         return
-    for section in LessonSection.objects.filter(
-        lesson_id__in=lesson_ids
-    ).exclude(image=''):
-        section.image.delete(save=False)
+    _delete_blobs_on_commit(
+        LessonSection.objects.filter(lesson_id__in=lesson_ids).exclude(image='')
+    )
 
 
 def _lowest_pk_dedup(queryset, label):
@@ -150,6 +188,7 @@ def upsert_lesson(unit, key, order, **fields):
     The lesson keeps its primary key through every rebuild, which is what keeps
     ``LessonProgress`` and the comprehension-quiz tables alive.
     """
+    _require_key(key, 'lesson')
     lesson = Lesson.objects.filter(content_key=key).first()
 
     if lesson is None:
@@ -182,6 +221,7 @@ def upsert_quiz(unit, key, order, **fields):
     warning when there is more than one — and no parking is needed, because
     nothing stops two quizzes sharing an order.
     """
+    _require_key(key, 'quiz')
     quiz = Quiz.objects.filter(content_key=key).first()
 
     if quiz is None:
@@ -215,6 +255,13 @@ def upsert_sections(lesson, sections_data):
     Upsert a lesson's sections on ``(lesson, order)``, deleting only the
     trailing extras beyond the end of ``sections_data``.
 
+    Writes exactly the four fields the blueprints author: title, content,
+    video_type, video_id. ``layout``, ``image`` and ``image_alt`` are
+    deliberately left alone, because the blueprints do not carry them and a
+    default would silently undo a phase-61 slide import on a seeded lesson.
+    (``clone_course_for_demo._sync_sections`` DOES write all three — it mirrors
+    a source that actually has them, rather than a blueprint that does not.)
+
     Blobs behind removed sections are deleted explicitly — the row DELETE would
     otherwise leave the storage object orphaned on every reseed.
     """
@@ -230,8 +277,7 @@ def upsert_sections(lesson, sections_data):
         )
 
     stale = LessonSection.objects.filter(lesson=lesson, order__gte=len(sections_data))
-    for section in stale.exclude(image=''):
-        section.image.delete(save=False)
+    _delete_blobs_on_commit(stale.exclude(image=''))
     stale.delete()
 
 

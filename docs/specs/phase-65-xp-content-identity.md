@@ -518,3 +518,38 @@ still never double-awards.
 5. **`seed_data` keys use `seed:<course>-<kind>-<slug>`**, with `kind` in the
    key. A lesson and a quiz sharing a title would otherwise collide in the one
    flat key namespace.
+
+6. **`_award_xp` heals stranded ledger rows.** Not in the spec, and required by
+   it: keeping the legacy `(user, source_type, source_id)` uniqueness live
+   means a row whose key drifts while its id stays put now VIOLATES that index
+   rather than harmlessly missing. Both of the phase's own entry paths cause
+   exactly that drift — adoption re-keys content in place, and deploy-window
+   rows have a NULL `source_key` the migration can no longer reach. So when the
+   key lookup misses but the source id has already been paid under the same
+   source type, the existing row is re-keyed in place and no XP moves. Without
+   this, the first re-pass of a unit or lesson quiz after adoption is a 500.
+   `TestStrandedLedgerRows` and
+   `TestAdoption.test_xp_earned_before_adoption_is_not_re_awarded_after_it`
+   pin it.
+
+7. **`upsert_lesson` / `upsert_quiz` reject a falsy key**, and
+   `clone_course_for_demo.demo_key` is total. `filter(content_key=None)` is
+   `IS NULL` in SQL, which matches an arbitrary keyless row in ANY course — the
+   upsert would reassign its unit and `prune_stale` would delete it on the same
+   run.
+
+8. **Slide-image blob deletes are deferred to `transaction.on_commit`.**
+   Storage is not transactional and `prune_stale` runs inside the seeders'
+   `atomic()` block, so an inline delete plus a rollback would leave live rows
+   pointing at objects that no longer exist.
+
+9. **`audit_xp` grew a fifth report, `STRANDED ROWS`** — rows resolving to live
+   content by id but not by key. It is the pre-deploy canary for deviation 6,
+   and it should fall to zero as awards heal the rows.
+
+10. **`upsert_sections` deliberately does not write `layout`, `image` or
+    `image_alt`.** The blueprints do not author those fields, and defaulting
+    them would silently undo a phase-61 slide import on a seeded lesson.
+    `clone_course_for_demo._sync_sections` does write all three, because it
+    mirrors a source that actually has them. Documented in both docstrings so
+    the asymmetry reads as intentional.
