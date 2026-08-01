@@ -507,7 +507,7 @@ still never double-awards.
    parallel subagents.** The slug transform is mechanical (title → lowercase,
    hyphenated, course-prefixed), and eleven agents doing read-modify-write on
    two shared files would race on the file writes. The script is at
-   `docs/archive/` — see the handoff. Counts came out exactly as the spec
+   `docs/archive/phase-65-author-content-keys.py`. Counts came out exactly as the spec
    predicted: ROB101 6 units / 24 lessons / 6 quizzes, JAVA101 20 lessons /
    5 quizzes.
 
