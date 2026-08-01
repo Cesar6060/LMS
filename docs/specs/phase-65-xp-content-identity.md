@@ -157,59 +157,59 @@ becoming new content. Quizzes use `<course>-quiz-<unit topic>`.
 
 ### Schema (three migrations, all additive and nullable)
 
-- [ ] `courses/models.py`: add `generate_content_key()` and `Lesson.content_key`
+- [x] `courses/models.py`: add `generate_content_key()` and `Lesson.content_key`
       as specified above. Docstring note: this is the XP identity, changing it
       re-awards XP.
-- [ ] `quizzes/models.py`: add `Quiz.content_key` (import the same helper from
+- [x] `quizzes/models.py`: add `Quiz.content_key` (import the same helper from
       `courses.models` — one definition, not two).
-- [ ] `courses/migrations/0024_*`: **three operations in order** — `AddField`
+- [x] `courses/migrations/0024_*`: **three operations in order** — `AddField`
       `content_key` as `null=True, blank=True` with **no** unique and **no**
       default; `RunPython` stamping `auto:<uuid4hex>` on every existing row
       (forward) with a no-op reverse; `AlterField` to add `unique=True` and the
       `default=generate_content_key`. A single `AddField` with a callable default
       would evaluate the callable **once** and violate uniqueness on the second row.
-- [ ] `quizzes/migrations/0004_*`: same three-step shape for `Quiz`.
-- [ ] `gamification/models.py`: add `XPEvent.source_key`; add the new
+- [x] `quizzes/migrations/0004_*`: same three-step shape for `Quiz`.
+- [x] `gamification/models.py`: add `XPEvent.source_key`; add the new
       `unique_together`; extend the class docstring to say the **key**, not the id,
       is the correctness core now, and mark `source_id` DORMANT (kept as the audit
       trail of which PK paid; see the phase-53 `Lesson.content` precedent).
-- [ ] `gamification/migrations/0006_*`: `AddField` `source_key` nullable +
+- [x] `gamification/migrations/0006_*`: `AddField` `source_key` nullable +
       `AlterUniqueTogether`, plus a `RunPython` that backfills every existing row:
       resolve `source_id` → `Lesson.content_key` (for `lesson` / `lesson_quiz`) or
       `Quiz.content_key` (for `quiz`); when the row no longer exists write
       `orphan:{source_type}:{source_id}`. Must `dependencies` on the courses and
       quizzes migrations above so the keys exist when it runs. Reverse is a no-op.
-- [ ] `makemigrations --check` clean at the end.
+- [x] `makemigrations --check` clean at the end.
 
 ### Shared upsert helpers — `courses/management/commands/_content_upsert.py`
 
 A leading underscore keeps Django from registering it as a command. Every helper is
 pure DB work with no stdout, returns the object, and is safe to call repeatedly.
 
-- [ ] `upsert_unit(course, order, title) -> Unit` — `update_or_create` on
+- [x] `upsert_unit(course, order, title) -> Unit` — `update_or_create` on
       `(course, order)` (already `unique_together`).
-- [ ] `upsert_lesson(unit, key, order, **fields) -> Lesson` — implements decision 5:
+- [x] `upsert_lesson(unit, key, order, **fields) -> Lesson` — implements decision 5:
       match on `content_key=key` first; if absent, adopt the row at
       `(unit, order)` **only when** its key is null or `auto:`-prefixed, and stamp
       `key` onto it; otherwise create. Never re-keys a row that already holds a
       different non-`auto:` key.
-- [ ] `upsert_quiz(unit, key, order, **fields) -> Quiz` — same adoption rule.
+- [x] `upsert_quiz(unit, key, order, **fields) -> Quiz` — same adoption rule.
       `Quiz` has no `(unit, order)` uniqueness, so the positional lookup takes the
       lowest-pk match and logs a warning if there is more than one.
-- [ ] `upsert_sections(lesson, sections_data)` — `update_or_create` on
+- [x] `upsert_sections(lesson, sections_data)` — `update_or_create` on
       `(lesson, order)`; deletes only sections whose `order` is beyond the end of
       `sections_data`. Must call `section.image.delete(save=False)` before deleting
       a section that has an image, matching the existing rule in
       `clone_course_for_demo.py:86-89` — otherwise every reseed orphans R2 blobs.
-- [ ] `upsert_lesson_questions(lesson, questions_data)` and
+- [x] `upsert_lesson_questions(lesson, questions_data)` and
       `upsert_quiz_questions(quiz, questions_data)` — `update_or_create` on
       `(parent, order)` for the question, then on `(question, order)` for each
       choice; trailing extras deleted. Defensive against pre-existing duplicates:
       take the lowest pk, delete the rest, warn.
-- [ ] `prune_stale(course, seen_lesson_keys, seen_quiz_keys, *, dry_run)` — returns
+- [x] `prune_stale(course, seen_lesson_keys, seen_quiz_keys, *, dry_run)` — returns
       the lessons/quizzes/units in `course` that the run did not touch. `dry_run`
       (the default) only reports; otherwise deletes.
-- [ ] Every helper is exercised by its own test (see below) — this module is where
+- [x] Every helper is exercised by its own test (see below) — this module is where
       the real risk lives, not in the 8,000 lines of prose it is called from.
 
 ### Seed command rewrites
@@ -219,67 +219,67 @@ The two big seeders already funnel all child creation through three private meth
 per-unit diff is small: add a `key=` argument to each `Lesson.objects.create` /
 `Quiz.objects.create` and let the helpers do the rest.
 
-- [ ] `populate_robotics_course.py`: delete `_clear_course_content`; add
+- [x] `populate_robotics_course.py`: delete `_clear_course_content`; add
       `add_arguments` with `--prune`; rewrite `_create_sections` /
       `_create_lesson_questions` / `_create_quiz_questions` to delegate to
       `_content_upsert`; collect the keys each unit touched and call
       `prune_stale` at the end. Fix the module docstring, which currently claims
       the command is "NON-DESTRUCTIVE" while destroying every student's progress
       in ROB101 — that claim becomes true in this phase.
-- [ ] `[P]` `_create_unit1` + `_create_unit1_quiz` — author keys for its 4 lessons
+- [x] `[P]` `_create_unit1` + `_create_unit1_quiz` — author keys for its 4 lessons
       and 1 quiz, switch to `upsert_*`.
-- [ ] `[P]` `_create_unit2` + `_create_unit2_quiz` — same.
-- [ ] `[P]` `_create_unit3` + `_create_unit3_quiz` — same.
-- [ ] `[P]` `_create_unit4` + `_create_unit4_quiz` — same.
-- [ ] `[P]` `_create_unit5` + `_create_unit5_quiz` — same.
-- [ ] `[P]` `_create_unit6` + `_create_unit6_quiz` — same.
+- [x] `[P]` `_create_unit2` + `_create_unit2_quiz` — same.
+- [x] `[P]` `_create_unit3` + `_create_unit3_quiz` — same.
+- [x] `[P]` `_create_unit4` + `_create_unit4_quiz` — same.
+- [x] `[P]` `_create_unit5` + `_create_unit5_quiz` — same.
+- [x] `[P]` `_create_unit6` + `_create_unit6_quiz` — same.
       (24 `Lesson.objects.create` + 6 `Quiz.objects.create` + 6
       `Unit.objects.create` across the six, one unit created per method.)
-- [ ] `populate_java_course.py`: same treatment — drop `_clear_course_content`,
+- [x] `populate_java_course.py`: same treatment — drop `_clear_course_content`,
       add `--prune`, delegate the three child helpers. Also **wrap `handle` in
       `transaction.atomic()`** — robotics does (`:42-48`), java does not
       (`:34-39`), so a mid-run failure leaves JAVA101 half-rebuilt today. Its five
       `Unit.objects.create` calls all live in `_create_course_content`
       (`:93-117`), unlike robotics, so convert them there, not per unit.
-- [ ] `[P]` JAVA101 unit 1 (`_create_unit1_getting_started_lessons`,
+- [x] `[P]` JAVA101 unit 1 (`_create_unit1_getting_started_lessons`,
       `_create_unit1_quiz`).
-- [ ] `[P]` JAVA101 unit 2 (`_create_unit2_variables_lessons`,
+- [x] `[P]` JAVA101 unit 2 (`_create_unit2_variables_lessons`,
       `_create_unit2_operators_lessons`, `_create_unit2_quiz`).
-- [ ] `[P]` JAVA101 unit 3 (`_create_unit3_text_lessons`, `_create_unit3_quiz`).
-- [ ] `[P]` JAVA101 unit 4 (`_create_unit4_conditionals_lessons`,
+- [x] `[P]` JAVA101 unit 3 (`_create_unit3_text_lessons`, `_create_unit3_quiz`).
+- [x] `[P]` JAVA101 unit 4 (`_create_unit4_conditionals_lessons`,
       `_create_unit4_loops_lessons`, `_create_unit4_quiz`).
-- [ ] `[P]` JAVA101 unit 5 (`_create_unit5_methods_lessons`, `_create_unit5_quiz`).
+- [x] `[P]` JAVA101 unit 5 (`_create_unit5_methods_lessons`, `_create_unit5_quiz`).
       (20 `Lesson.objects.create` + 5 `Quiz.objects.create` across the five.)
-- [ ] `clone_course_for_demo.py`: `_clone()` copies **all concrete fields**, so it
+- [x] `clone_course_for_demo.py`: `_clone()` copies **all concrete fields**, so it
       would copy the source's `content_key` verbatim and blow the unique index on
       the first run. Every clone must override the key with `demo:<source key>` —
       stable across re-clones, distinct from the source. Replace
       `demo.units.all().delete()` with the same upsert path, keyed on the
       `demo:`-prefixed keys, keeping the existing `section.image.delete(save=False)`
       blob cleanup for sections that actually go away.
-- [ ] `seed_data.py`: `clear_data()` is already gated behind `--clear`, so leave the
+- [x] `seed_data.py`: `clear_data()` is already gated behind `--clear`, so leave the
       wipe alone — but note in its docstring that despite saying "demo data" it
       truncates **every** course in the database (`:77-92`). The real work here is
       giving its content deterministic `seed:`-prefixed keys at the ten
       `get_or_create` / `create` sites (`:232, :236, :259, :401, :475, :523, :531,
       :669, :686, :692`) so a re-run without `--clear` does not churn identities.
-- [ ] `seed_demo_account.py` needs **no change** — it creates no content rows, only
+- [x] `seed_demo_account.py` needs **no change** — it creates no content rows, only
       user-owned progress, and finds lessons by `unit.lessons.order_by('order')`.
       Confirm that rather than assuming it.
 
 ### Gamification service and backfill
 
-- [ ] `services.py::_award_xp(user, source_type, source_key, amount, source_id=None)`
+- [x] `services.py::_award_xp(user, source_type, source_key, amount, source_id=None)`
       — dedupe on `source_key`; keep writing `source_id` into the row. Update the
       docstring: the key is the guarantee, the id is history.
-- [ ] `award_lesson_completion` / `award_quiz_pass` / `award_lesson_quiz_pass`:
+- [x] `award_lesson_completion` / `award_quiz_pass` / `award_lesson_quiz_pass`:
       pass `obj.content_key` as the key and `obj.id` as `source_id`. The four view
       call sites (`courses/views.py:518`, `courses/views.py:2508`,
       `quizzes/views.py:274`, `quizzes/views.py:478`) already pass the model
       instance and need **no change** — verify that, do not edit them.
-- [ ] A lesson or quiz with a null `content_key` (only possible mid-deploy) must not
+- [x] A lesson or quiz with a null `content_key` (only possible mid-deploy) must not
       500: fall back to `f'legacy:{source_type}:{obj.id}'` rather than dedupe on None.
-- [ ] `backfill_gamification.py`: it currently awards from bare id lists. Switch the
+- [x] `backfill_gamification.py`: it currently awards from bare id lists. Switch the
       three loops to fetch `content_key` alongside the id
       (`values_list('lesson__content_key', 'lesson_id')`) and pass both.
 
@@ -287,61 +287,61 @@ per-unit diff is small: add a `key=` argument to each `Lesson.objects.create` /
 
 Read-only. Never writes, never prompts, always exits 0.
 
-- [ ] Orphan report: `XPEvent` rows whose source no longer exists — determined by
+- [x] Orphan report: `XPEvent` rows whose source no longer exists — determined by
       checking `Lesson` / `Quiz` existence, **not** just the `orphan:` prefix, so the
       command is correct whether or not the backfill has run. Per-user count and XP
       total, plus a grand total.
-- [ ] Ledger drift: per profile, `sum(XPEvent.amount)` vs `GameProfile.total_xp`.
+- [x] Ledger drift: per profile, `sum(XPEvent.amount)` vs `GameProfile.total_xp`.
       Report every profile where they differ, with the delta and the derived level
       at each figure — this is the number that says how inflated prod actually is.
-- [ ] Amount drift: rows whose `amount` differs from the current `XP_LESSON` /
+- [x] Amount drift: rows whose `amount` differs from the current `XP_LESSON` /
       `XP_QUIZ` / `XP_LESSON_QUIZ` constant for their `source_type` (the
       `get_or_create(defaults=...)` hazard — an existing row keeps its old amount
       forever and nothing reconciles it).
-- [ ] Duplicate-content report: content keys held by more than one live row, and
+- [x] Duplicate-content report: content keys held by more than one live row, and
       lessons/quizzes still on an `auto:` key inside ROB101/JAVA101 (i.e. adoption
       did not take).
-- [ ] `--user <email>` to scope to one student; `--verbose` for per-row detail;
+- [x] `--user <email>` to scope to one student; `--verbose` for per-row detail;
       default output is a summary table.
 
 ### Adjacent fixes
 
-- [ ] **Streak no longer ticks on a no-op award.** `services.py:206-208` calls
+- [x] **Streak no longer ticks on a no-op award.** `services.py:206-208` calls
       `_update_streak` whenever `advance_streak=True`, regardless of whether the
       `XPEvent` was created. Gate it on `created`. This is a **deliberate semantic
       change**: re-completing already-paid content no longer extends a streak. Today
       it is masked by the `_just_completed` flag in `courses/serializers.py:679`, so
       no current caller is affected — but it is one new caller away from live.
       Record it in the handoff as a behavior change, not just a bug fix.
-- [ ] **Document the badge asymmetry.** `_badge_satisfied` reads live progress rows
+- [x] **Document the badge asymmetry.** `_badge_satisfied` reads live progress rows
       for `lessons_done`, `course_complete` and `perfect_quiz`, so deleting content
       retroactively un-satisfies them — while `UserBadge` rows are never revoked, so
       the badge sticks. That asymmetry is now *intentional* (decision 4). Say so in
       the `_badge_satisfied` / `_evaluate_badges` docstrings and pin it with a test.
-- [ ] **Document the amount-drift hazard** in `_award_xp`'s docstring, pointing at
+- [x] **Document the amount-drift hazard** in `_award_xp`'s docstring, pointing at
       `audit_xp` as the way to detect it. No automatic rewrite (Out of scope).
 
 ### Backend tests
 
-- [ ] **The regression test this phase exists for** (`gamification/tests.py`, new
+- [x] **The regression test this phase exists for** (`gamification/tests.py`, new
       `TestContentRebuildXP`): student completes a lesson (+50), the lesson is
       deleted and recreated with the **same `content_key`**, the student completes
       it again → `total_xp` is still 50 and exactly one `XPEvent` exists. Repeat for
       a unit quiz and a lesson comprehension quiz. Every existing "idempotent" test
       re-awards the *same, still-existing* object, which is precisely why this bug
       survived from phase 58 to 65.
-- [ ] `[P]` A lesson recreated with a **different** key *does* award again — new
+- [x] `[P]` A lesson recreated with a **different** key *does* award again — new
       content is genuinely new. Pins that the fix is not just "never award twice".
-- [ ] `[P]` Deleting a lesson leaves its `XPEvent` and `total_xp` untouched
+- [x] `[P]` Deleting a lesson leaves its `XPEvent` and `total_xp` untouched
       (decision 4: XP never decreases).
-- [ ] `[P]` `_award_xp` with a null `content_key` falls back to `legacy:` and does
+- [x] `[P]` `_award_xp` with a null `content_key` falls back to `legacy:` and does
       not 500 or dedupe on None.
-- [ ] `[P]` Streak: a re-award of already-paid content does **not** advance the
+- [x] `[P]` Streak: a re-award of already-paid content does **not** advance the
       streak; a genuine new award still does.
-- [ ] `[P]` Badge asymmetry pin: earn `lessons_done`, delete the lessons, badge is
+- [x] `[P]` Badge asymmetry pin: earn `lessons_done`, delete the lessons, badge is
       still held and is not re-awarded.
-- [ ] `[P]` Backfill command still idempotent with keys, and skips instructors.
-- [ ] **Upsert helper tests** (new `courses/test_content_upsert.py`) — one per
+- [x] `[P]` Backfill command still idempotent with keys, and skips instructors.
+- [x] **Upsert helper tests** (new `courses/test_content_upsert.py`) — one per
       helper: adoption of an unkeyed row by position; refusal to re-key a row that
       holds a different blueprint key; child upsert preserves the question pk and
       with it all three student-owned answer tables (`AttemptAnswer`,
@@ -350,7 +350,7 @@ Read-only. Never writes, never prompts, always exits 0.
       into a silently-wrong `is_correct=False`; trailing children deleted; section
       image blob deleted when its section goes; defensive handling of a
       pre-existing duplicate `(quiz, order)`.
-- [ ] **Seed command tests** (new `courses/test_populate_courses.py`) — there is
+- [x] **Seed command tests** (new `courses/test_populate_courses.py`) — there is
       currently **no test coverage at all** for `populate_robotics_course` or
       `populate_java_course`, and this phase rewrites both:
   - running the command twice produces identical unit/lesson/quiz counts, and every
@@ -362,14 +362,14 @@ Read-only. Never writes, never prompts, always exits 0.
     run the seed, assert it was adopted (same pk) and stamped with the blueprint key;
   - `--prune` deletes blueprint-absent content and the default run does not, but
     does warn.
-- [ ] `[P]` `clone_course_for_demo` test: re-clone twice, demo lesson pks stable,
+- [x] `[P]` `clone_course_for_demo` test: re-clone twice, demo lesson pks stable,
       keys all `demo:`-prefixed, no unique-constraint error, no key collision with
       the source course. Extend the existing `courses/test_seed_demo_account.py`.
-- [ ] `[P]` `audit_xp` tests: clean database reports zero of everything; a manually
+- [x] `[P]` `audit_xp` tests: clean database reports zero of everything; a manually
       orphaned `XPEvent` is counted; a hand-edited `total_xp` shows as drift; an
       `XPEvent` with a stale `amount` shows as amount drift; the command writes
       nothing (assert row counts and `total_xp` unchanged after a run).
-- [ ] `[P]` Catalog/permission regressions still green: the instructor-inert path,
+- [x] `[P]` Catalog/permission regressions still green: the instructor-inert path,
       `core/tests/test_demo_lockdown.py`, and the phase-63 query-count guards on
       the profile endpoint.
 
@@ -386,7 +386,7 @@ this phase did not disturb them, not because anything should change.
 ## Verification
 
 ### Automated — `/verify-stack` must PASS
-- [ ] `docker compose exec -T backend pytest` — baseline is **766 passed** (phase 64
+- [x] `docker compose exec -T backend pytest` — baseline is **766 passed** (phase 64
       + aura retirement). Expect roughly +35. Named checks that must be green:
   - `gamification/tests.py::TestContentRebuildXP` — the delete-and-recreate no-double-award
     case for all three source types, plus the different-key-does-award counter-case.
@@ -396,28 +396,28 @@ this phase did not disturb them, not because anything should change.
     survival case and the section-image blob cleanup.
   - the streak-not-ticked-on-noop test and the badge-asymmetry pin.
   - `core/tests/test_demo_lockdown.py` unchanged and still passing.
-- [ ] `docker compose exec -T backend python manage.py makemigrations --check` clean.
-- [ ] `docker compose exec -T backend python manage.py migrate --plan` shows exactly
+- [x] `docker compose exec -T backend python manage.py makemigrations --check` clean.
+- [x] `docker compose exec -T backend python manage.py migrate --plan` shows exactly
       the three new migrations, in dependency order (courses and quizzes before
       gamification).
-- [ ] `cd frontend && npx tsc --noEmit` → 0 errors, and `git diff --stat frontend/`
+- [x] `cd frontend && npx tsc --noEmit` → 0 errors, and `git diff --stat frontend/`
       is **empty**.
-- [ ] `cd frontend && npm run lint` → 0 errors (1 pre-existing warning is baseline).
-- [ ] `cd frontend && npx vitest run` → 116 passing, unchanged.
+- [x] `cd frontend && npm run lint` → 0 errors (1 pre-existing warning is baseline).
+- [x] `cd frontend && npx vitest run` → 116 passing, unchanged.
 
 ### Manual — against local Docker, before the PR
-- [ ] `python manage.py populate_robotics_course` on a DB where `student1@demo.com`
+- [x] `python manage.py populate_robotics_course` on a DB where `student1@demo.com`
       has ROB101 progress and XP. Record `total_xp`, completed-lesson count and a
       `LessonQuestionAnswer` count before; assert all three are identical after.
       This is the phase in one command.
-- [ ] Run it a **second** time; confirm the output reports 0 created / N updated and
+- [x] Run it a **second** time; confirm the output reports 0 created / N updated and
       no lesson pk moved.
-- [ ] Complete a rebuilt lesson as `student1@demo.com` → **no** XP toast, `total_xp`
+- [x] Complete a rebuilt lesson as `student1@demo.com` → **no** XP toast, `total_xp`
       unchanged. Complete a genuinely new lesson → +50 as normal.
-- [ ] `python manage.py audit_xp` on the local DB → reports the orphans left behind
+- [x] `python manage.py audit_xp` on the local DB → reports the orphans left behind
       by earlier destructive reseeds, and zero ledger drift for a profile that was
       never inflated.
-- [ ] `python manage.py populate_java_course` and `clone_course_for_demo` both run
+- [x] `python manage.py populate_java_course` and `clone_course_for_demo` both run
       clean twice in a row, and the demo course still opens on the site.
 
 ### Deploy — do NOT do this during implementation
@@ -481,3 +481,40 @@ still never double-awards.
   the handoff.
 - `courses/models.py:95-114` documents the phase-53 DORMANT pattern; follow it
   verbatim for the `XPEvent.source_id` comment block.
+
+---
+
+## Deviations from the spec as written
+
+1. **`XPEvent.source_id` became nullable.** The spec kept the legacy
+   `unique_together ['user', 'source_type', 'source_id']` alongside the new
+   key-based one, and gave `_award_xp` a `source_id=None` default. Those two
+   together are unsafe: any award that supplies no id would need a sentinel,
+   and every such row would then collide with every other on the legacy
+   constraint. `source_id` is therefore `null=True` (an extra `AlterField` in
+   `gamification/0006`), so keyless rows stay distinct under a Postgres unique
+   index. Widening NOT NULL → NULL is safe for the old code, which always
+   writes the column. The column is still never dropped and still never read
+   for correctness.
+
+2. **`prune_stale` also settles "parked" lesson orders.** Not in the spec, but
+   `Lesson` is `unique_together ['unit', 'order']`, so upserting a lesson into
+   a slot another lesson holds raises IntegrityError. The occupant is parked
+   above `PARK_OFFSET` and given a real order again at the end of the run —
+   otherwise a default (non-pruning) run could leave lessons at order 900000+.
+
+3. **The `[P]` items were applied by a single deterministic script, not by
+   parallel subagents.** The slug transform is mechanical (title → lowercase,
+   hyphenated, course-prefixed), and eleven agents doing read-modify-write on
+   two shared files would race on the file writes. The script is at
+   `docs/archive/` — see the handoff. Counts came out exactly as the spec
+   predicted: ROB101 6 units / 24 lessons / 6 quizzes, JAVA101 20 lessons /
+   5 quizzes.
+
+4. **`vitest` baseline is 122, not the 116 the spec quotes.** No `frontend/`
+   file changed (`git diff --stat main -- frontend/` is empty), so 122 is the
+   pre-existing count and the spec's number was stale.
+
+5. **`seed_data` keys use `seed:<course>-<kind>-<slug>`**, with `kind` in the
+   key. A lesson and a quiz sharing a title would otherwise collide in the one
+   flat key namespace.
