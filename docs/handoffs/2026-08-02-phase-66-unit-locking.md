@@ -7,11 +7,9 @@ Phase 66 code-complete on `feat/phase-66-unit-locking`. **PR #95 open, NOT merge
   `makemigrations --check` clean. Manual click-through done on local Docker (VGD101).
 - Migration `courses/0025_unit_is_locked` — `db_default=False`, reverse tested down/up,
   and a raw INSERT omitting the column proven to succeed with `False`.
-- Backend: `courses/{models,permissions,serializers,views}.py`, `quizzes/views.py`,
-  `gamification/services.py`, `notifications/signals.py`. Frontend: `types/index.ts`,
-  `services/courses.ts`, `OutlineUnitCard.tsx` (+test), `ManageCoursePage.tsx`,
-  `CourseDetailPage.tsx`, `CourseSidebar.tsx`, `CoursePlayerPage.tsx`,
-  `CourseMapPath.tsx`, `lib/courseProgress.ts` (+tests).
+- Touched: `courses/{models,permissions,serializers,views}.py`, `quizzes/views.py`,
+  `gamification/services.py`, `notifications/signals.py`; frontend types + the 6
+  course/unit surfaces and `lib/courseProgress.ts`. See `git diff main...HEAD --stat`.
 
 ## In progress / not done
 - **`code-reviewer` never ran** — agent died on an API session limit. I reviewed manually
@@ -41,9 +39,8 @@ Phase 66 code-complete on `feat/phase-66-unit-locking`. **PR #95 open, NOT merge
 - **Locked beats completed** on the map; a pre-lock completion leaves both sides of the math.
 - **Locked units' quizzes leave the gradebook `possible` total** rather than scoring zero,
   which would silently tank every student's grade.
-- **Demo guard keyed on `is_locked` being in the payload**, not unit writes generally, so a
-  demo instructor can still rename a unit.
-- **Reseeds never touch `is_locked`** — instructor state, not blueprint state.
+- **Demo guard keyed on `is_locked` being in the payload**, so a demo instructor can still
+  rename a unit. **Reseeds never touch `is_locked`** — instructor state, not blueprint state.
 - **New-lesson notification suppressed inside a locked unit** — authoring there is
   supported, announcing the title verbatim is not.
 
@@ -55,10 +52,9 @@ Phase 66 code-complete on `feat/phase-66-unit-locking`. **PR #95 open, NOT merge
   and `correct_choice_text`), so any past-attempts endpoint needs the same gate.
 - A concurrent subagent's `npm install` left `node_modules` without
   `@rollup/rollup-darwin-arm64`, breaking vitest. Avoid parallel agents running npm.
-- `QuizAttempt.points_earned` is a read-only property — don't pass it to `objects.create()`.
-- `@testing-library/user-event` is NOT a dependency here; use `fireEvent`.
-- Browser clicks ~3s after navigation can land before hydration and silently no-op.
-- Carried: never run pytest concurrently with review subagents.
+- `QuizAttempt.points_earned` is a read-only property, not a field. `@testing-library/
+  user-event` is NOT a dependency; use `fireEvent`. Browser clicks ~3s after navigation can
+  land before hydration and silently no-op. Carried: no pytest alongside review subagents.
 
 ## Files to read first
 1. `docs/specs/phase-66-unit-locking.md` — checklist plus both adversarial writeups.
