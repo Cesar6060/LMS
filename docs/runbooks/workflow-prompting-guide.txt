@@ -1,7 +1,7 @@
 ================================================================================
 STEM QUEST — HOW TO PROMPT WORKFLOWS FOR THE BEST RESULTS
 ================================================================================
-Last updated: 2026-07-23
+Last updated: 2026-08-02
 Audience: You (the human driving Claude Code on this project).
 Purpose: How to run the phase workflow — start-phase, implement, finish-phase —
          so each session produces correct, verified, review-clean work with the
@@ -27,7 +27,7 @@ The source of truth for project state is:
     - docs/specs/       (what each phase is supposed to deliver + checklist)
     - docs/handoffs/    (what actually happened, newest file = current state)
 There is NO roadmap file. PLAN.md was retired at phase 50 (archived at
-docs/archive/PLAN.md). See the KNOWN ISSUE note in section 6.
+docs/archive/PLAN.md); specs + handoffs are the source of truth.
 
 Golden rules that make everything else work:
     1. One phase per branch. Never work on main — merging auto-deploys prod.
@@ -174,7 +174,7 @@ It executes these gated steps (each must pass before the next):
                            into the PR body, never dropped silently.
     4. Migration check   — db-migration-checker IF migrations changed.
     5. Spec completeness — every checklist item done, or explicitly punted.
-    6. Update docs       — checks off spec items. (See KNOWN ISSUE re: PLAN.md.)
+    6. Update docs       — checks off spec items in docs/specs/.
     7. Commit + push     — conventional commits, no Co-Authored-By lines.
     8. Open PR to main   — with Summary/Spec/Verification/Review/Migrations/
                            Deploy-note. Does NOT merge.
@@ -220,20 +220,19 @@ worth doing when a phase touched a real permission boundary.
 
 
 --------------------------------------------------------------------------------
-6. KNOWN ISSUE — PLAN.md references in the updated skills
+6. MIGRATIONS ON DEPLOY (changed at phase 65)
 --------------------------------------------------------------------------------
-The updated start-phase (step 2) and finish-phase (step 6) still instruct Claude
-to read/update PLAN.md. But PLAN.md was RETIRED at phase 50 (archived at
-docs/archive/PLAN.md); specs + handoffs are now the source of truth.
+Migrations are NO LONGER hand-applied to Neon before merging. render.yaml runs
+`python manage.py migrate --noinput` as a preDeployCommand: after the build,
+before the new version takes traffic, and a failure aborts the whole deploy.
 
-Practical effect: harmless but noisy. Claude may look for PLAN.md, not find a
-live one, and continue. It will NOT break a phase.
+What still matters: the pre-deploy runs while the OLD code is serving, so every
+migration must be old-code-safe (nullable columns; db_default on new NOT NULL
+fields; never drop a column in the same deploy as the code that stops using
+it). The finish-phase skill's Migrations section is the checklist.
 
-If you want it clean, tell Claude in the session:
-    "Ignore the PLAN.md steps in start-phase/finish-phase — PLAN.md is retired.
-     Use docs/specs and docs/handoffs as the source of truth."
-Or ask Claude to patch both skill files to drop the PLAN.md lines. Recommended,
-so the instruction stops fighting your CLAUDE.md.
+After a deploy, verify with a real content read, not just the health endpoint —
+/api/health/?deep=1 only runs SELECT 1 and cannot see a missing column.
 
 
 --------------------------------------------------------------------------------

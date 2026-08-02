@@ -21,7 +21,7 @@
 #   documents what prod needs set.
 #
 # No `databases:` key on purpose — Postgres lives on Neon (aws-us-east-1),
-# outside Render. See docs/specs/phase-38-api-live-render-neon.md.
+# outside Render. See docs/archive/specs/phase-38-api-live-render-neon.md.
 #
 # Migrations: applied automatically by `preDeployCommand` below since Phase 65
 # (2026-08-02), against the dashboard's DATABASE_URL. They are NO LONGER a
@@ -41,7 +41,7 @@ services:
     # Virginia since Phase 49 — co-located with Neon (aws-us-east-1). The
     # original service ran in Oregon and paid ~70-130 ms per DB round trip;
     # after the move, deep health equals shallow. See
-    # docs/specs/phase-49-region-move-virginia.md.
+    # docs/archive/specs/phase-49-region-move-virginia.md.
     region: virginia
     rootDir: backend
     branch: main
