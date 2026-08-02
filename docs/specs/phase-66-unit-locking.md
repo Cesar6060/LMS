@@ -123,7 +123,7 @@ unlocked; nothing changes for a course whose instructor never touches the featur
 
 ## Verification
 
-- [ ] `cd backend && pytest` — all green, including the new cases:
+- [x] `cd backend && pytest` — all green, including the new cases:
   - `test_locked_unit_hidden_from_student_course_detail` (empty `lessons`, has
     `lesson_count`, `is_locked: true`)
   - `test_locked_unit_full_for_instructor`
@@ -137,12 +137,12 @@ unlocked; nothing changes for a course whose instructor never touches the featur
   - `test_course_complete_badge_ignores_locked_units`
   - `test_course_map_instructor_lock_state`
   - `test_reseed_preserves_unit_lock`
-- [ ] `makemigrations --check` clean after the new migration; db-migration-checker
+- [x] `makemigrations --check` clean after the new migration; db-migration-checker
       agent reports the migration additive and old-code-safe (`db_default` present).
-- [ ] `cd frontend && npx tsc --noEmit` — 0 errors; `npm run lint` — 0 (+1 known);
+- [x] `cd frontend && npx tsc --noEmit` — 0 errors; `npm run lint` — 0 (+1 known);
       `npx vitest run` — green.
-- [ ] `/verify-stack` PASS with output shown.
-- [ ] Manual flow (local Docker): as instructor, open Manage Course → lock Unit 2 →
+- [x] `/verify-stack` PASS with output shown.
+- [x] Manual flow (local Docker): as instructor, open Manage Course → lock Unit 2 →
       badge appears. As an enrolled student: course detail shows Unit 2 title +
       lock, no lessons; player sidebar shows it locked and auto-resume lands on an
       unlocked lesson; pasting a Unit-2 lesson URL directly shows the 403/blocked
