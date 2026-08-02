@@ -394,3 +394,72 @@ class TestInstructorGuard:
 
         assert Course.objects.get(code='ROB101').instructor == seed_instructor
 
+
+
+@pytest.mark.django_db
+class TestDuplicateKeyWithinOneSeedRun:
+    """
+    Promoted from an adversarial probe. A slug reused inside one run is a
+    copy-paste, not an update: the second call upserted the FIRST lesson's row
+    in place, so two blueprint lessons collapsed into one row and the first
+    one's content vanished with no error. Now a loud failure.
+    """
+
+    def _command(self, name):
+        from django.core.management import load_command_class
+        cmd = load_command_class('courses', name)
+        cmd.seen_lesson_keys = set()
+        cmd.seen_quiz_keys = set()
+        return cmd
+
+    @pytest.mark.parametrize(
+        'name', ['populate_robotics_course', 'populate_java_course']
+    )
+    def test_reusing_a_lesson_key_in_one_run_raises(self, seed_instructor, name):
+        course = Course.objects.create(
+            code='DUP101', title='Dup', instructor=seed_instructor
+        )
+        unit = Unit.objects.create(course=course, title='U', order=0)
+        cmd = self._command(name)
+
+        cmd._lesson(unit, 'dup101-slug', 0, title='Lesson One')
+
+        with pytest.raises(ValueError, match='used twice in one seed run'):
+            cmd._lesson(unit, 'dup101-slug', 1, title='Lesson Two')
+
+        # Lesson One survives intact rather than being overwritten.
+        assert Lesson.objects.filter(unit=unit).count() == 1
+        assert Lesson.objects.get(unit=unit).title == 'Lesson One'
+
+    @pytest.mark.parametrize(
+        'name', ['populate_robotics_course', 'populate_java_course']
+    )
+    def test_reusing_a_quiz_key_in_one_run_raises(self, seed_instructor, name):
+        course = Course.objects.create(
+            code='DUP102', title='Dup', instructor=seed_instructor
+        )
+        unit = Unit.objects.create(course=course, title='U', order=0)
+        cmd = self._command(name)
+
+        cmd._quiz(unit, 'dup102-quiz', 0, title='Quiz One')
+
+        with pytest.raises(ValueError, match='used twice in one seed run'):
+            cmd._quiz(unit, 'dup102-quiz', 1, title='Quiz Two')
+
+    @pytest.mark.parametrize(
+        'name,code', [('populate_robotics_course', 'ROB101'),
+                      ('populate_java_course', 'JAVA101')]
+    )
+    def test_the_real_blueprints_hold_no_duplicate_keys(
+        self, seed_instructor, name, code
+    ):
+        """The guard would fire on a real run if a slug were ever duplicated."""
+        call_command(name)
+        keys = list(
+            Lesson.objects.filter(unit__course__code=code)
+            .values_list('content_key', flat=True)
+        ) + list(
+            Quiz.objects.filter(unit__course__code=code)
+            .values_list('content_key', flat=True)
+        )
+        assert len(keys) == len(set(keys))

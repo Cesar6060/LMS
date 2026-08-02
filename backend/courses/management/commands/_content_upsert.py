@@ -69,6 +69,32 @@ def is_adoptable(content_key):
     return not content_key or content_key.startswith('auto:')
 
 
+def _assert_same_course(existing_unit, target_unit, key, label):
+    """
+    Refuse to pull content across a course boundary on a key match.
+
+    Matching by key is global — ``content_key`` is one flat namespace — and
+    moving a lesson BETWEEN UNITS of its own course is deliberately supported
+    (that is why keys carry no unit number). Moving it between COURSES is not:
+    it silently empties the source course, overwrites that content with the
+    other course's data, and drags every ``LessonProgress`` row along with the
+    pk, leaving students "already complete" on content they never saw.
+
+    Only reachable by authoring the same slug in two blueprints — a typo or a
+    copy-pasted unit block. Nothing writes ``content_key`` through the API. So
+    this is a loud authoring error rather than a silent adoption.
+    """
+    if existing_unit.course_id == target_unit.course_id:
+        return
+    raise ValueError(
+        f'content key {key!r} is already held by a {label} in course '
+        f'{existing_unit.course_id}, but was used again for course '
+        f'{target_unit.course_id}. Keys are globally unique and moving content '
+        f'between courses would take student progress with it. Pick a distinct '
+        f'slug — a key, once authored, is permanent.'
+    )
+
+
 def _require_key(key, label):
     """
     Refuse a falsy content key.
@@ -189,7 +215,9 @@ def upsert_lesson(unit, key, order, **fields):
     ``LessonProgress`` and the comprehension-quiz tables alive.
     """
     _require_key(key, 'lesson')
-    lesson = Lesson.objects.filter(content_key=key).first()
+    lesson = Lesson.objects.filter(content_key=key).select_related('unit').first()
+    if lesson is not None:
+        _assert_same_course(lesson.unit, unit, key, 'lesson')
 
     if lesson is None:
         candidate = Lesson.objects.filter(unit=unit, order=order).first()
@@ -222,7 +250,9 @@ def upsert_quiz(unit, key, order, **fields):
     nothing stops two quizzes sharing an order.
     """
     _require_key(key, 'quiz')
-    quiz = Quiz.objects.filter(content_key=key).first()
+    quiz = Quiz.objects.filter(content_key=key).select_related('unit').first()
+    if quiz is not None:
+        _assert_same_course(quiz.unit, unit, key, 'quiz')
 
     if quiz is None:
         matches = list(Quiz.objects.filter(unit=unit, order=order).order_by('pk'))

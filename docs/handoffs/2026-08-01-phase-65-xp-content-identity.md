@@ -326,6 +326,41 @@ for later:
    lessons, 16 quizzes, 0 XP events) but `XPEvent` is an append-only ledger
    and is the one table that will grow.
 
+## Adversarial pass (run post-deploy) — two silent-corruption paths, both fixed
+
+The `adversarial-tester` step of `finish-phase` was never run before the merge.
+Running it after found **two BROKEN paths**, both latent (neither triggered by
+today's content) and neither reachable through the API — `content_key` is not
+writable by any serializer. Both are seed-authoring hazards where a duplicated
+slug caused silent data loss instead of an error.
+
+1. **Cross-course key collision hijacked content between courses.** The by-key
+   match in `upsert_lesson`/`upsert_quiz` is global, so a slug authored in two
+   blueprints pulled the row across the course boundary: source course emptied,
+   its content overwritten, and every `LessonProgress` dragged along with the
+   pk — students left "already complete" on content they never saw. Now a loud
+   `ValueError`. Moving a lesson between UNITS of its own course is still
+   allowed, which is the case keys carry no unit number for.
+2. **A key reused within one seed run merged two lessons into one.** The second
+   call upserted the first lesson's row in place; one row survived where the
+   blueprint intended two, with no exception and no warning. The `_lesson()` /
+   `_quiz()` wrappers now reject a repeated key.
+
+Also fixed from the same pass: **`audit_xp`'s duplicate-key scan was dead
+code.** `content_key` has a unique index, so "same key on two rows" can never
+return anything — it implied monitoring that was not happening, while the real
+damage shape (a single row moving between courses) leaves no duplicate to find.
+Replaced with a prefix scan that flags content whose key belongs to another
+course, which is what a hijack actually looks like.
+
+Everything else HELD: the headline no-double-award guarantee across all three
+source types, XP/level/badge/streak-freeze never decreasing, and the
+stranded-row healing (could not be driven to heal the wrong row across users or
+across source types). One noted assumption worth knowing: **the healing relies
+on Postgres never reusing a deleted row's primary key.** True for sequences,
+but it would break under a forced-id bulk insert or `TRUNCATE ... RESTART
+IDENTITY`.
+
 ## Files to read first
 
 1. `docs/specs/phase-65-xp-content-identity.md` — checklist + the Deviations
