@@ -634,9 +634,12 @@ def dashboard_stats(request):
             user=user, is_active=True
         ).values_list('course_id', flat=True)
 
-        # Lessons completed
+        # Lessons completed. Locked units are excluded here too, or this stat
+        # disagrees with every other progress surface by exactly the amount
+        # hidden behind the lock (phase 66).
         lessons_completed = LessonProgress.objects.filter(
             user=user,
+            lesson__unit__is_locked=False,
             completed=True
         ).count()
 
@@ -3337,8 +3340,14 @@ def course_map(request, course_code):
             'lock_reason': lock_reason,
         }
         if node['node_type'] == 'quiz':
-            payload['passing_score'] = obj.passing_score
-            payload['best_score'] = best_scores.get(obj.id)
+            # Scrubbed alongside the title for a locked unit: the passing bar
+            # and the student's own best score both describe hidden content.
+            payload['passing_score'] = (
+                None if node['unit_locked'] else obj.passing_score
+            )
+            payload['best_score'] = (
+                None if node['unit_locked'] else best_scores.get(obj.id)
+            )
         return payload
 
     data = {

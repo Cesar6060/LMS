@@ -5317,3 +5317,127 @@ class TestLockedUnitListAndAggregateLeaks:
         assert response.status_code == status.HTTP_403_FORBIDDEN
         assert response.data == DEMO_BLOCKED_BODY
         assert not Unit.objects.filter(course=course, title='Sneaky').exists()
+
+
+@pytest.mark.django_db
+class TestLockedUnitSecondPassRegressions:
+    """Second adversarial pass: leaks that survived the first round of fixes."""
+
+    def test_course_map_scrubs_locked_quiz_scores(
+            self, api_client, instructor, student, locked_course):
+        """Title alone was not enough — the passing bar and the student's own
+        best score also describe content they cannot see."""
+        from quizzes.models import Quiz, QuizAttempt
+
+        quiz = Quiz.objects.create(
+            unit=locked_course['locked_unit'], title='Secret Quiz',
+            passing_score=87, points=10, order=1)
+        QuizAttempt.objects.create(
+            quiz=quiz, student=student, score=91, passed=True,
+            status=QuizAttempt.STATUS_COMPLETED)
+
+        api_client.force_authenticate(user=student)
+        response = api_client.get(
+            f"/api/courses/courses/{locked_course['course'].code}/map/")
+
+        units = {u['title']: u for u in response.data['units']}
+        node = next(n for n in units['Locked']['nodes']
+                    if n['node_type'] == 'quiz')
+        assert node['title'] == 'Locked quiz'
+        assert node['passing_score'] is None
+        assert node['best_score'] is None
+
+    def test_course_map_keeps_quiz_scores_for_instructor(
+            self, api_client, instructor, locked_course):
+        from quizzes.models import Quiz
+
+        Quiz.objects.create(
+            unit=locked_course['locked_unit'], title='Secret Quiz',
+            passing_score=87, points=10, order=1)
+
+        api_client.force_authenticate(user=instructor)
+        response = api_client.get(
+            f"/api/courses/courses/{locked_course['course'].code}/map/")
+
+        units = {u['title']: u for u in response.data['units']}
+        node = next(n for n in units['Locked']['nodes']
+                    if n['node_type'] == 'quiz')
+        assert node['title'] == 'Secret Quiz'
+        assert node['passing_score'] == 87
+
+    def test_new_lesson_in_locked_unit_does_not_notify_students(
+            self, api_client, instructor, student, locked_course):
+        """Authoring inside a locked unit is supported — announcing it is not.
+        The notification carries the real title and a direct link."""
+        before = Notification.objects.filter(
+            recipient=student, type='new_lesson').count()
+
+        api_client.force_authenticate(user=instructor)
+        response = api_client.post(
+            f"/api/courses/units/{locked_course['locked_unit'].id}/lessons/",
+            {'title': 'Top Secret Boss Fight Answers'})
+        assert response.status_code == status.HTTP_201_CREATED
+
+        notes = Notification.objects.filter(recipient=student, type='new_lesson')
+        assert notes.count() == before
+        assert not notes.filter(
+            message__contains='Top Secret Boss Fight Answers').exists()
+
+    def test_new_lesson_in_open_unit_still_notifies(
+            self, api_client, instructor, student, locked_course):
+        api_client.force_authenticate(user=instructor)
+        api_client.post(
+            f"/api/courses/units/{locked_course['open_unit'].id}/lessons/",
+            {'title': 'Perfectly Public Lesson'})
+
+        note = Notification.objects.filter(
+            recipient=student, type='new_lesson').first()
+        assert note is not None
+        assert 'Perfectly Public Lesson' in note.message
+
+    def test_dashboard_stats_excludes_locked_units(
+            self, api_client, student, locked_course):
+        """This stat must not disagree with the course progress endpoint."""
+        api_client.force_authenticate(user=student)
+
+        stats = api_client.get('/api/courses/dashboard/stats/')
+        assert stats.status_code == status.HTTP_200_OK
+        # 1 completion in the open unit; the locked unit's completion drops out.
+        assert stats.data['lessons_completed'] == 1
+
+        progress = api_client.get(
+            f"/api/courses/courses/{locked_course['course'].code}/progress/")
+        assert progress.data['completed_lessons'] == stats.data['lessons_completed']
+
+
+@pytest.mark.django_db
+class TestLockedUnitLessonListBoundaryMatrix:
+    """The list queryset is raw Q-algebra — pin every corner of it."""
+
+    def _titles(self, api_client, user):
+        api_client.force_authenticate(user=user)
+        return {row['title'] for row in api_client.get('/api/courses/lessons/').data}
+
+    def test_enrolled_student_sees_open_only(
+            self, api_client, student, locked_course):
+        titles = self._titles(api_client, student)
+        assert 'Open 1' in titles
+        assert 'Locked 1' not in titles
+
+    def test_course_instructor_sees_both(
+            self, api_client, instructor, locked_course):
+        titles = self._titles(api_client, instructor)
+        assert {'Open 1', 'Locked 1'} <= titles
+
+    def test_instructor_of_another_course_sees_neither(
+            self, api_client, locked_course):
+        other = User.objects.create_user(
+            email='other-teacher@test.com', password='testpass123',
+            is_instructor=True)
+        titles = self._titles(api_client, other)
+        assert 'Open 1' not in titles
+        assert 'Locked 1' not in titles
+
+    def test_anonymous_is_401(self, api_client, locked_course):
+        assert api_client.get(
+            '/api/courses/lessons/').status_code == status.HTTP_401_UNAUTHORIZED

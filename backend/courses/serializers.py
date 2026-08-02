@@ -1025,8 +1025,12 @@ class CourseMapLessonNodeSerializer(serializers.Serializer):
 
 
 class CourseMapQuizNodeSerializer(CourseMapLessonNodeSerializer):
-    """A quiz ("boss") node — additionally carries scores."""
-    passing_score = serializers.IntegerField()
+    """A quiz ("boss") node — additionally carries scores.
+
+    Both are null inside an instructor-locked unit (phase 66): the passing bar
+    and the student's best score describe content they cannot see.
+    """
+    passing_score = serializers.IntegerField(allow_null=True)
     best_score = serializers.FloatField(allow_null=True)
 
 

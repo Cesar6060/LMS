@@ -175,3 +175,38 @@ each with a permanent regression test:
 5. **`CourseUnitsView.perform_create` accepted `is_locked=True` without the demo
    guard** (defensive; not reachable today since the demo account is not an
    instructor). Now mirrors `UnitViewSet.perform_update`.
+
+### Second adversarial pass (post-fix)
+
+Re-attacked the fixes themselves plus new ground. The `LessonViewSet` exclude
+Q-algebra held across the full boundary matrix (anonymous / other-course
+instructor / enrolled student / own instructor), `UnitSerializer` fails closed
+with no request in context, and locking mid-quiz-session immediately 403s the
+next answer/submit rather than leaving a usable stale session. Three more leaks
+found and fixed:
+
+6. **`course_map` leaked `passing_score` and `best_score` on locked quiz nodes**
+   (medium) — the title was scrubbed but the numeric fields sat outside the
+   lock branch. Both now null; `CourseMapQuizNodeSerializer.passing_score`
+   gained `allow_null`, and the TS type follows.
+7. **`notify_students_on_new_lesson` announced locked content** (high) —
+   authoring inside a locked unit is supported by design, but the signal
+   broadcast the new lesson's real title and a direct link to every enrolled
+   student while the lesson endpoint itself 403'd them. Now silent for a
+   locked unit.
+8. **`dashboard_stats` counted locked-unit completions** (medium) — the one
+   progress surface missed in the sweep, disagreeing with
+   `CourseProgressView` by exactly the amount hidden behind the lock.
+
+**Deferred (not fixed, tracked here):**
+- `_badge_satisfied`'s `CRITERIA_LESSONS_DONE` / perfect-score branches count
+  raw `LessonProgress` and `QuizAttempt` with no lock filter, unlike the
+  `CRITERIA_COURSE_COMPLETE` branch. Defensible — the completion really
+  happened and badges are grant-only — but it is an implicit asymmetry inside
+  one function and deserves an explicit product decision.
+- `course_map` still emits the real `id` of a locked lesson/quiz node. Not
+  actionable (every id-taking endpoint is gated) but it does confirm a node
+  exists and leaks creation order.
+- Pasting a locked lesson URL lands on the player's neutral "Select a lesson to
+  begin" empty state rather than an explicit locked message. Nothing leaks;
+  purely a clarity gap.

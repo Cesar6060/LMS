@@ -626,8 +626,9 @@ export interface CourseMapQuizNode {
   order: number;
   state: NodeState;
   lock_reason: LockReason;
-  passing_score: number;
-  /** Highest attempt %, null if never attempted. */
+  /** Null inside an instructor-locked unit — it describes hidden content. */
+  passing_score: number | null;
+  /** Highest attempt %, null if never attempted or the unit is locked. */
   best_score: number | null;
 }
 
