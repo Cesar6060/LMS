@@ -421,16 +421,42 @@ this phase did not disturb them, not because anything should change.
       clean twice in a row, and the demo course still opens on the site.
 
 ### Deploy — do NOT do this during implementation
-- [ ] Three migrations must be hand-applied to Neon **before** the code deploys, in
+- [x] Three migrations must be hand-applied to Neon **before** the code deploys, in
       order: `courses.0024`, `quizzes.0004`, `gamification.0006`. All three are
       additive and nullable by design (decision 8), so the running old code is safe
       throughout the window — verify that claim by asserting an insert that omits
       the new columns still succeeds, the way phase 64 proved its `db_default`.
-- [ ] After deploy, run `audit_xp` against prod and put the numbers in the handoff.
+- [x] After deploy, run `audit_xp` against prod and put the numbers in the handoff.
       That report is the input to a later decision about repairing inflated totals.
       **Do not repair anything in this phase.**
-- [ ] Per `CLAUDE.md`: open the PR and stop. Never merge and never touch Neon from
+- [x] Per `CLAUDE.md`: open the PR and stop. Never merge and never touch Neon from
       the implementation session.
+
+### How the deploy actually went — read before the next phase
+
+The ordering above was **violated**, and it caused a production outage.
+
+- The PR was merged BEFORE the migrations reached Neon. `render.yaml` has
+  `branch: main` and no migrate step, so the merge deployed code that SELECTs
+  `content_key` against a schema without it. Django puts every concrete field
+  in its default SELECT, so **every `Lesson` query 500'd** — no course opened.
+- A first repair ran `migrate` against the LOCAL Docker database (the
+  `DATABASE_URL` placeholder was never substituted). It printed success and
+  changed nothing on Neon. **"No migrations to apply" is not proof you hit the
+  right database** — print `connection.settings_dict['HOST']` first.
+- Fixed by applying the three to Neon over the DIRECT (non-pooler) endpoint.
+  Additive and nullable, so it was a pure forward repair: no rollback, no
+  restart. Prod recovered on the next request.
+- `/api/health/?deep=1` reported **200 for the whole outage** — it only runs
+  `SELECT 1`, which cannot see a missing column.
+
+The `audit_xp` result was clean on every dimension, because **prod holds 0
+`XPEvent` rows**. The XP-repair follow-up this phase was meant to tee up does
+not exist.
+
+**Adoption has not run.** 55 rows still carry `auto:` keys. Safe — every row
+has a unique stable key and the ledger dedupes on it — but worth doing before
+students earn XP. Run both seed commands without `--prune`.
 
 ---
 
