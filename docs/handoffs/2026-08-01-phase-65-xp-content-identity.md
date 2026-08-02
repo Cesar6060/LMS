@@ -301,6 +301,31 @@ Do not read the local drift number as evidence of prod inflation; prod's own
   transactional test case.** Tests asserting blob cleanup need
   `django_capture_on_commit_callbacks`.
 
+## Migration audit (db-migration-checker, run post-deploy)
+
+**Verdict: all three safe as applied. No action required against Neon.** No
+destructive operations, no dropped DB defaults, no `NOT NULL` without a
+default, dependency ordering correctly declared, and the backfill provably
+cannot produce a duplicate under either `XPEvent` constraint (live keys are
+unique per model, and orphan labels inherit the pre-existing uniqueness of
+`(user, source_type, source_id)`).
+
+Two things it surfaced that are NOT defects in what shipped, but are traps
+for later:
+
+1. **`gamification/0006` stops being reversible once a null-`source_id` award
+   ships.** Its reverse re-imposes `NOT NULL` on `source_id`, which fails
+   against existing NULL rows. Safe today because all three award functions
+   pass `obj.id` — but `_award_xp` accepts `source_id=None` by design, and the
+   migration's own comment anticipates such rows. If that path ever goes live,
+   this migration can no longer be rolled back.
+2. **Scale caveats if this three-step shape is reused on a big table.** The
+   `RunPython` steps realize the whole queryset in memory (no `.iterator()`),
+   and the unique indexes are built with plain blocking DDL rather than
+   `CREATE INDEX CONCURRENTLY`. Irrelevant at today's row counts (prod: 64
+   lessons, 16 quizzes, 0 XP events) but `XPEvent` is an append-only ledger
+   and is the one table that will grow.
+
 ## Files to read first
 
 1. `docs/specs/phase-65-xp-content-identity.md` — checklist + the Deviations
