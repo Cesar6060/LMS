@@ -62,15 +62,19 @@ the rest) is hand-entered in the Render dashboard, which is the sole
 source of truth for them. Each deploy is gated on /api/health/
 answering 200.
 
-Why we use it: free tier that runs a real always-on-ish Python process
-with almost zero ops work — no servers to patch, TLS and deploys
-included. The trade-offs we accepted and worked around:
-  - Free instances SPIN DOWN after ~15 min without traffic; the next
-    request waits for a cold start. Phase 40's UptimeRobot ping every
-    5 min exists precisely to prevent this.
-  - No shell/SSH on the free tier. That's why migrations run from a dev
-    machine pointed at Neon, and why the /api/sentry-debug/ endpoint
-    exists (no other way to force a prod error on demand).
+Why we use it: runs a real Python process with almost zero ops work —
+no servers to patch, TLS and deploys included. Started on the free
+tier; on the paid "starter" plan since Phase 47 (free tier blocks all
+outbound SMTP, which broke email entirely). Current facts:
+  - No spin-down on the paid plan. Phase 40's UptimeRobot ping every
+    5 min predates the upgrade and now serves as uptime monitoring.
+  - Migrations run automatically on deploy via preDeployCommand in
+    render.yaml (Phase 65) — before the new version takes traffic, and
+    a failure aborts the deploy. They are NOT hand-applied any more.
+    Migrations must still be old-code-safe (the pre-deploy runs while
+    the old code is serving) — see the comment block in render.yaml.
+  - The /api/sentry-debug/ endpoint exists because there is no other
+    way to force a prod error on demand.
   - Region is "virginia" on purpose — co-located with Neon so queries
     don't cross the country.
 
