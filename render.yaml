@@ -21,8 +21,15 @@
 #   documents what prod needs set.
 #
 # No `databases:` key on purpose — Postgres lives on Neon (aws-us-east-1),
-# outside Render. Migrations are run from a developer machine with
-# DATABASE_URL pointed at Neon. See docs/specs/phase-38-api-live-render-neon.md.
+# outside Render. See docs/specs/phase-38-api-live-render-neon.md.
+#
+# Migrations: applied automatically by `preDeployCommand` below since Phase 65
+# (2026-08-02), against the dashboard's DATABASE_URL. They are NO LONGER a
+# manual pre-merge step — that step existed only because nothing enforced the
+# ordering, and the one time it was skipped it took production down.
+# Hand-applying from a dev machine still works and is the right move for a
+# migration you want to watch land, or to recover when a deploy is already
+# broken; it is just no longer load-bearing.
 
 services:
   - type: web
@@ -40,6 +47,31 @@ services:
     branch: main
 
     buildCommand: pip install -r requirements.txt && python manage.py collectstatic --noinput
+
+    # Phase 65 aftermath. Migrations used to be hand-applied to Neon before
+    # merging, and the whole ordering rested on the person merging remembering
+    # it. On 2026-08-02 a merge landed first: Render deployed code that SELECTs
+    # `content_key` against a schema without it, and because Django puts every
+    # concrete field in its default SELECT, EVERY lesson query 500'd. The
+    # course experience was down until the migrations were applied by hand.
+    #
+    # Render runs this after the build, on a separate instance, BEFORE the new
+    # version receives traffic — and if it fails or times out (30 min cap) the
+    # entire deploy fails and the current version keeps serving. That is
+    # exactly the ordering guarantee the manual step was supposed to provide,
+    # now enforced by the platform instead of by memory.
+    #
+    # Requires a paid instance type; this service has been `plan: starter`
+    # since Phase 47, so it is available. It would NOT work on free.
+    #
+    # THIS DOES NOT MAKE DESTRUCTIVE MIGRATIONS SAFE. The pre-deploy runs while
+    # the OLD code is still serving traffic, so a migration must still be
+    # additive and old-code-safe: nullable columns, `db_default` on new NOT
+    # NULL fields (the Phase 64 lesson), no drops in the same deploy as the
+    # code that stops using them. The ordering is now guaranteed; the
+    # compatibility window is not, and never was.
+    preDeployCommand: python manage.py migrate --noinput
+
     startCommand: gunicorn config.wsgi:application --bind 0.0.0.0:$PORT --workers 2 --timeout 120
 
     # Shallow path — no query string, so the deploy gate never depends on a
