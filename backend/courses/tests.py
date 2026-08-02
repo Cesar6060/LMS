@@ -5211,3 +5211,109 @@ class TestLockedUnitContinueLearning:
                          for lesson in locked_course['locked_lessons']}
         assert continue_learning['current_lesson']['title'] not in locked_titles
         assert continue_learning['progress_percentage'] == 100.0
+
+
+@pytest.mark.django_db
+class TestLockedUnitListAndAggregateLeaks:
+    """Regressions found by the phase-66 adversarial pass.
+
+    The per-object gate held everywhere; what leaked were the surfaces that
+    never call it — flat lists and aggregate math that read the models
+    directly. Each case below failed before the fix.
+    """
+
+    def test_flat_lesson_list_excludes_locked_units_for_student(
+            self, api_client, student, locked_course):
+        api_client.force_authenticate(user=student)
+        response = api_client.get('/api/courses/lessons/')
+
+        assert response.status_code == status.HTTP_200_OK
+        titles = {row['title'] for row in response.data}
+        assert 'Open 1' in titles
+        # Titles AND bodies ship in this serializer, so a leak here is content.
+        assert 'Locked 1' not in titles
+        assert 'Locked 2' not in titles
+        returned_ids = {row['id'] for row in response.data}
+        for lesson in locked_course['locked_lessons']:
+            assert lesson.id not in returned_ids
+
+    def test_flat_lesson_list_keeps_locked_units_for_instructor(
+            self, api_client, instructor, locked_course):
+        api_client.force_authenticate(user=instructor)
+        response = api_client.get('/api/courses/lessons/')
+
+        titles = {row['title'] for row in response.data}
+        assert {'Open 1', 'Locked 1', 'Locked 2'} <= titles
+
+    def test_course_map_withholds_locked_lesson_titles(
+            self, api_client, student, locked_course):
+        api_client.force_authenticate(user=student)
+        response = api_client.get(
+            f"/api/courses/courses/{locked_course['course'].code}/map/")
+
+        units = {u['title']: u for u in response.data['units']}
+        node_titles = {n['title'] for n in units['Locked']['nodes']}
+        assert 'Locked 1' not in node_titles
+        assert node_titles == {'Locked lesson'}
+        # The unit's own title is deliberately still shown — "visible but locked".
+        assert units['Locked']['title'] == 'Locked'
+
+    def test_course_map_keeps_real_titles_for_instructor(
+            self, api_client, instructor, locked_course):
+        api_client.force_authenticate(user=instructor)
+        response = api_client.get(
+            f"/api/courses/courses/{locked_course['course'].code}/map/")
+
+        units = {u['title']: u for u in response.data['units']}
+        assert {'Locked 1', 'Locked 2'} <= {n['title'] for n in units['Locked']['nodes']}
+
+    def test_analytics_excludes_locked_unit_quiz_scores(
+            self, api_client, instructor, student, locked_course):
+        """A score banked before the lock must not keep driving analytics."""
+        from quizzes.models import Quiz, QuizAttempt
+
+        quiz = Quiz.objects.create(
+            unit=locked_course['locked_unit'], title='Locked Quiz',
+            passing_score=70, points=100, order=1)
+        QuizAttempt.objects.create(
+            quiz=quiz, student=student, score=50,
+            passed=False, status=QuizAttempt.STATUS_COMPLETED)
+
+        api_client.force_authenticate(user=instructor)
+        code = locked_course['course'].code
+
+        rows = api_client.get(f'/api/courses/courses/{code}/analytics/students/')
+        row = next(r for r in rows.data['students']
+                   if r['student']['email'] == student.email)
+        # The only attempt in this course sits in the locked unit, so there is
+        # nothing left to average — before the fix this read 50.0.
+        assert row['quiz_average'] is None
+        # 1 of the 2 reachable lessons done; the grade is participation-only.
+        assert row['progress_percentage'] == 50.0
+        assert row['weighted_grade'] == 50.0
+
+        overview = api_client.get(f'/api/courses/courses/{code}/analytics/overview/')
+        assert overview.status_code == status.HTTP_200_OK
+        assert overview.data['avg_grade_percentage'] == 50.0
+
+    def test_demo_instructor_cannot_create_a_prelocked_unit(
+            self, api_client, settings, locked_course):
+        """Creating a unit already locked must not dodge the toggle's guard."""
+        from core.demo import DEMO_BLOCKED_BODY
+
+        settings.DEMO_ACCOUNT_EMAIL = 'demo-instructor@test.com'
+        demo = User.objects.create_user(
+            email='demo-instructor@test.com', password='testpass123',
+            is_instructor=True)
+        course = locked_course['course']
+        course.instructor = demo
+        course.save(update_fields=['instructor'])
+
+        api_client.force_authenticate(user=demo)
+        response = api_client.post(
+            f'/api/courses/courses/{course.code}/units/',
+            {'title': 'Sneaky', 'is_locked': True})
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+        assert response.data == DEMO_BLOCKED_BODY
+        assert not Unit.objects.filter(course=course, title='Sneaky').exists()

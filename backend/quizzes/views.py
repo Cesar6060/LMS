@@ -510,6 +510,11 @@ def quiz_attempts(request, quiz_id):
             status=status.HTTP_403_FORBIDDEN
         )
 
+    # An attempt renders question_text and correct_choice_text, so a past
+    # attempt is a full copy of the quiz — it has to fall behind the lock too,
+    # or taking a quiz once would buy permanent access to it (phase 66).
+    require_unit_unlocked(request.user, quiz.unit)
+
     # Each answer row renders question_text, selected_choice_text and the
     # correct choice; without these prefetches that is ~3 queries per answer.
     # `quiz` is select_related for the serializer's quiz_title, which was

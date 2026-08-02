@@ -149,5 +149,29 @@ unlocked; nothing changes for a course whose instructor never touches the featur
       state; course map shows the unit's nodes locked with the instructor tooltip;
       progress % matches unlocked-only math. Unlock Unit 2 → everything restores
       without a reload artifact.
-- [ ] Run the adversarial-tester agent against the new endpoints (direct-id access,
+- [x] Run the adversarial-tester agent against the new endpoints (direct-id access,
       IDOR across courses, demo account, unenrolled student).
+
+## Adversarial pass — findings and fixes
+
+The per-object gate (`require_unit_unlocked`) and the lock-toggle write path held
+against every direct probe: cross-course IDOR, a non-course instructor, student
+and anonymous toggles, demo bypass via PUT/PATCH/`reorder`, malformed `is_locked`
+payloads, and divide-by-zero when every unit is locked. What leaked were the
+surfaces that never call the gate — flat lists and aggregate math. All fixed,
+each with a permanent regression test:
+
+1. **`GET /api/courses/lessons/` leaked locked lesson titles and bodies** (high).
+   The gate lives in `get_object()`, which a DRF list action never calls.
+   Fixed by excluding locked units from the `list` queryset for non-instructors.
+2. **`GET /api/quizzes/{id}/attempts/` leaked the whole quiz** (high) — an attempt
+   renders `question_text` and `correct_choice_text`, so taking a quiz once bought
+   permanent access to it after the unit was locked. Now gated.
+3. **`course_map` printed real lesson/quiz titles** for instructor-locked nodes
+   (medium-high), the one surface contradicting the "no lesson titles" rule.
+   Locked nodes now serialize as `Locked lesson` / `Locked quiz`.
+4. **`_analytics_student_rows` kept counting locked-unit quiz attempts** (medium),
+   so analytics disagreed with the gradebook and drove bogus `at_risk` flags.
+5. **`CourseUnitsView.perform_create` accepted `is_locked=True` without the demo
+   guard** (defensive; not reachable today since the demo account is not an
+   instructor). Now mirrors `UnitViewSet.perform_update`.

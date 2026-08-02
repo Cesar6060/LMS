@@ -12,7 +12,7 @@ from django.contrib.auth.password_validation import validate_password
 from django.core.exceptions import ValidationError as DjangoValidationError
 from django.core.validators import validate_email
 from django.db import models, transaction
-from django.db.models import F, Max, Count
+from django.db.models import F, Max, Count, Q
 from django.http import HttpResponse
 from django.utils import timezone
 from datetime import timedelta
@@ -269,6 +269,10 @@ class CourseUnitsView(generics.ListCreateAPIView):
             self.request.user, course,
             "Only the course instructor can add units."
         )
+        # Same shared-surface rule as the toggle in UnitViewSet.perform_update:
+        # creating a unit already locked must not be a way around it.
+        if serializer.validated_data.get('is_locked'):
+            require_not_demo(self.request.user)
 
         # Set order to next available
         max_order = course.units.aggregate(
@@ -290,6 +294,14 @@ class LessonViewSet(viewsets.ModelViewSet):
             # List only shows lessons of courses the user teaches or is enrolled in;
             # detail actions keep the full queryset so object permissions return 403
             queryset = queryset.filter(unit__course_id__in=accessible_course_ids(self.request.user))
+            # Phase 66: the lock gate lives in get_object(), which a list never
+            # calls — so a locked unit's lessons would otherwise stream out of
+            # here with their titles and bodies. Drop locked units unless the
+            # requester teaches the course.
+            queryset = queryset.exclude(
+                Q(unit__is_locked=True)
+                & ~Q(unit__course__instructor=self.request.user)
+            )
         else:
             # Detail serves LessonSerializer, which nests sections and
             # attachments in full — so these rows are being fetched either way
@@ -1351,10 +1363,13 @@ def _analytics_student_rows(course):
         ).values('user_id').annotate(count=Count('id')).values_list('user_id', 'count')
     )
 
-    # Best completed attempt per (student, quiz), grouped by student
+    # Best completed attempt per (student, quiz), grouped by student. Attempts
+    # in a locked unit are dropped so analytics agrees with the gradebook —
+    # otherwise locking a unit leaves stale scores driving at_risk flags.
     best_by_student = {}
     for attempt in QuizAttempt.objects.filter(
         quiz__unit__course=course,
+        quiz__unit__is_locked=False,
         status=QuizAttempt.STATUS_COMPLETED,
     ).select_related('quiz'):
         per_quiz = best_by_student.setdefault(attempt.student_id, {})
@@ -3311,7 +3326,12 @@ def course_map(request, course_code):
         payload = {
             'node_type': node['node_type'],
             'id': obj.id,
-            'title': obj.title,
+            # Withhold the real title inside an instructor-locked unit — the
+            # rest of the phase hides lesson titles from students, and the map
+            # would otherwise be the one surface that prints them.
+            'title': (
+                'Locked lesson' if node['node_type'] == 'lesson' else 'Locked quiz'
+            ) if node['unit_locked'] else obj.title,
             'order': obj.order,
             'state': state,
             'lock_reason': lock_reason,

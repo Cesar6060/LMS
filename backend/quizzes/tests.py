@@ -979,3 +979,29 @@ class TestLockedUnitQuizAccess:
         assert api_client.get(
             f'/api/quizzes/{locked_quiz.id}/'
         ).status_code == status.HTTP_200_OK
+
+    def test_past_attempts_hidden_once_unit_is_locked(
+            self, api_client, student, enrollment, locked_quiz):
+        """An attempt renders question_text and correct_choice_text, so it is a
+        full copy of the quiz — taking it once must not buy permanent access."""
+        QuizAttempt.objects.create(
+            quiz=locked_quiz, student=student, score=100,
+            passed=True, status=QuizAttempt.STATUS_COMPLETED)
+
+        api_client.force_authenticate(user=student)
+        response = api_client.get(f'/api/quizzes/{locked_quiz.id}/attempts/')
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+        assert response.data['detail'] == self.LOCK_DETAIL
+
+    def test_instructor_still_sees_attempts_for_a_locked_quiz(
+            self, api_client, instructor, student, enrollment, locked_quiz):
+        QuizAttempt.objects.create(
+            quiz=locked_quiz, student=student, score=100,
+            passed=True, status=QuizAttempt.STATUS_COMPLETED)
+
+        api_client.force_authenticate(user=instructor)
+        response = api_client.get(f'/api/quizzes/{locked_quiz.id}/attempts/')
+
+        assert response.status_code == status.HTTP_200_OK
+        assert len(response.data) == 1
