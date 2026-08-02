@@ -56,6 +56,10 @@ interface UnitWithProgress {
   order: number;
   course: number;
   lessons: LessonWithProgress[];
+  /** Phase 66 — locked by the instructor; students get `lessons: []`. */
+  is_locked?: boolean;
+  /** Total lessons in the unit, sent even when `lessons` is withheld. */
+  lesson_count?: number;
 }
 
 interface CourseWithProgress {
@@ -135,8 +139,13 @@ export function CoursePlayerPage() {
     localStorage.setItem('coursePlayerSidebarCollapsed', isSidebarCollapsed.toString());
   }, [isSidebarCollapsed]);
 
+  // Phase 66: never resume into a locked unit. A student's locked unit arrives
+  // with `lessons: []` so it drops out anyway, but the instructor still gets its
+  // lessons — and every lesson endpoint under it 403s for everyone else, so the
+  // skip is explicit rather than a side effect of the empty list.
   const findFirstIncompleteLesson = useCallback((courseData: CourseWithProgress) => {
     for (const unit of courseData.units) {
+      if (unit.is_locked) continue;
       for (const lesson of unit.lessons) {
         if (!lesson.is_completed) {
           return lesson;
@@ -161,7 +170,11 @@ export function CoursePlayerPage() {
       // If no lessonId in URL, navigate to first incomplete lesson or first lesson
       if (!lessonId && courseData.units.length > 0) {
         const firstIncompleteLesson = findFirstIncompleteLesson(courseData);
-        const firstLesson = courseData.units[0]?.lessons[0];
+        // Fallback (everything complete): first lesson of the first *unlocked*
+        // unit — unit 1 being locked must not strand the player on a 403.
+        const firstLesson = courseData.units.find(
+          unit => !unit.is_locked && unit.lessons.length > 0
+        )?.lessons[0];
         const targetLesson = firstIncompleteLesson || firstLesson;
 
         if (targetLesson) {

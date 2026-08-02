@@ -55,6 +55,14 @@ export interface Unit {
   title: string;
   order: number;
   lessons?: Lesson[];
+  /**
+   * Phase 66 — the instructor has locked this unit. Students still see the
+   * title and `lesson_count`, but the backend sends `lessons: []` and 403s
+   * every content endpoint underneath it.
+   */
+  is_locked?: boolean;
+  /** Total lessons in the unit, sent even when `lessons` is withheld. */
+  lesson_count?: number;
 }
 
 export interface LessonAttachment {
@@ -591,12 +599,23 @@ export type LessonSessionAnswerResult = SessionAnswerResult<LessonSessionResult>
 /** Visual-only gating state; no route is actually blocked. */
 export type NodeState = 'completed' | 'current' | 'unlocked' | 'locked';
 
+/**
+ * Phase 66 — why a node is locked. 'sequence' means finish the previous node;
+ * 'instructor' means the whole unit is locked. Null when not locked.
+ */
+export type LockReason = 'sequence' | 'instructor' | null;
+
 export interface CourseMapLessonNode {
   node_type: 'lesson';
   id: number;
   title: string;
   order: number;
   state: NodeState;
+  /**
+   * Phase 66 — why a locked node is locked, so the tooltip can say the right
+   * thing. Null whenever `state` is not 'locked'.
+   */
+  lock_reason: LockReason;
 }
 
 /** Unit quiz as a "boss" node at the end of its unit's stretch. */
@@ -606,6 +625,7 @@ export interface CourseMapQuizNode {
   title: string;
   order: number;
   state: NodeState;
+  lock_reason: LockReason;
   passing_score: number;
   /** Highest attempt %, null if never attempted. */
   best_score: number | null;
@@ -617,6 +637,8 @@ export interface CourseMapUnit {
   id: number;
   title: string;
   order: number;
+  /** Phase 66 — instructor lock state for the whole unit. */
+  is_locked: boolean;
   nodes: CourseMapNode[];
 }
 

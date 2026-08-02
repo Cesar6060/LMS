@@ -109,7 +109,7 @@ unlocked; nothing changes for a course whose instructor never touches the featur
       locked unit renders title, "N lessons", `<Lock>` icon and "Locked by your
       instructor"; no lesson rows (backend sends none). Instructor sees full content
       plus a lock chip. Reuse the existing locked-lesson visual branch (:481-490).
-- [ ] [P] **Player sidebar** — `CourseSidebar.tsx`: locked unit header is
+- [x] [P] **Player sidebar** — `CourseSidebar.tsx`: locked unit header is
       non-expandable, muted, with `<Lock>` icon (styling per `CourseMapPath.tsx:67-78`
       muted/locked classes); `findFirstIncompleteLesson` auto-resume in
       `CoursePlayerPage.tsx:138-170` and `lib/courseProgress.ts` helpers
@@ -118,7 +118,7 @@ unlocked; nothing changes for a course whose instructor never touches the featur
 - [x] [P] **Course map** — `CourseMapPath.tsx`: when `lock_reason === 'instructor'`,
       tooltip/title reads "Locked by your instructor" instead of "Complete the
       previous lesson to unlock" (:129-136).
-- [ ] **Type check + lint + vitest** — `npx tsc --noEmit` clean, `npm run lint` clean
+- [x] **Type check + lint + vitest** — `npx tsc --noEmit` clean, `npm run lint` clean
       (+1 known), vitest suite green including updated `courseProgress` tests.
 
 ## Verification

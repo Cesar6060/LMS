@@ -11,13 +11,16 @@ import type { Quiz } from '@/types';
 import { cn } from '@/lib/utils';
 import {
   GripVertical, ChevronDown, ChevronRight, Trash2,
-  Pencil, Play, FileText, FileQuestion, Plus,
+  Pencil, Play, FileText, FileQuestion, Plus, Lock, Unlock,
 } from 'lucide-react';
 
 export interface OutlineUnit {
   id: number;
   title: string;
   lessons: LessonListItem[];
+  /** Phase 66 — locked units stay visible to students but their content is
+   *  inaccessible and they drop out of every progress denominator. */
+  is_locked: boolean;
 }
 
 interface InlineAddRowProps {
@@ -253,6 +256,7 @@ interface OutlineUnitCardProps {
   onDeleteQuiz: (quizId: number) => void;
   onAddLesson: (unitId: number, title: string) => Promise<void>;
   onAddQuiz: (unitId: number, title: string) => Promise<void>;
+  onToggleLock: (unitId: number, isLocked: boolean) => void;
 }
 
 export function OutlineUnitCard({
@@ -268,6 +272,7 @@ export function OutlineUnitCard({
   onDeleteQuiz,
   onAddLesson,
   onAddQuiz,
+  onToggleLock,
 }: OutlineUnitCardProps) {
   const [editingTitle, setEditingTitle] = useState(false);
   const {
@@ -323,9 +328,36 @@ export function OutlineUnitCard({
               onCancel={() => setEditingTitle(false)}
             />
           </div>
+          {unit.is_locked && (
+            <span
+              className="flex items-center gap-1.5 rounded-md bg-amber-100 px-2.5 py-1 text-sm font-semibold text-amber-900 whitespace-nowrap dark:bg-amber-950 dark:text-amber-200"
+              data-testid={`unit-locked-badge-${unit.id}`}
+            >
+              <Lock className="h-4 w-4" />
+              Locked
+            </span>
+          )}
           <span className="text-base text-muted-foreground whitespace-nowrap">
             {itemCount} {itemCount === 1 ? 'item' : 'items'}
           </span>
+          <Button
+            variant="ghost"
+            size="sm"
+            className="h-8 w-8 p-0"
+            onClick={() => onToggleLock(unit.id, !unit.is_locked)}
+            aria-label={
+              unit.is_locked
+                ? `Unlock unit ${unit.title} for students`
+                : `Lock unit ${unit.title} from students`
+            }
+            title={unit.is_locked ? 'Unlock for students' : 'Lock from students'}
+          >
+            {unit.is_locked ? (
+              <Lock className="h-4 w-4 text-amber-600 dark:text-amber-400" />
+            ) : (
+              <Unlock className="h-4 w-4" />
+            )}
+          </Button>
           <Button
             variant="ghost"
             size="sm"

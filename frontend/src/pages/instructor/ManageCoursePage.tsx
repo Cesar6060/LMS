@@ -169,7 +169,9 @@ export function ManageCoursePage() {
         quizzesService.getCourseQuizzes(code),
       ]);
       setCourse(data);
-      setUnits(data.units.map(u => ({ id: u.id, title: u.title, lessons: u.lessons })));
+      setUnits(data.units.map(u => ({
+        id: u.id, title: u.title, lessons: u.lessons, is_locked: !!u.is_locked,
+      })));
       setQuizzes(quizzesData);
     } catch (err) {
       if (isForbidden(err)) {
@@ -222,6 +224,20 @@ export function ManageCoursePage() {
     } catch (err) {
       console.error('Failed to rename unit:', err);
       await loadCourse();
+    }
+  };
+
+  // Phase 66: locking hides the unit's content from every student in the
+  // course, so the state is optimistic but reverts loudly — a toggle that
+  // silently failed would leave the instructor believing content is hidden.
+  const handleToggleLock = async (unitId: number, isLocked: boolean) => {
+    setUnits(prev => prev.map(u => (u.id === unitId ? { ...u, is_locked: isLocked } : u)));
+    try {
+      await courseService.updateUnit(unitId, { is_locked: isLocked });
+    } catch (err) {
+      console.error('Failed to change unit lock:', err);
+      setUnits(prev => prev.map(u => (u.id === unitId ? { ...u, is_locked: !isLocked } : u)));
+      setError(isLocked ? 'Failed to lock unit' : 'Failed to unlock unit');
     }
   };
 
@@ -587,6 +603,7 @@ export function ManageCoursePage() {
                   onDeleteQuiz={handleDeleteQuiz}
                   onAddLesson={handleAddLesson}
                   onAddQuiz={handleAddQuiz}
+                  onToggleLock={handleToggleLock}
                 />
               ))}
             </div>

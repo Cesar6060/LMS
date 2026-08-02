@@ -40,6 +40,10 @@ export interface UnitWithLessons {
   title: string;
   order: number;
   lessons: LessonListItem[];
+  /** Phase 66 — locked by the instructor; `lessons` arrives empty. */
+  is_locked?: boolean;
+  /** Total lessons in the unit, sent even when `lessons` is withheld. */
+  lesson_count?: number;
 }
 
 export interface CourseDetail extends Course {

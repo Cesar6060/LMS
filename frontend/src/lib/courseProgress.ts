@@ -25,6 +25,12 @@ export interface ProgressUnit {
   id: number;
   title: string;
   lessons: ProgressLesson[];
+  /**
+   * Phase 66 — the instructor locked this unit. Its lessons are unreachable
+   * (every endpoint under it 403s for students), so both helpers step over it:
+   * it is never the "next lesson" and never lands in a progress denominator.
+   */
+  is_locked?: boolean;
 }
 
 export interface NextLessonInfo {
@@ -46,12 +52,17 @@ export interface UnitProgress {
 /**
  * The first lesson the student has not completed, in course order.
  *
+ * Locked units are skipped entirely — pointing "Continue" at a lesson the
+ * backend 403s would strand the student. `unitNumber` still counts locked units
+ * so it matches the "Unit 3: …" heading the course page prints.
+ *
  * Returns the first lesson of the course when everything is done (the page
  * offers it as a re-read), and null when the course has no lessons at all.
  */
 export function getNextLesson(units: ProgressUnit[]): NextLessonInfo | null {
   for (let unitIdx = 0; unitIdx < units.length; unitIdx++) {
     const unit = units[unitIdx];
+    if (unit.is_locked) continue;
     for (let lessonIdx = 0; lessonIdx < unit.lessons.length; lessonIdx++) {
       const lesson = unit.lessons[lessonIdx];
       if (!lesson.is_completed) {
@@ -69,6 +80,7 @@ export function getNextLesson(units: ProgressUnit[]): NextLessonInfo | null {
   // Everything complete — fall back to the first lesson in the course.
   for (let unitIdx = 0; unitIdx < units.length; unitIdx++) {
     const unit = units[unitIdx];
+    if (unit.is_locked) continue;
     if (unit.lessons.length > 0) {
       return {
         lessonId: unit.lessons[0].id,
@@ -83,9 +95,15 @@ export function getNextLesson(units: ProgressUnit[]): NextLessonInfo | null {
   return null;
 }
 
-/** Per-unit completion counts, from the lessons actually completed. */
+/**
+ * Per-unit completion counts, from the lessons actually completed.
+ *
+ * Locked units are dropped from the result rather than reported as 0/0: they
+ * are out of every progress denominator (phase 66), and a student who finishes
+ * everything currently unlocked should read 100%.
+ */
 export function getUnitProgress(units: ProgressUnit[]): UnitProgress[] {
-  return units.map(unit => {
+  return units.filter(unit => !unit.is_locked).map(unit => {
     const completedLessons = unit.lessons.filter(l => l.is_completed).length;
     return {
       unitId: unit.id,
