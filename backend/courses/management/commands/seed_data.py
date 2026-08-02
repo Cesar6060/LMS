@@ -2,7 +2,12 @@
 Management command to seed the database with demo data.
 Usage: python manage.py seed_data
        python manage.py seed_data --clear  (clears existing demo data first)
+
+Its content carries ``seed:``-prefixed ``content_key`` values (Phase 65), so a
+re-run without ``--clear`` finds the same rows instead of churning identities
+and re-awarding XP. See ``courses.models.Lesson.content_key``.
 """
+import re
 
 from django.core.management.base import BaseCommand
 from django.utils import timezone
@@ -15,6 +20,19 @@ from courses.models import (
     LessonSection, LessonQuestion, LessonQuestionChoice,
 )
 from quizzes.models import Quiz, Question, Choice, QuizAttempt, AttemptAnswer
+
+
+def seed_key(course_code, kind, title):
+    """
+    A deterministic ``seed:`` content key for this command's demo content.
+
+    Derived from the title rather than the position so re-running without
+    ``--clear`` matches the rows it made last time. ``kind`` keeps a lesson and
+    a quiz sharing a title from colliding in the one flat key namespace.
+    """
+    slug = title.lower().replace('&', ' and ')
+    slug = re.sub(r'[^a-z0-9]+', '-', slug).strip('-')
+    return f'seed:{course_code.lower()}-{kind}-{slug}'
 
 
 class Command(BaseCommand):
@@ -75,7 +93,15 @@ class Command(BaseCommand):
         self.stdout.write('='*50)
 
     def clear_data(self):
-        """Clear all seeded data."""
+        """Clear all seeded data.
+
+        WARNING: despite the name and this command's "demo data" framing, this
+        truncates EVERY course in the database — Course, Unit, Lesson, Quiz and
+        all attempt/progress rows are deleted unfiltered, not just the ones
+        this command created. ROB101 and JAVA101 go with them. It is gated
+        behind ``--clear`` and that gate is the only thing keeping it off a
+        populated database.
+        """
         # Delete in order of dependencies
         AttemptAnswer.objects.all().delete()
         QuizAttempt.objects.all().delete()
@@ -233,12 +259,14 @@ Students interested in understanding how computers work and how to think like a 
                     course=course, order=order, defaults={'title': title}
                 )
                 # Add a simple lesson to each unit
+                lesson_title = f'Introduction to {title}'
                 Lesson.objects.get_or_create(
                     unit=unit, order=1,
                     defaults={
-                        'title': f'Introduction to {title}',
+                        'title': lesson_title,
                         'content': f'# {title}\n\nThis lesson covers the basics of {title.lower()}.',
                         'video_type': 'none',
+                        'content_key': seed_key(course.code, 'lesson', lesson_title),
                     }
                 )
         else:
@@ -406,6 +434,9 @@ func _physics_process(delta):
                         'content': content,
                         'video_type': video_type,
                         'video_id': video_id,
+                        'content_key': seed_key(
+                            unit.course.code, 'lesson', title
+                        ),
                     }
                 )
                 all_lessons.append(lesson)
@@ -675,6 +706,9 @@ When you finish reading, take the short comprehension check to complete the less
                     'points': 20,
                     'max_attempts': 3,
                     'order': 1,
+                    'content_key': seed_key(
+                        unit.course.code, 'quiz', data['title']
+                    ),
                 }
             )
 

@@ -17,6 +17,11 @@ from gamification.models import GameProfile, XPEvent, Badge
 from gamification.services import (
     _award_xp, _evaluate_badges, XP_LESSON, XP_QUIZ, XP_LESSON_QUIZ,
 )
+
+
+def _key(content_key, source_type, source_id):
+    """Mirror of ``services._source_key_for`` for the (id, key) pairs below."""
+    return content_key or f'legacy:{source_type}:{source_id}'
 from gamification.signals import suppress_badge_notifications
 
 User = get_user_model()
@@ -41,28 +46,38 @@ class Command(BaseCommand):
                 with transaction.atomic():
                     profile, _ = GameProfile.objects.get_or_create(user=user)
 
+                    # Phase 65: the dedupe key is the target's content_key, so
+                    # each loop fetches it alongside the id. The id still rides
+                    # along as the audit trail of which pk paid.
+
                     # Lesson completions -> +50 each (source_type='lesson').
-                    lesson_ids = LessonProgress.objects.filter(
+                    lessons = LessonProgress.objects.filter(
                         user=user, completed=True
-                    ).values_list('lesson_id', flat=True)
-                    for lesson_id in lesson_ids:
-                        if _award_xp(user, XPEvent.SOURCE_LESSON, lesson_id, XP_LESSON):
+                    ).values_list('lesson__content_key', 'lesson_id')
+                    for content_key, lesson_id in lessons:
+                        key = _key(content_key, XPEvent.SOURCE_LESSON, lesson_id)
+                        if _award_xp(user, XPEvent.SOURCE_LESSON, key, XP_LESSON,
+                                     source_id=lesson_id):
                             total_xp_events += 1
 
                     # Distinct passed unit quizzes -> +20 each (source_type='quiz').
-                    quiz_ids = QuizAttempt.objects.filter(
+                    quizzes = QuizAttempt.objects.filter(
                         student=user, passed=True
-                    ).values_list('quiz_id', flat=True).distinct()
-                    for quiz_id in quiz_ids:
-                        if _award_xp(user, XPEvent.SOURCE_QUIZ, quiz_id, XP_QUIZ):
+                    ).values_list('quiz__content_key', 'quiz_id').distinct()
+                    for content_key, quiz_id in quizzes:
+                        key = _key(content_key, XPEvent.SOURCE_QUIZ, quiz_id)
+                        if _award_xp(user, XPEvent.SOURCE_QUIZ, key, XP_QUIZ,
+                                     source_id=quiz_id):
                             total_xp_events += 1
 
                     # Distinct passed lesson quizzes -> +20 each ('lesson_quiz').
-                    lq_lesson_ids = LessonQuizAttempt.objects.filter(
+                    lesson_quizzes = LessonQuizAttempt.objects.filter(
                         user=user, passed=True
-                    ).values_list('lesson_id', flat=True).distinct()
-                    for lesson_id in lq_lesson_ids:
-                        if _award_xp(user, XPEvent.SOURCE_LESSON_QUIZ, lesson_id, XP_LESSON_QUIZ):
+                    ).values_list('lesson__content_key', 'lesson_id').distinct()
+                    for content_key, lesson_id in lesson_quizzes:
+                        key = _key(content_key, XPEvent.SOURCE_LESSON_QUIZ, lesson_id)
+                        if _award_xp(user, XPEvent.SOURCE_LESSON_QUIZ, key,
+                                     XP_LESSON_QUIZ, source_id=lesson_id):
                             total_xp_events += 1
 
                     profile.refresh_from_db()

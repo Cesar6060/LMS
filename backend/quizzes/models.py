@@ -1,12 +1,24 @@
 from django.db import models
 from django.conf import settings
-from courses.models import Unit
+from courses.models import Unit, generate_content_key
 
 
 class Quiz(models.Model):
-    """A quiz belonging to a unit."""
+    """
+    A quiz belonging to a unit.
+
+    ``content_key`` is this quiz's XP identity (Phase 65) — see
+    ``courses.models.Lesson``. The XP ledger dedupes on the key, not the
+    primary key. Changing a quiz's key re-awards its XP.
+    """
     unit = models.ForeignKey(Unit, on_delete=models.CASCADE, related_name='quizzes')
     title = models.CharField(max_length=200)
+    content_key = models.CharField(
+        max_length=100, unique=True, null=True, blank=True,
+        default=generate_content_key,
+        help_text='Stable identity across content rebuilds. Seeded content uses an '
+                  'author-chosen slug; anything else gets auto:<uuid>.',
+    )
     description = models.TextField(blank=True)
     passing_score = models.PositiveIntegerField(default=70, help_text="Minimum percentage to pass")
     points = models.PositiveIntegerField(default=10, help_text="Total points for gradebook")

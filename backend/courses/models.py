@@ -1,4 +1,5 @@
 import secrets
+import uuid
 from datetime import timedelta
 
 from django.db import models
@@ -9,6 +10,17 @@ from django.utils import timezone
 def generate_enrollment_code():
     """Generate an 8-character alphanumeric enrollment code."""
     return secrets.token_urlsafe(6)[:8].upper()
+
+
+def generate_content_key():
+    """
+    Default ``content_key`` for content nobody authored a key for.
+
+    The ``auto:`` prefix is load-bearing: the seed commands adopt a row at a
+    blueprint position ONLY when its key is null or ``auto:``-prefixed, so an
+    authored key is never silently overwritten (Phase 65, decision 5).
+    """
+    return f'auto:{uuid.uuid4().hex}'
 
 
 class Course(models.Model):
@@ -80,6 +92,12 @@ class Lesson(models.Model):
     """
     A lesson within a unit.
     Contains markdown content and optional video.
+
+    ``content_key`` is this lesson's XP identity (Phase 65). The XP ledger
+    dedupes on the key, not on the primary key, so a lesson can be deleted and
+    recreated — by a seed rebuild or by an instructor — without paying a
+    student twice. CHANGING A LESSON'S KEY RE-AWARDS ITS XP to everyone who
+    already completed it. A key, once authored, is permanent.
     """
     VIDEO_TYPE_CHOICES = [
         ('none', 'No Video'),
@@ -92,6 +110,12 @@ class Lesson(models.Model):
         related_name='lessons'
     )
     title = models.CharField(max_length=200)
+    content_key = models.CharField(
+        max_length=100, unique=True, null=True, blank=True,
+        default=generate_content_key,
+        help_text='Stable identity across content rebuilds. Seeded content uses an '
+                  'author-chosen slug; anything else gets auto:<uuid>.',
+    )
     # DORMANT (Phase 53): lesson content moved to LessonSection. Migration 0019
     # blanked these on every row, phase 55 closed the write path, and nothing
     # renders them. They survive only so the schema drop can be its own change;

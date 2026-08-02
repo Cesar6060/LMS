@@ -14,25 +14,58 @@ This command is NON-DESTRUCTIVE:
 3. Creates (or idempotently refreshes) only the ROB101 course and its content
    (units -> lessons -> paginated sections + comprehension quizzes, plus a unit
    quiz per unit)
+
+Point 3 was a lie until Phase 65. The command opened every run with
+``course.units.all().delete()``, which cascaded through Lessons and Quizzes
+into every student's LessonProgress, QuizAttempt, LessonQuizAttempt,
+AttemptAnswer, LessonQuestionAnswer and LessonAttemptAnswer rows — and left
+their XPEvents orphaned, so redoing the rebuilt lesson paid them a second
+time. It now upserts on each lesson's and quiz's author-chosen
+``content_key`` (see ``_content_upsert``), so a refresh touches content only
+and student work survives it. Content in the database that the blueprint no
+longer lists is reported, and deleted only under ``--prune``.
 """
 import hashlib
 
 from django.core.management.base import BaseCommand, CommandError
 from django.contrib.auth import get_user_model
 from django.db import transaction
-from courses.models import (
-    Course, Unit, Lesson, LessonSection, LessonQuestion, LessonQuestionChoice
+from courses.models import Course
+
+from ._content_upsert import (
+    prune_stale, upsert_lesson, upsert_lesson_questions, upsert_quiz,
+    upsert_quiz_questions, upsert_sections, upsert_unit,
 )
-from quizzes.models import Quiz, Question, Choice
 
 User = get_user_model()
 
 
 class Command(BaseCommand):
-    help = 'Create or refresh the ROB101 Robotics 1 course (non-destructive; no user or other-course changes)'
+    help = (
+        'Create or refresh the ROB101 Robotics 1 course (non-destructive: no '
+        'user, other-course or student-progress changes). --prune also deletes '
+        'ROB101 content the blueprint no longer lists.'
+    )
+
+    def add_arguments(self, parser):
+        parser.add_argument(
+            '--prune',
+            action='store_true',
+            help=(
+                'Delete ROB101 lessons/quizzes/units that are not in this '
+                'blueprint. This CASCADES student progress for the removed '
+                'content, which is why it is opt-in. Without it the command '
+                'only warns about them.'
+            ),
+        )
 
     def handle(self, *args, **options):
         self.stdout.write('Populating ROB101 course...\n')
+
+        # Every content key this run touched. `prune_stale` treats anything in
+        # the course that is not in these sets as blueprint-absent.
+        self.seen_lesson_keys = set()
+        self.seen_quiz_keys = set()
 
         # Find the instructor (never modifies users)
         instructor = self._get_instructor()
@@ -43,11 +76,50 @@ class Command(BaseCommand):
             # Get or create ROB101 (touches no other course)
             course = self._get_or_update_course(instructor)
 
-            # Clear only this course's content, then rebuild it
-            self._clear_course_content(course)
             self._create_course_content(course)
+            self._report_stale(course, prune=options['prune'])
 
         self.stdout.write(self.style.SUCCESS('\nROB101 population complete (non-destructive).'))
+
+    # ---------------- Upsert wrappers (record what the run touched) ---------
+
+    def _unit(self, course, order, title):
+        return upsert_unit(course, order, title)
+
+    def _lesson(self, unit, key, order, **fields):
+        """Upsert a lesson by its permanent content key. See ``_content_upsert``."""
+        self.seen_lesson_keys.add(key)
+        return upsert_lesson(unit, key, order, **fields)
+
+    def _quiz(self, unit, key, order, **fields):
+        """Upsert a unit quiz by its permanent content key."""
+        self.seen_quiz_keys.add(key)
+        return upsert_quiz(unit, key, order, **fields)
+
+    def _report_stale(self, course, *, prune):
+        report = prune_stale(
+            course, self.seen_lesson_keys, self.seen_quiz_keys, dry_run=not prune,
+        )
+        if not (report.lessons or report.quizzes or report.units):
+            return
+        verb = 'Deleted' if report.deleted else 'Found'
+        for lesson in report.lessons:
+            self.stdout.write(self.style.WARNING(
+                f'  {verb} blueprint-absent lesson #{lesson.pk} "{lesson.title}"'
+            ))
+        for quiz in report.quizzes:
+            self.stdout.write(self.style.WARNING(
+                f'  {verb} blueprint-absent quiz #{quiz.pk} "{quiz.title}"'
+            ))
+        for unit in report.units:
+            self.stdout.write(self.style.WARNING(
+                f'  {verb} blueprint-absent unit #{unit.pk} "{unit.title}"'
+            ))
+        if not report.deleted:
+            self.stdout.write(self.style.WARNING(
+                '  Nothing was deleted. Re-run with --prune to remove the above '
+                '(this CASCADES student progress for that content).'
+            ))
 
     def _get_instructor(self):
         """Find the instructor Cesar Villarreal.
@@ -94,12 +166,6 @@ class Command(BaseCommand):
         )
         return course
 
-    def _clear_course_content(self, course):
-        """Delete all existing units, lessons, and quizzes (this course only)."""
-        # Delete units (cascades to lessons, sections, questions, unit quizzes)
-        deleted = course.units.all().delete()
-        self.stdout.write(f'Cleared existing content: {deleted}')
-
     def _create_course_content(self, course):
         """Create all units, lessons, sections, and quizzes."""
         self._create_unit1(course)
@@ -112,10 +178,12 @@ class Command(BaseCommand):
 
     # ================== UNIT 1: Robots, Careers & Teamwork ==================
     def _create_unit1(self, course):
-        unit = Unit.objects.create(course=course, title='Robots, Careers & Teamwork', order=0)
+        unit = self._unit(course, 0, 'Robots, Careers & Teamwork')
 
         # Lesson 1: What Is a Robot?
-        lesson = Lesson.objects.create(unit=unit, title='What Is a Robot?', order=0)
+        lesson = self._lesson(
+            unit, 'rob101-what-is-a-robot', 0, title='What Is a Robot?',
+        )
         self._create_sections(lesson, [
             {
                 'title': 'Overview',
@@ -284,7 +352,9 @@ Deadlines in robotics are real: the competition happens whether your robot is re
         ])
 
         # Lesson 2: Careers in Robotics
-        lesson = Lesson.objects.create(unit=unit, title='Careers in Robotics', order=1)
+        lesson = self._lesson(
+            unit, 'rob101-careers-in-robotics', 1, title='Careers in Robotics',
+        )
         self._create_sections(lesson, [
             {
                 'title': 'Overview',
@@ -461,7 +531,9 @@ Ethical habits, like technical ones, are built through practice. Start now: cite
         ])
 
         # Lesson 3: Working on a Robotics Team
-        lesson = Lesson.objects.create(unit=unit, title='Working on a Robotics Team', order=2)
+        lesson = self._lesson(
+            unit, 'rob101-working-on-a-robotics-team', 2, title='Working on a Robotics Team',
+        )
         self._create_sections(lesson, [
             {
                 'title': 'Overview',
@@ -626,14 +698,13 @@ Diversity only pays off if every voice is actually heard. That means inviting th
         self._create_unit1_quiz(unit)
 
     def _create_unit1_quiz(self, unit):
-        quiz = Quiz.objects.create(
-            unit=unit,
+        quiz = self._quiz(
+            unit, 'rob101-quiz-robots-careers-teamwork', 0,
             title='Unit 1 Quiz: Robots, Careers & Teamwork',
             description='Test your understanding of what makes a robot, robotics career paths, and effective teamwork.',
             passing_score=70,
             points=20,
             max_attempts=3,
-            order=0
         )
         self._create_quiz_questions(quiz, [
             {
@@ -694,10 +765,12 @@ Diversity only pays off if every voice is actually heard. That means inviting th
 
     # ================== UNIT 2: Safety, Tools & Project Management ==================
     def _create_unit2(self, course):
-        unit = Unit.objects.create(course=course, title='Safety, Tools & Project Management', order=1)
+        unit = self._unit(course, 1, 'Safety, Tools & Project Management')
 
         # Lesson 1: Shop & Electrical Safety
-        lesson = Lesson.objects.create(unit=unit, title='Shop & Electrical Safety', order=0)
+        lesson = self._lesson(
+            unit, 'rob101-shop-and-electrical-safety', 0, title='Shop & Electrical Safety',
+        )
         self._create_sections(lesson, [
             {
                 'title': 'Overview',
@@ -848,7 +921,9 @@ Knowing what to do in the first ten seconds of an emergency matters more than an
         ])
 
         # Lesson 2: Tools & Precision Measurement
-        lesson = Lesson.objects.create(unit=unit, title='Tools & Precision Measurement', order=1)
+        lesson = self._lesson(
+            unit, 'rob101-tools-and-precision-measurement', 1, title='Tools & Precision Measurement',
+        )
         self._create_sections(lesson, [
             {
                 'title': 'Overview',
@@ -1016,7 +1091,9 @@ Treat software tools like physical ones: learn them properly, keep your files or
         ])
 
         # Lesson 3: Managing a Robotics Project
-        lesson = Lesson.objects.create(unit=unit, title='Managing a Robotics Project', order=2)
+        lesson = self._lesson(
+            unit, 'rob101-managing-a-robotics-project', 2, title='Managing a Robotics Project',
+        )
         self._create_sections(lesson, [
             {
                 'title': 'Overview',
@@ -1179,14 +1256,13 @@ Six weeks from now, nobody will remember why the team abandoned the first arm de
         self._create_unit2_quiz(unit)
 
     def _create_unit2_quiz(self, unit):
-        quiz = Quiz.objects.create(
-            unit=unit,
+        quiz = self._quiz(
+            unit, 'rob101-quiz-safety-tools-project-management', 0,
             title='Safety, Tools & Project Management Quiz',
             description='Show what you know about lab safety, choosing and maintaining tools, precision measurement, and managing a robotics project.',
             passing_score=70,
             points=20,
             max_attempts=3,
-            order=0
         )
         questions = [
             {
@@ -1248,10 +1324,12 @@ Six weeks from now, nobody will remember why the team abandoned the first arm de
 
     # ================== UNIT 3: Mechanisms & the Physics of Motion ==================
     def _create_unit3(self, course):
-        unit = Unit.objects.create(course=course, title='Mechanisms & the Physics of Motion', order=2)
+        unit = self._unit(course, 2, 'Mechanisms & the Physics of Motion')
 
         # Lesson 1: Newton's Laws for Robots
-        lesson = Lesson.objects.create(unit=unit, title="Newton's Laws for Robots", order=0)
+        lesson = self._lesson(
+            unit, 'rob101-newtons-laws-for-robots', 0, title="Newton's Laws for Robots",
+        )
         self._create_sections(lesson, [
             {
                 'title': 'Overview',
@@ -1414,7 +1492,9 @@ For Earth-bound robots the practical summary: mass determines how sluggish your 
         ])
 
         # Lesson 2: Simple Machines & Mechanical Advantage
-        lesson = Lesson.objects.create(unit=unit, title='Simple Machines & Mechanical Advantage', order=1)
+        lesson = self._lesson(
+            unit, 'rob101-simple-machines-and-mechanical-advantage', 1, title='Simple Machines & Mechanical Advantage',
+        )
         self._create_sections(lesson, [
             {
                 'title': 'Overview',
@@ -1595,7 +1675,9 @@ Friction always eats some of the effort, so **actual** MA is a bit lower than th
         ])
 
         # Lesson 3: Gears, Torque & Speed
-        lesson = Lesson.objects.create(unit=unit, title='Gears, Torque & Speed', order=2)
+        lesson = self._lesson(
+            unit, 'rob101-gears-torque-and-speed', 2, title='Gears, Torque & Speed',
+        )
         self._create_sections(lesson, [
             {
                 'title': 'Overview',
@@ -1784,7 +1866,9 @@ Many real robots use all three — gears in the gearbox, chain to the wheels, be
         ])
 
         # Lesson 4: Motors: DC vs Servo
-        lesson = Lesson.objects.create(unit=unit, title='Motors: DC vs Servo', order=3)
+        lesson = self._lesson(
+            unit, 'rob101-motors-dc-vs-servo', 3, title='Motors: DC vs Servo',
+        )
         self._create_sections(lesson, [
             {
                 'title': 'Overview',
@@ -1950,7 +2034,9 @@ Write the numbers down *before* building: needed torque, needed speed, chosen ra
         ])
 
         # Lesson 5: Arms, Linkages & End Effectors
-        lesson = Lesson.objects.create(unit=unit, title='Arms, Linkages & End Effectors', order=4)
+        lesson = self._lesson(
+            unit, 'rob101-arms-linkages-and-end-effectors', 4, title='Arms, Linkages & End Effectors',
+        )
         self._create_sections(lesson, [
             {
                 'title': 'Overview',
@@ -2119,14 +2205,13 @@ Watch any competition and you will see this lesson enforced live: the robots tha
         self._create_unit3_quiz(unit)
 
     def _create_unit3_quiz(self, unit):
-        quiz = Quiz.objects.create(
-            unit=unit,
+        quiz = self._quiz(
+            unit, 'rob101-quiz-mechanisms-physics-of-motion', 0,
             title='Mechanisms & Physics of Motion Quiz',
             description='Check your understanding of Newton\'s laws, simple machines, gears, motors, and manipulators.',
             passing_score=70,
             points=20,
             max_attempts=3,
-            order=0
         )
         self._create_quiz_questions(quiz, [
             {
@@ -2187,10 +2272,12 @@ Watch any competition and you will see this lesson enforced live: the robots tha
 
     # ================== UNIT 4: Sensors, Systems & Feedback ==================
     def _create_unit4(self, course):
-        unit = Unit.objects.create(course=course, title='Sensors, Systems & Feedback', order=3)
+        unit = self._unit(course, 3, 'Sensors, Systems & Feedback')
 
         # Lesson 1: Robot Subsystems
-        lesson = Lesson.objects.create(unit=unit, title='Robot Subsystems', order=0)
+        lesson = self._lesson(
+            unit, 'rob101-robot-subsystems', 0, title='Robot Subsystems',
+        )
         self._create_sections(lesson, [
             {
                 'title': 'Overview',
@@ -2368,7 +2455,9 @@ The most interesting arrow in the model is **feedback**: outputs that change the
         ])
 
         # Lesson 2: Sensors: How Robots Perceive
-        lesson = Lesson.objects.create(unit=unit, title='Sensors: How Robots Perceive', order=1)
+        lesson = self._lesson(
+            unit, 'rob101-sensors-how-robots-perceive', 1, title='Sensors: How Robots Perceive',
+        )
         self._create_sections(lesson, [
             {
                 'title': 'Overview',
@@ -2553,7 +2642,9 @@ Four sensors, each answering one question the task actually requires. That is se
         ])
 
         # Lesson 3: Open- vs Closed-Loop Control
-        lesson = Lesson.objects.create(unit=unit, title='Open- vs Closed-Loop Control', order=2)
+        lesson = self._lesson(
+            unit, 'rob101-open-vs-closed-loop-control', 2, title='Open- vs Closed-Loop Control',
+        )
         self._create_sections(lesson, [
             {
                 'title': 'Overview',
@@ -2719,7 +2810,9 @@ You will see this behave beautifully in the next lesson, where you build a senso
         ])
 
         # Lesson 4: Simulation Exercise: Sensor-Driven Behavior in VEXcode VR
-        lesson = Lesson.objects.create(unit=unit, title='Simulation Exercise: Sensor-Driven Behavior in VEXcode VR', order=3)
+        lesson = self._lesson(
+            unit, 'rob101-simulation-exercise-sensor-driven-behavior-in-vexcode-vr', 3, title='Simulation Exercise: Sensor-Driven Behavior in VEXcode VR',
+        )
         self._create_sections(lesson, [
             {
                 'title': 'Overview',
@@ -2906,14 +2999,13 @@ VEXcode VR simulates the robot at the *behavior* level. If you want to see how s
         self._create_unit4_quiz(unit)
 
     def _create_unit4_quiz(self, unit):
-        quiz = Quiz.objects.create(
-            unit=unit,
+        quiz = self._quiz(
+            unit, 'rob101-quiz-sensors-systems-feedback', 0,
             title='Sensors, Systems & Feedback Quiz',
             description='Test your understanding of robot subsystems, sensors, and open- versus closed-loop control.',
             passing_score=70,
             points=20,
             max_attempts=3,
-            order=0
         )
         self._create_quiz_questions(quiz, [
             {
@@ -2974,10 +3066,12 @@ VEXcode VR simulates the robot at the *behavior* level. If you want to see how s
 
     # ================== UNIT 5: Programming Robots ==================
     def _create_unit5(self, course):
-        unit = Unit.objects.create(course=course, title='Programming Robots', order=4)
+        unit = self._unit(course, 4, 'Programming Robots')
 
         # Lesson 1: Programs, Algorithms & Pseudocode
-        lesson = Lesson.objects.create(unit=unit, title='Programs, Algorithms & Pseudocode', order=0)
+        lesson = self._lesson(
+            unit, 'rob101-programs-algorithms-and-pseudocode', 0, title='Programs, Algorithms & Pseudocode',
+        )
         self._create_sections(lesson, [
             {
                 'title': 'Overview',
@@ -3171,7 +3265,9 @@ The *algorithm* is identical in both. Blocks and text are just two costumes for 
         ])
 
         # Lesson 2: Sequencing, Loops & Conditionals for Robots
-        lesson = Lesson.objects.create(unit=unit, title='Sequencing, Loops & Conditionals for Robots', order=1)
+        lesson = self._lesson(
+            unit, 'rob101-sequencing-loops-and-conditionals-for-robots', 1, title='Sequencing, Loops & Conditionals for Robots',
+        )
         self._create_sections(lesson, [
             {
                 'title': 'Overview',
@@ -3367,7 +3463,9 @@ In the patrol program, what is the greatest number of turns the robot can make? 
         ])
 
         # Lesson 3: Sensor-Driven Decisions
-        lesson = Lesson.objects.create(unit=unit, title='Sensor-Driven Decisions', order=2)
+        lesson = self._lesson(
+            unit, 'rob101-sensor-driven-decisions', 2, title='Sensor-Driven Decisions',
+        )
         self._create_sections(lesson, [
             {
                 'title': 'Overview',
@@ -3529,7 +3627,9 @@ Self-driving cars, warehouse robots, and Mars rovers all use state-based thinkin
         ])
 
         # Lesson 4: Simulation Project — Maze Navigation in VEXcode VR
-        lesson = Lesson.objects.create(unit=unit, title='Simulation Project: Maze Navigation in VEXcode VR', order=3)
+        lesson = self._lesson(
+            unit, 'rob101-simulation-project-maze-navigation-in-vexcode-vr', 3, title='Simulation Project: Maze Navigation in VEXcode VR',
+        )
         self._create_sections(lesson, [
             {
                 'title': 'Overview',
@@ -3749,14 +3849,13 @@ If every box is checked, congratulations — you have designed, implemented, tes
         self._create_unit5_quiz(unit)
 
     def _create_unit5_quiz(self, unit):
-        quiz = Quiz.objects.create(
-            unit=unit,
+        quiz = self._quiz(
+            unit, 'rob101-quiz-programming-robots', 0,
             title='Programming Robots Quiz',
             description='Show what you know about algorithms, sequencing, loops, conditionals, and sensor-driven robot programs.',
             passing_score=70,
             points=20,
             max_attempts=3,
-            order=0
         )
         questions = [
             {
@@ -3818,10 +3917,12 @@ If every box is checked, congratulations — you have designed, implemented, tes
 
     # ================== UNIT 6: Engineering Design Capstone ==================
     def _create_unit6(self, course):
-        unit = Unit.objects.create(course=course, title='Engineering Design Capstone', order=5)
+        unit = self._unit(course, 5, 'Engineering Design Capstone')
 
         # Lesson 1: The Engineering Design Process
-        lesson = Lesson.objects.create(unit=unit, title='The Engineering Design Process', order=0)
+        lesson = self._lesson(
+            unit, 'rob101-the-engineering-design-process', 0, title='The Engineering Design Process',
+        )
         self._create_sections(lesson, [
             {
                 'title': 'Overview',
@@ -3958,7 +4059,9 @@ The tools change — CAD software instead of cardboard, budgets in the millions 
         ])
 
         # Lesson 2: Defining Problems & Constraints
-        lesson = Lesson.objects.create(unit=unit, title='Defining Problems & Constraints', order=1)
+        lesson = self._lesson(
+            unit, 'rob101-defining-problems-and-constraints', 1, title='Defining Problems & Constraints',
+        )
         self._create_sections(lesson, [
             {
                 'title': 'Overview',
@@ -4138,7 +4241,9 @@ Only after the idea flood ends does evaluation begin: check each idea against co
         ])
 
         # Lesson 3: Documentation & Schematics: The Engineering Notebook
-        lesson = Lesson.objects.create(unit=unit, title='Documentation & Schematics: The Engineering Notebook', order=2)
+        lesson = self._lesson(
+            unit, 'rob101-documentation-and-schematics-the-engineering-notebook', 2, title='Documentation & Schematics: The Engineering Notebook',
+        )
         self._create_sections(lesson, [
             {
                 'title': 'Overview',
@@ -4309,7 +4414,9 @@ The habits you practice in a class notebook — date everything, show your data,
         ])
 
         # Lesson 4: Prototype, Test, Iterate
-        lesson = Lesson.objects.create(unit=unit, title='Prototype, Test, Iterate', order=3)
+        lesson = self._lesson(
+            unit, 'rob101-prototype-test-iterate', 3, title='Prototype, Test, Iterate',
+        )
         self._create_sections(lesson, [
             {
                 'title': 'Overview',
@@ -4484,7 +4591,9 @@ A team needs to launch a ball into a goal 2 meters away. Watch the loop run four
         ])
 
         # Lesson 5: Presenting Your Design
-        lesson = Lesson.objects.create(unit=unit, title='Presenting Your Design', order=4)
+        lesson = self._lesson(
+            unit, 'rob101-presenting-your-design', 4, title='Presenting Your Design',
+        )
         self._create_sections(lesson, [
             {
                 'title': 'Overview',
@@ -4661,14 +4770,13 @@ Go build something, break it on purpose, and write down what it taught you. That
         self._create_unit6_quiz(unit)
 
     def _create_unit6_quiz(self, unit):
-        quiz = Quiz.objects.create(
-            unit=unit,
+        quiz = self._quiz(
+            unit, 'rob101-quiz-engineering-design-capstone', 0,
             title='Engineering Design Capstone Quiz',
             description='Test your understanding of the engineering design process, from defining problems to presenting your finished design.',
             passing_score=70,
             points=20,
             max_attempts=3,
-            order=0
         )
         self._create_quiz_questions(quiz, [
             {
@@ -4742,61 +4850,30 @@ Go build something, break it on purpose, and write down what it taught you. That
         return choices[offset:] + choices[:offset]
 
     def _create_sections(self, lesson, sections_data):
-        """Create lesson sections from a list of dictionaries."""
-        for i, section in enumerate(sections_data):
-            LessonSection.objects.create(
-                lesson=lesson,
-                title=section.get('title', ''),
-                content=section.get('content', ''),
-                video_type=section.get('video_type', 'none'),
-                video_id=section.get('video_id', ''),
-                order=i
-            )
+        """Upsert a lesson's sections; trailing extras (and their blobs) go."""
+        upsert_sections(lesson, sections_data)
 
     def _create_lesson_questions(self, lesson, questions_data):
-        """Create comprehension questions for a lesson, and gate on them.
+        """Upsert a lesson's comprehension questions, and gate on them.
 
         Phase-55 invariant (see populate_java_course): a seeded lesson has the
-        `requires_quiz` gate on if and only if it has questions. Setting it
-        here rather than at each `Lesson.objects.create` site makes the
-        invariant structural.
+        `requires_quiz` gate on if and only if it has questions. Setting it in
+        the shared helper rather than at each lesson site makes the invariant
+        structural.
+
+        The choice rotation happens here, before the upsert, so the stored
+        order the helper matches on is the same one the player renders.
         """
-        if not questions_data:
-            return
-
-        for i, q in enumerate(questions_data):
-            question = LessonQuestion.objects.create(
-                lesson=lesson,
-                text=q['text'],
-                order=i
-            )
-            choices = self._stable_choice_order(q['text'], q['choices'])
-            for j, (choice_text, is_correct) in enumerate(choices):
-                LessonQuestionChoice.objects.create(
-                    question=question,
-                    text=choice_text,
-                    is_correct=is_correct,
-                    order=j
-                )
-
-        if not lesson.requires_quiz:
-            lesson.requires_quiz = True
-            lesson.save(update_fields=['requires_quiz'])
+        upsert_lesson_questions(lesson, self._rotate_choices(questions_data))
 
     def _create_quiz_questions(self, quiz, questions_data):
-        """Create quiz questions."""
-        for i, q in enumerate(questions_data):
-            question = Question.objects.create(
-                quiz=quiz,
-                text=q['text'],
-                order=i
-            )
-            choices = self._stable_choice_order(q['text'], q['choices'])
-            for j, (choice_text, is_correct) in enumerate(choices):
-                Choice.objects.create(
-                    question=question,
-                    text=choice_text,
-                    is_correct=is_correct,
-                    order=j
-                )
+        """Upsert a unit quiz's questions."""
+        upsert_quiz_questions(quiz, self._rotate_choices(questions_data))
+
+    def _rotate_choices(self, questions_data):
+        """Apply `_stable_choice_order` to every question's choices."""
+        return [
+            {**q, 'choices': self._stable_choice_order(q['text'], q['choices'])}
+            for q in questions_data
+        ]
 
