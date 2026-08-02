@@ -721,3 +721,69 @@ class TestNullKeyIsRejected:
         bystander.refresh_from_db()
         assert bystander.unit_id == other_unit.pk
         assert Lesson.objects.filter(pk=bystander.pk).exists()
+
+
+@pytest.mark.django_db
+class TestCrossCourseKeyCollision:
+    """
+    Promoted from an adversarial probe, which proved these paths silently
+    corrupted data before the guard existed.
+
+    Matching by key is global, so a slug authored in two blueprints used to
+    pull the row across the course boundary: the source course was emptied,
+    its content overwritten, and every LessonProgress dragged along with the
+    pk — leaving students "already complete" on content they never saw.
+    Nothing writes `content_key` through the API, so this is an authoring
+    mistake, and it now fails loudly instead of silently.
+    """
+
+    @pytest.fixture
+    def other_course(self, instructor):
+        course = Course.objects.create(
+            code='OTH200', title='Other', instructor=instructor
+        )
+        return Unit.objects.create(course=course, title='U', order=0)
+
+    def test_lesson_key_collision_across_courses_raises(self, unit, other_course):
+        upsert_lesson(unit, 'ups101-shared', 0, title='Original')
+
+        with pytest.raises(ValueError, match='already held by a lesson in course'):
+            upsert_lesson(other_course, 'ups101-shared', 0, title='Impostor')
+
+    def test_the_source_course_keeps_its_lesson_and_its_progress(
+        self, unit, other_course, student
+    ):
+        lesson = upsert_lesson(unit, 'ups101-shared', 0, title='Original')
+        LessonProgress.objects.create(user=student, lesson=lesson, completed=True)
+
+        with pytest.raises(ValueError):
+            upsert_lesson(other_course, 'ups101-shared', 0, title='Impostor')
+
+        lesson.refresh_from_db()
+        assert lesson.unit_id == unit.pk
+        assert lesson.title == 'Original'
+        assert Lesson.objects.filter(unit=unit).count() == 1
+        assert LessonProgress.objects.get(user=student).lesson.unit.course_id == \
+            unit.course_id
+
+    def test_quiz_key_collision_across_courses_raises(self, unit, other_course):
+        upsert_quiz(unit, 'ups101-quiz-shared', 0, title='Original')
+
+        with pytest.raises(ValueError, match='already held by a quiz in course'):
+            upsert_quiz(other_course, 'ups101-quiz-shared', 0, title='Impostor')
+
+    def test_moving_between_units_of_the_SAME_course_is_still_allowed(
+        self, course, unit
+    ):
+        """
+        The guard must not break the intended case. Keys carry no unit number
+        precisely so a lesson can move between units without becoming new
+        content — that is a different course boundary question entirely.
+        """
+        other_unit = Unit.objects.create(course=course, title='Unit 2', order=1)
+        lesson = upsert_lesson(unit, 'ups101-mobile', 0, title='Mobile')
+
+        moved = upsert_lesson(other_unit, 'ups101-mobile', 0, title='Mobile')
+
+        assert moved.pk == lesson.pk
+        assert moved.unit_id == other_unit.pk

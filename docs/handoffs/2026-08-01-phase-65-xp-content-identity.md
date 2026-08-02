@@ -2,8 +2,90 @@
 
 ## Current state
 
-**Phase 65 is implemented and green on `feat/phase-65-xp-content-identity`.
-Nothing is merged and nothing has touched Neon.**
+**SHIPPED. Merged as `f308029f` (PR #90) 2026-08-02 01:29 UTC; migrations
+applied to Neon 02:0x UTC after an outage caused by the wrong ordering.
+Production is verified healthy and its XP ledger is clean.**
+
+Sequence of what actually happened:
+1. PR merged before the Neon migrations → Render deployed code that SELECTs
+   `content_key` against a schema without it → every course read 500'd.
+2. A first repair attempt ran `migrate` against the LOCAL Docker database
+   (the `DATABASE_URL` placeholder was not substituted), which reported
+   success while changing nothing on Neon.
+3. Confirmed directly against Neon that all three columns were absent and
+   `django_migrations` still ended at `courses.0023`.
+4. Applied all three migrations to Neon over the DIRECT (non-pooler)
+   endpoint. Prod recovered on the next request — no restart, no rollback.
+
+**Post-fix verification against production:**
+
+| Endpoint | Before | After |
+|---|---|---|
+| `DEMO101/units/` | 500 | **200** — 5 units, 20 lessons |
+| `/api/health/?deep=1` | 200 | 200 |
+| `/api/gamification/profile/` | 200 | 200 |
+
+Phase 65 itself is implemented and green.
+
+## Production audit — nothing to repair
+
+`audit_xp` against Neon reports **clean across every dimension**: no orphans,
+no stranded rows, no ledger drift, no amount drift, no duplicate keys.
+
+The reason is worth stating plainly: **production holds 0 `XPEvent` rows.**
+The double-award bug was real and would have bitten, but no student had
+earned XP in prod yet, so there is no inflation to measure and nothing to
+decide about repair. The follow-up this phase was supposed to tee up does not
+exist. The local-dev drift figures (+9970, 3 orphans) were dev-only artifacts
+and say nothing about prod.
+
+**Outstanding: adoption has not run.** 55 rows still carry `auto:` keys
+(ROB101 24 lessons + 6 quizzes, JAVA101 20 lessons + 5 quizzes). This is
+SAFE — every row has a unique stable key and the ledger dedupes on it, so the
+bug is fixed either way. What adoption adds is protection for a *future*
+delete-and-reseed: content on a blueprint key keeps its XP identity through
+one, content on an `auto:` key does not. With 0 XP events there is nothing at
+risk today, but it is worth doing before students start earning. Run both
+seed commands WITHOUT `--prune` to perform it.
+
+## Incident: prod 500s on every course read after the merge
+
+`render.yaml` has `branch: main` and no migrate step (`buildCommand` is
+`pip install` + `collectstatic`), so the merge deployed code that SELECTs
+`content_key` against a Neon database that does not have the column. Django
+includes every concrete field in its default SELECT, so **every `Lesson`
+query fails**.
+
+Isolated against prod ~20 min after the merge:
+
+| Endpoint | Result | Reads `Lesson`? |
+|---|---|---|
+| `/api/health/` shallow | 200 | no |
+| `/api/health/?deep=1` (`SELECT 1`) | 200 | no — DB reachable |
+| `/api/auth/demo-login/` | 200 | no |
+| `/api/gamification/profile/` | 200 | no |
+| `DEMO101/units/` | **500** | **yes** |
+
+Note the monitoring gap this exposed: **deep health stayed 200 throughout.**
+It only runs `SELECT 1`, so it cannot see a missing column — the uptime check
+said healthy while the course experience was entirely down. Worth adding a
+canary that reads one real content row.
+
+**Fixed** by applying the three migrations to Neon. Additive and nullable, so
+it was a pure forward repair — no rollback, no data risk, no restart.
+
+Two traps this hit, both worth remembering:
+- **A `migrate` that prints "No migrations to apply" is not proof you hit the
+  right database.** The first attempt silently targeted local Docker. Always
+  print `connection.settings_dict['HOST']` before trusting a prod migration.
+- **Use the DIRECT Neon endpoint for DDL**, not the `-pooler` host.
+
+**The ordering constraint is not optional and is the whole point of decision
+8.** Migrations must be hand-applied to Neon BEFORE the code deploys. The PR
+body carried this warning; the merge went ahead first anyway. If this repo
+keeps auto-deploy on `main`, consider a `preDeploy` migrate step in
+`render.yaml` or a branch protection rule, because the ordering currently
+depends entirely on the person merging remembering it.
 
 The oldest open correctness bug in the codebase — carried since phase 58 — is
 fixed. `XPEvent` deduped on `(user, source_type, source_id)` where `source_id`
@@ -124,8 +206,8 @@ Three smaller findings from the same pass, also fixed:
 
 ## Not done — deliberately
 
-- **Nothing is merged; Neon is untouched.** Per `CLAUDE.md`, the PR opens and
-  stops.
+- **No repair of existing prod XP** (see below). Note this is separate from
+  the incident above: the incident is a schema gap, not an XP problem.
 - **No repair of existing prod XP.** `audit_xp` reports; it never writes.
   Deciding what to do about inflated totals is the follow-up, and the report
   is its input.
@@ -135,7 +217,9 @@ Three smaller findings from the same pass, also fixed:
   historical student selections. It needs its own change with its own data
   migration.
 
-## Deploy runbook (for whoever ships this)
+## Deploy runbook
+
+**Step 1 was skipped on the real deploy — do it now if it has not been done.**
 
 1. Hand-apply to Neon **before** deploying code, in this order:
    `courses.0024_lesson_content_key`, `quizzes.0004_quiz_content_key`,
@@ -204,6 +288,10 @@ Do not read the local drift number as evidence of prod inflation; prod's own
 - **`node_modules` is a container volume** — run `tsc`/`vitest`/`lint` via
   `docker compose exec -T frontend`, not from the host (carried from phase 64).
 - **Never run pytest concurrently with review subagents** (carried).
+- **`/api/health/?deep=1` cannot detect a schema gap.** It runs `SELECT 1`,
+  which succeeds against any reachable database regardless of whether the
+  columns the code needs exist. It reported healthy through a total course
+  outage. A canary that reads one real `Lesson` row would have caught it.
 - **A live legacy unique index turns a stale key into a 500, not a no-op.**
   This is the trap behind the blocker above: keeping the old constraint
   "alongside" the new one is not free, because any row whose key drifts while
@@ -212,6 +300,66 @@ Do not read the local drift number as evidence of prod inflation; prod's own
 - **`transaction.on_commit` callbacks never fire under pytest-django's default
   transactional test case.** Tests asserting blob cleanup need
   `django_capture_on_commit_callbacks`.
+
+## Migration audit (db-migration-checker, run post-deploy)
+
+**Verdict: all three safe as applied. No action required against Neon.** No
+destructive operations, no dropped DB defaults, no `NOT NULL` without a
+default, dependency ordering correctly declared, and the backfill provably
+cannot produce a duplicate under either `XPEvent` constraint (live keys are
+unique per model, and orphan labels inherit the pre-existing uniqueness of
+`(user, source_type, source_id)`).
+
+Two things it surfaced that are NOT defects in what shipped, but are traps
+for later:
+
+1. **`gamification/0006` stops being reversible once a null-`source_id` award
+   ships.** Its reverse re-imposes `NOT NULL` on `source_id`, which fails
+   against existing NULL rows. Safe today because all three award functions
+   pass `obj.id` — but `_award_xp` accepts `source_id=None` by design, and the
+   migration's own comment anticipates such rows. If that path ever goes live,
+   this migration can no longer be rolled back.
+2. **Scale caveats if this three-step shape is reused on a big table.** The
+   `RunPython` steps realize the whole queryset in memory (no `.iterator()`),
+   and the unique indexes are built with plain blocking DDL rather than
+   `CREATE INDEX CONCURRENTLY`. Irrelevant at today's row counts (prod: 64
+   lessons, 16 quizzes, 0 XP events) but `XPEvent` is an append-only ledger
+   and is the one table that will grow.
+
+## Adversarial pass (run post-deploy) — two silent-corruption paths, both fixed
+
+The `adversarial-tester` step of `finish-phase` was never run before the merge.
+Running it after found **two BROKEN paths**, both latent (neither triggered by
+today's content) and neither reachable through the API — `content_key` is not
+writable by any serializer. Both are seed-authoring hazards where a duplicated
+slug caused silent data loss instead of an error.
+
+1. **Cross-course key collision hijacked content between courses.** The by-key
+   match in `upsert_lesson`/`upsert_quiz` is global, so a slug authored in two
+   blueprints pulled the row across the course boundary: source course emptied,
+   its content overwritten, and every `LessonProgress` dragged along with the
+   pk — students left "already complete" on content they never saw. Now a loud
+   `ValueError`. Moving a lesson between UNITS of its own course is still
+   allowed, which is the case keys carry no unit number for.
+2. **A key reused within one seed run merged two lessons into one.** The second
+   call upserted the first lesson's row in place; one row survived where the
+   blueprint intended two, with no exception and no warning. The `_lesson()` /
+   `_quiz()` wrappers now reject a repeated key.
+
+Also fixed from the same pass: **`audit_xp`'s duplicate-key scan was dead
+code.** `content_key` has a unique index, so "same key on two rows" can never
+return anything — it implied monitoring that was not happening, while the real
+damage shape (a single row moving between courses) leaves no duplicate to find.
+Replaced with a prefix scan that flags content whose key belongs to another
+course, which is what a hijack actually looks like.
+
+Everything else HELD: the headline no-double-award guarantee across all three
+source types, XP/level/badge/streak-freeze never decreasing, and the
+stranded-row healing (could not be driven to heal the wrong row across users or
+across source types). One noted assumption worth knowing: **the healing relies
+on Postgres never reusing a deleted row's primary key.** True for sequences,
+but it would break under a forced-id bulk insert or `TRUNCATE ... RESTART
+IDENTITY`.
 
 ## Files to read first
 

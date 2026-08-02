@@ -306,16 +306,22 @@ class Command(BaseCommand):
         """Keys held by more than one live row, and unadopted seeded content."""
         self._section('CONTENT KEYS')
 
-        duplicates = []
+        # NOTE: there is deliberately no "same key on two rows of one table"
+        # scan here. `content_key` carries a DB-level unique index, so such a
+        # query can never return a row — it would be dead code implying a
+        # check that is not happening. The damage a key collision actually
+        # does is a SINGLE row silently moving between courses, which leaves
+        # no duplicate to find. The prefix scan below is what catches that.
+        misplaced = []
         for model, label in ((Lesson, 'lesson'), (Quiz, 'quiz')):
-            dupes = (
-                model.objects.exclude(content_key=None)
-                .values('content_key')
-                .annotate(n=Count('id'))
-                .filter(n__gt=1)
-            )
-            for row in dupes:
-                duplicates.append((label, row['content_key'], row['n']))
+            for code in SEEDED_COURSE_CODES:
+                rows = model.objects.filter(unit__course__code=code).exclude(
+                    content_key=None
+                ).exclude(content_key__startswith='auto:').exclude(
+                    content_key__startswith=f'{code.lower()}-'
+                )
+                for row in rows:
+                    misplaced.append((label, code, row.pk, row.content_key))
 
         # A key is globally unique per table, but the namespace is meant to be
         # flat — the same key on a lesson AND a quiz is still a collision.
@@ -329,18 +335,19 @@ class Command(BaseCommand):
         )
         cross = sorted(lesson_keys & quiz_keys)
 
-        if duplicates:
-            for label, key, n in duplicates:
+        if misplaced:
+            for label, code, pk, key in misplaced:
                 self.stdout.write(self.style.WARNING(
-                    f'  Duplicate {label} key {key!r} held by {n} rows'
+                    f'  {code} {label} #{pk} carries key {key!r}, which belongs '
+                    f'to another course — a key collision may have moved it'
                 ))
         if cross:
             for key in cross:
                 self.stdout.write(self.style.WARNING(
                     f'  Key {key!r} is held by both a lesson and a quiz'
                 ))
-        if not duplicates and not cross:
-            self.stdout.write('  No duplicate keys.')
+        if not misplaced and not cross:
+            self.stdout.write('  No misplaced or cross-model keys.')
 
         # Unadopted seeded content: adoption should have stamped every ROB101
         # and JAVA101 lesson/quiz with its blueprint key.

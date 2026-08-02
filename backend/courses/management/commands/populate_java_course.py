@@ -79,12 +79,30 @@ class Command(BaseCommand):
         return upsert_unit(course, order, title)
 
     def _lesson(self, unit, key, order, **fields):
-        """Upsert a lesson by its permanent content key. See ``_content_upsert``."""
+        """Upsert a lesson by its permanent content key. See ``_content_upsert``.
+
+        A key reused within one run is a copy-pasted slug, not an update: the
+        second call would upsert the FIRST lesson's row in place, so the
+        blueprint's two lessons collapse into one and the first one's identity
+        and content vanish without an error. Caught loudly instead.
+        """
+        if key in self.seen_lesson_keys:
+            raise ValueError(
+                f'lesson content key {key!r} was used twice in one seed run. '
+                f'Each lesson needs its own permanent slug; reusing one '
+                f'silently merges the two lessons into a single row.'
+            )
         self.seen_lesson_keys.add(key)
         return upsert_lesson(unit, key, order, **fields)
 
     def _quiz(self, unit, key, order, **fields):
-        """Upsert a unit quiz by its permanent content key."""
+        """Upsert a unit quiz by its permanent content key. See ``_lesson``."""
+        if key in self.seen_quiz_keys:
+            raise ValueError(
+                f'quiz content key {key!r} was used twice in one seed run. '
+                f'Each quiz needs its own permanent slug; reusing one silently '
+                f'merges the two quizzes into a single row.'
+            )
         self.seen_quiz_keys.add(key)
         return upsert_quiz(unit, key, order, **fields)
 
