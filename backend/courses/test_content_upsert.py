@@ -112,6 +112,25 @@ class TestUpsertUnit:
         assert second.title == 'Renamed title'
         assert course.units.count() == 1
 
+    def test_reseed_preserves_unit_lock(self, course):
+        """Phase 66: ``is_locked`` is instructor state, not blueprint state.
+
+        A reseed must never silently unlock a unit the instructor locked —
+        that would expose content to a whole class without anyone acting.
+        """
+        unit = upsert_unit(course, 0, 'Unit 1')
+        unit.is_locked = True
+        unit.save(update_fields=['is_locked'])
+
+        reseeded = upsert_unit(course, 0, 'Unit 1 renamed')
+
+        assert reseeded.pk == unit.pk
+        assert reseeded.title == 'Unit 1 renamed'
+        assert reseeded.is_locked is True
+
+    def test_new_units_default_unlocked(self, course):
+        assert upsert_unit(course, 5, 'Brand new').is_locked is False
+
 
 # --------------------------------------------------------------------------
 # upsert_lesson — the adoption rule (decision 5)

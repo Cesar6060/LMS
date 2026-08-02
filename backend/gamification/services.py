@@ -240,11 +240,19 @@ def _badge_satisfied(user, profile, badge):
             user=user, is_active=True
         ).values_list('course_id', flat=True)
         for course_id in course_ids:
-            total = Lesson.objects.filter(unit__course_id=course_id).count()
+            # A locked unit cannot be completed, so it must not hold the
+            # course-complete badge hostage (phase 66). Counting it in `total`
+            # would make the badge unearnable for the whole class until the
+            # instructor unlocks every unit.
+            total = Lesson.objects.filter(
+                unit__course_id=course_id, unit__is_locked=False
+            ).count()
             if total == 0:
                 continue
             completed = LessonProgress.objects.filter(
-                user=user, completed=True, lesson__unit__course_id=course_id
+                user=user, completed=True,
+                lesson__unit__course_id=course_id,
+                lesson__unit__is_locked=False,
             ).count()
             if completed >= total:
                 return True

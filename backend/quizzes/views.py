@@ -7,7 +7,10 @@ from django.db.models import Count, Max
 from django.utils import timezone
 
 from courses.models import Unit
-from courses.permissions import is_course_instructor, is_enrolled, require_enrollment
+from courses.permissions import (
+    is_course_instructor, is_enrolled, require_enrollment,
+    require_unit_unlocked, locked_unit_ids_for,
+)
 from .models import Quiz, Question, Choice, QuizAttempt, AttemptAnswer
 from .serializers import (
     QuizListSerializer, QuizDetailSerializer, QuizStudentDetailSerializer,
@@ -51,6 +54,8 @@ def unit_quizzes(request, unit_id):
             {'detail': 'You must be enrolled or the instructor to access quizzes.'},
             status=status.HTTP_403_FORBIDDEN
         )
+
+    require_unit_unlocked(request.user, unit)
 
     if request.method == 'GET':
         quizzes = _quiz_list_queryset(unit=unit)
@@ -97,6 +102,8 @@ def quiz_detail(request, quiz_id):
             {'detail': 'You must be enrolled or the instructor to access this quiz.'},
             status=status.HTTP_403_FORBIDDEN
         )
+
+    require_unit_unlocked(request.user, quiz.unit)
 
     if request.method == 'GET':
         # Instructors see correct answers, students don't
@@ -200,6 +207,8 @@ def submit_quiz(request, quiz_id):
             {'detail': 'You must be enrolled to take this quiz.'},
             status=status.HTTP_403_FORBIDDEN
         )
+
+    require_unit_unlocked(request.user, quiz.unit)
 
     # Check max attempts (completed only — abandoned sessions don't burn one)
     if quiz.max_attempts > 0:
@@ -329,6 +338,7 @@ def start_quiz_session(request, quiz_id):
     """
     quiz = get_object_or_404(Quiz, id=quiz_id)
     require_enrollment(request.user, quiz.unit.course, "You must be enrolled to take this quiz.")
+    require_unit_unlocked(request.user, quiz.unit)
 
     if not quiz.questions.exists():
         return Response(
@@ -369,6 +379,7 @@ def get_quiz_session(request, quiz_id):
     """Resume state for the current in-progress session; 404 if none."""
     quiz = get_object_or_404(Quiz, id=quiz_id)
     require_enrollment(request.user, quiz.unit.course, "You must be enrolled to take this quiz.")
+    require_unit_unlocked(request.user, quiz.unit)
 
     attempt = QuizAttempt.objects.filter(
         quiz=quiz, student=request.user, status=QuizAttempt.STATUS_IN_PROGRESS
@@ -392,6 +403,7 @@ def answer_quiz_session(request, quiz_id):
     """
     quiz = get_object_or_404(Quiz, id=quiz_id)
     require_enrollment(request.user, quiz.unit.course, "You must be enrolled to take this quiz.")
+    require_unit_unlocked(request.user, quiz.unit)
 
     attempt = QuizAttempt.objects.filter(
         quiz=quiz, student=request.user, status=QuizAttempt.STATUS_IN_PROGRESS
@@ -533,7 +545,10 @@ def course_quizzes(request, course_code):
             status=status.HTTP_403_FORBIDDEN
         )
 
-    quizzes = _quiz_list_queryset(unit__course=course)
+    # A flat list filters rather than 403s: locked units simply don't appear.
+    quizzes = _quiz_list_queryset(unit__course=course).exclude(
+        unit_id__in=locked_unit_ids_for(request.user, course)
+    )
     serializer = QuizListSerializer(quizzes, many=True, context={'request': request})
     return Response(serializer.data)
 

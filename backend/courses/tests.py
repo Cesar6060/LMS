@@ -4814,3 +4814,400 @@ class TestPhase63RosterQueryCounts:
 
         assert response.status_code == status.HTTP_200_OK
         assert response.data['results'][0]['progress_percentage'] == 0
+
+
+# ==================== Phase 66: instructor unit locking ====================
+
+@pytest.fixture
+def locked_course(instructor, student):
+    """A two-unit course where unit 2 is locked, with the student enrolled.
+
+    Unit 1: 2 lessons (student completed 1). Unit 2: 2 lessons (student
+    completed 1 BEFORE the lock — the interesting case for the denominators).
+    """
+    course = Course.objects.create(
+        code='LOCK101', title='Locking', instructor=instructor)
+    Enrollment.objects.create(user=student, course=course)
+
+    open_unit = Unit.objects.create(course=course, title='Open', order=1)
+    locked_unit = Unit.objects.create(
+        course=course, title='Locked', order=2, is_locked=True)
+
+    open_lessons = [
+        Lesson.objects.create(unit=open_unit, title=f'Open {i}', order=i)
+        for i in (1, 2)
+    ]
+    locked_lessons = [
+        Lesson.objects.create(unit=locked_unit, title=f'Locked {i}', order=i)
+        for i in (1, 2)
+    ]
+    LessonProgress.objects.create(
+        user=student, lesson=open_lessons[0], completed=True)
+    LessonProgress.objects.create(
+        user=student, lesson=locked_lessons[0], completed=True)
+
+    return {
+        'course': course,
+        'open_unit': open_unit,
+        'locked_unit': locked_unit,
+        'open_lessons': open_lessons,
+        'locked_lessons': locked_lessons,
+    }
+
+
+@pytest.mark.django_db
+class TestLockedUnitSerialization:
+    def test_locked_unit_hidden_from_student_course_detail(
+            self, api_client, student, locked_course):
+        api_client.force_authenticate(user=student)
+        response = api_client.get(
+            f"/api/courses/courses/{locked_course['course'].code}/")
+
+        assert response.status_code == status.HTTP_200_OK
+        units = {u['title']: u for u in response.data['units']}
+        assert units['Open']['is_locked'] is False
+        assert len(units['Open']['lessons']) == 2
+
+        locked = units['Locked']
+        assert locked['is_locked'] is True
+        # Visible but locked: the title and the count survive, content does not.
+        assert locked['lessons'] == []
+        assert locked['lesson_count'] == 2
+        assert 'Locked 1' not in str(locked)
+
+    def test_locked_unit_full_for_instructor(
+            self, api_client, instructor, locked_course):
+        api_client.force_authenticate(user=instructor)
+        response = api_client.get(
+            f"/api/courses/courses/{locked_course['course'].code}/")
+
+        units = {u['title']: u for u in response.data['units']}
+        assert units['Locked']['is_locked'] is True
+        assert len(units['Locked']['lessons']) == 2
+
+    def test_locked_unit_hidden_on_standalone_unit_endpoints(
+            self, api_client, student, locked_course):
+        api_client.force_authenticate(user=student)
+        unit_id = locked_course['locked_unit'].id
+
+        detail = api_client.get(f'/api/courses/units/{unit_id}/')
+        assert detail.status_code == status.HTTP_200_OK
+        assert detail.data['lessons'] == []
+        assert detail.data['lesson_count'] == 2
+
+        listing = api_client.get(
+            f"/api/courses/courses/{locked_course['course'].code}/units/")
+        by_title = {u['title']: u for u in listing.data}
+        assert by_title['Locked']['lessons'] == []
+
+
+@pytest.mark.django_db
+class TestLockedUnitReadEnforcement:
+    """Hiding lessons in the serializer is not enough — a student who already
+    knows a lesson id must be refused at every content endpoint."""
+
+    def _urls(self, lesson_id):
+        return [
+            f'/api/courses/lessons/{lesson_id}/',
+            f'/api/courses/lessons/{lesson_id}/sections/',
+            f'/api/courses/lessons/{lesson_id}/questions/',
+            f'/api/courses/lessons/{lesson_id}/questions-status/',
+            f'/api/courses/lessons/{lesson_id}/attachments/',
+            f'/api/courses/lessons/{lesson_id}/progress/',
+        ]
+
+    def test_lesson_read_in_locked_unit_403_for_student(
+            self, api_client, student, locked_course):
+        api_client.force_authenticate(user=student)
+        lesson_id = locked_course['locked_lessons'][0].id
+
+        for url in self._urls(lesson_id):
+            response = api_client.get(url)
+            assert response.status_code == status.HTTP_403_FORBIDDEN, url
+            assert response.data['detail'] == (
+                'This unit is locked by your instructor.')
+
+    def test_lesson_progress_write_in_locked_unit_403(
+            self, api_client, student, locked_course):
+        api_client.force_authenticate(user=student)
+        lesson_id = locked_course['locked_lessons'][1].id
+
+        response = api_client.patch(
+            f'/api/courses/lessons/{lesson_id}/progress/', {'completed': True})
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+        assert not LessonProgress.objects.filter(
+            user=student, lesson_id=lesson_id, completed=True).exists()
+
+    def test_lesson_quiz_session_in_locked_unit_403(
+            self, api_client, student, locked_course):
+        api_client.force_authenticate(user=student)
+        lesson_id = locked_course['locked_lessons'][0].id
+
+        for url in (
+            f'/api/courses/lessons/{lesson_id}/quiz-session/start/',
+            f'/api/courses/lessons/{lesson_id}/quiz-session/answer/',
+        ):
+            response = api_client.post(url, {})
+            assert response.status_code == status.HTTP_403_FORBIDDEN, url
+
+        response = api_client.get(
+            f'/api/courses/lessons/{lesson_id}/quiz-session/')
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+
+    def test_unit_lessons_listing_403_for_student(
+            self, api_client, student, locked_course):
+        api_client.force_authenticate(user=student)
+        response = api_client.get(
+            f"/api/courses/units/{locked_course['locked_unit'].id}/lessons/")
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+
+    def test_instructor_reads_locked_unit_content_normally(
+            self, api_client, instructor, locked_course):
+        api_client.force_authenticate(user=instructor)
+        lesson_id = locked_course['locked_lessons'][0].id
+
+        for url in self._urls(lesson_id):
+            response = api_client.get(url)
+            assert response.status_code == status.HTTP_200_OK, url
+
+    def test_unenrolled_user_still_403_not_leaked(
+            self, api_client, locked_course):
+        outsider = User.objects.create_user(
+            email='outsider@test.com', password='testpass123')
+        api_client.force_authenticate(user=outsider)
+
+        response = api_client.get(
+            f"/api/courses/lessons/{locked_course['open_lessons'][0].id}/")
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+
+    def test_anonymous_is_401(self, api_client, locked_course):
+        response = api_client.get(
+            f"/api/courses/lessons/{locked_course['locked_lessons'][0].id}/")
+        assert response.status_code == status.HTTP_401_UNAUTHORIZED
+
+
+@pytest.mark.django_db
+class TestUnitLockToggle:
+    def test_instructor_can_toggle_lock(
+            self, api_client, instructor, locked_course):
+        api_client.force_authenticate(user=instructor)
+        unit = locked_course['locked_unit']
+
+        response = api_client.patch(
+            f'/api/courses/units/{unit.id}/', {'is_locked': False})
+        assert response.status_code == status.HTTP_200_OK
+        unit.refresh_from_db()
+        assert unit.is_locked is False
+
+        response = api_client.patch(
+            f'/api/courses/units/{unit.id}/', {'is_locked': True})
+        assert response.status_code == status.HTTP_200_OK
+        unit.refresh_from_db()
+        assert unit.is_locked is True
+
+    def test_student_cannot_toggle_lock(
+            self, api_client, student, locked_course):
+        api_client.force_authenticate(user=student)
+        unit = locked_course['open_unit']
+
+        response = api_client.patch(
+            f'/api/courses/units/{unit.id}/', {'is_locked': True})
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+        unit.refresh_from_db()
+        assert unit.is_locked is False
+
+    def test_other_instructor_cannot_toggle_lock(
+            self, api_client, locked_course):
+        """IDOR: a real instructor, but not of THIS course."""
+        other = User.objects.create_user(
+            email='other-instructor@test.com', password='testpass123',
+            is_instructor=True)
+        api_client.force_authenticate(user=other)
+        unit = locked_course['open_unit']
+
+        response = api_client.patch(
+            f'/api/courses/units/{unit.id}/', {'is_locked': True})
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+        unit.refresh_from_db()
+        assert unit.is_locked is False
+
+    def test_anonymous_cannot_toggle_lock(self, api_client, locked_course):
+        response = api_client.patch(
+            f"/api/courses/units/{locked_course['open_unit'].id}/",
+            {'is_locked': True})
+        assert response.status_code == status.HTTP_401_UNAUTHORIZED
+
+    def test_demo_instructor_blocked_from_lock_toggle(
+            self, api_client, settings, locked_course):
+        """Locking is a shared-surface write — the demo account is refused."""
+        from core.demo import DEMO_BLOCKED_BODY
+
+        settings.DEMO_ACCOUNT_EMAIL = 'demo-instructor@test.com'
+        demo = User.objects.create_user(
+            email='demo-instructor@test.com', password='testpass123',
+            is_instructor=True)
+        course = locked_course['course']
+        course.instructor = demo
+        course.save(update_fields=['instructor'])
+
+        api_client.force_authenticate(user=demo)
+        unit = locked_course['open_unit']
+        response = api_client.patch(
+            f'/api/courses/units/{unit.id}/', {'is_locked': True})
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+        assert response.data == DEMO_BLOCKED_BODY
+        unit.refresh_from_db()
+        assert unit.is_locked is False
+
+    def test_demo_instructor_can_still_rename_a_unit(
+            self, api_client, settings, locked_course):
+        """The demo guard covers the lock, not every unit edit."""
+        settings.DEMO_ACCOUNT_EMAIL = 'demo-instructor@test.com'
+        demo = User.objects.create_user(
+            email='demo-instructor@test.com', password='testpass123',
+            is_instructor=True)
+        course = locked_course['course']
+        course.instructor = demo
+        course.save(update_fields=['instructor'])
+
+        api_client.force_authenticate(user=demo)
+        response = api_client.patch(
+            f"/api/courses/units/{locked_course['open_unit'].id}/",
+            {'title': 'Renamed'})
+        assert response.status_code == status.HTTP_200_OK
+
+
+@pytest.mark.django_db
+class TestLockedUnitProgressMath:
+    def test_progress_percent_excludes_locked_units(
+            self, api_client, student, locked_course):
+        """2 open lessons, 1 completed -> 50%. The locked unit's 2 lessons and
+        the completion inside it drop out of both sides."""
+        api_client.force_authenticate(user=student)
+        response = api_client.get(
+            f"/api/courses/courses/{locked_course['course'].code}/progress/")
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.data['total_lessons'] == 2
+        assert response.data['completed_lessons'] == 1
+        assert response.data['progress_percentage'] == 50.0
+
+    def test_finishing_every_unlocked_lesson_reads_100(
+            self, api_client, student, locked_course):
+        LessonProgress.objects.create(
+            user=student, lesson=locked_course['open_lessons'][1],
+            completed=True)
+
+        api_client.force_authenticate(user=student)
+        response = api_client.get(
+            f"/api/courses/courses/{locked_course['course'].code}/progress/")
+        assert response.data['progress_percentage'] == 100.0
+
+    def test_roster_progress_excludes_locked_units(
+            self, api_client, instructor, student, locked_course):
+        api_client.force_authenticate(user=instructor)
+        response = api_client.get(
+            f"/api/courses/courses/{locked_course['course'].code}/students/")
+
+        row = next(r for r in response.data['results']
+                   if r['email'] == student.email)
+        assert row['progress_percentage'] == 50.0
+
+    def test_gradebook_participation_excludes_locked_units(
+            self, api_client, instructor, student, locked_course):
+        api_client.force_authenticate(user=instructor)
+        response = api_client.get(
+            f"/api/courses/courses/{locked_course['course'].code}/gradebook/")
+
+        assert response.status_code == status.HTTP_200_OK
+        row = next(s for s in response.data['students']
+                   if s['email'] == student.email)
+        assert row['participation_percentage'] == 50.0
+
+
+@pytest.mark.django_db
+class TestLockedUnitCourseMap:
+    def test_course_map_marks_locked_unit_nodes(
+            self, api_client, student, locked_course):
+        api_client.force_authenticate(user=student)
+        response = api_client.get(
+            f"/api/courses/courses/{locked_course['course'].code}/map/")
+
+        assert response.status_code == status.HTTP_200_OK
+        units = {u['title']: u for u in response.data['units']}
+        assert units['Locked']['is_locked'] is True
+
+        for node in units['Locked']['nodes']:
+            # Locked wins even for the lesson this student already completed.
+            assert node['state'] == 'locked'
+            assert node['lock_reason'] == 'instructor'
+
+        # The open unit is unaffected and still uses sequence reasons.
+        open_states = [n['state'] for n in units['Open']['nodes']]
+        assert open_states == ['completed', 'current']
+        assert all(n['lock_reason'] is None for n in units['Open']['nodes'])
+
+    def test_course_map_totals_exclude_locked_units(
+            self, api_client, student, locked_course):
+        api_client.force_authenticate(user=student)
+        response = api_client.get(
+            f"/api/courses/courses/{locked_course['course'].code}/map/")
+
+        assert response.data['total_nodes'] == 2
+        assert response.data['completed_nodes'] == 1
+
+    def test_locked_unit_does_not_sequence_lock_later_units(
+            self, api_client, student, locked_course):
+        """A locked unit in the middle must be transparent to the chain."""
+        course = locked_course['course']
+        third = Unit.objects.create(course=course, title='Third', order=3)
+        Lesson.objects.create(unit=third, title='Third 1', order=1)
+
+        # Complete the rest of unit 1 so the chain reaches unit 3.
+        LessonProgress.objects.create(
+            user=student, lesson=locked_course['open_lessons'][1],
+            completed=True)
+
+        api_client.force_authenticate(user=student)
+        response = api_client.get(f'/api/courses/courses/{course.code}/map/')
+        units = {u['title']: u for u in response.data['units']}
+
+        assert units['Third']['nodes'][0]['state'] == 'current'
+
+    def test_course_map_instructor_sees_no_instructor_locks(
+            self, api_client, instructor, locked_course):
+        api_client.force_authenticate(user=instructor)
+        response = api_client.get(
+            f"/api/courses/courses/{locked_course['course'].code}/map/")
+
+        units = {u['title']: u for u in response.data['units']}
+        reasons = {n['lock_reason'] for n in units['Locked']['nodes']}
+        assert 'instructor' not in reasons
+
+
+@pytest.mark.django_db
+class TestLockedUnitContinueLearning:
+    def test_continue_learning_skips_locked_units(
+            self, api_client, student, locked_course):
+        """With every unlocked lesson done, continue must NOT point into the
+        locked unit — that link would 403."""
+        from django.utils import timezone
+
+        LessonProgress.objects.create(
+            user=student, lesson=locked_course['open_lessons'][1],
+            completed=True)
+        Enrollment.objects.filter(
+            user=student, course=locked_course['course']
+        ).update(last_activity_at=timezone.now())
+
+        api_client.force_authenticate(user=student)
+        response = api_client.get('/api/courses/dashboard/enhanced/')
+
+        assert response.status_code == status.HTTP_200_OK
+        continue_learning = response.data['continue_learning']
+        assert continue_learning is not None
+        locked_titles = {lesson.title
+                         for lesson in locked_course['locked_lessons']}
+        assert continue_learning['current_lesson']['title'] not in locked_titles
+        assert continue_learning['progress_percentage'] == 100.0

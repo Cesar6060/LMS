@@ -41,6 +41,31 @@ def require_enrollment(user, course, detail="You must be enrolled in this course
         raise PermissionDenied(detail)
 
 
+def require_unit_unlocked(user, unit, detail="This unit is locked by your instructor."):
+    """Raise PermissionDenied (403) when a non-instructor reads a locked unit.
+
+    Phase 66: locking is enforced here, at every content read, not only in the
+    UI — a student who pastes a lesson URL for a locked unit must be refused.
+    The course instructor always sees their own content, locked or not.
+    """
+    if not unit.is_locked:
+        return
+    if is_course_instructor(user, unit.course):
+        return
+    raise PermissionDenied(detail)
+
+
+def locked_unit_ids_for(user, course):
+    """Unit ids this user must not see content for (empty for the instructor).
+
+    Used to keep locked units out of progress denominators and flat content
+    lists. Returns a set so callers can filter in Python or feed a queryset.
+    """
+    if is_course_instructor(user, course):
+        return set()
+    return set(course.units.filter(is_locked=True).values_list('id', flat=True))
+
+
 def accessible_course_ids(user):
     """IDs of courses the user teaches or is actively enrolled in (for queryset scoping)."""
     from .models import Course, Enrollment
