@@ -356,10 +356,18 @@ Manual click-through (local Docker, instructor account):
 Production (after merge — merging `main` deploys the backend):
 
 - [ ] DNS runbook applied; `dig TXT _dmarc.stemquests.com` returns the record.
-- [ ] Verify the deploy with a **real content read**, not just
-      `/api/health/?deep=1` — that endpoint runs `SELECT 1` and reported 200
-      through the phase-65 outage.
-- [ ] Send one invite to the school address that previously vanished. If it
+      NOT DONE — Cloudflare dashboard, owner action. Confirmed still absent on
+      2026-08-03 after the deploy: `_dmarc`, root SPF and root MX all missing;
+      DKIM, `send` SPF and `send` MX all present, exactly as diagnosed.
+- [x] Verified 2026-08-03 after merging #96 (`42e6c0c`). Migration `0026`
+      applied at 19:56:26Z by `preDeployCommand`, ~1 min after the merge. Real
+      content read: `DEMO101/units/` returns 5 units / 20 lessons via a
+      demo-login token. `POST /api/courses/join/` returns the generic 400 (so
+      the new columns and endpoint are live, not 500ing). Prod holds 3
+      courses with 0 join codes and 3 invites with NULL delivery — nothing
+      changed for anyone.
+- [ ] NOT DONE — owner action, and it depends on the DNS records above landing
+      first. Send one invite to the school address that previously vanished. If it
       lands, the phase is proven. If it does not, the copy-link and join-code
       paths mean day one still works — and the Resend dashboard plus the new
       `email_error` column will say whether it left our side at all.

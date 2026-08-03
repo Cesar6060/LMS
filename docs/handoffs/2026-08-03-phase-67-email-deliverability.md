@@ -1,8 +1,15 @@
-# Handoff: Phase 67 email deliverability + invite fallbacks — PR open, not merged
+# Handoff: Phase 67 email deliverability + invite fallbacks — MERGED and LIVE
 
 ## Current state
-**Phase 67 is complete and in review as PR #96 (Cesar6060/LMS). NOT merged — merging
-deploys.** Spec: `docs/specs/phase-67-email-deliverability-and-invite-fallback.md`.
+**Phase 67 is MERGED and DEPLOYED.** PR #96 squash-merged as `42e6c0c`; migration
+`courses/0026` applied in prod at 2026-08-03 19:56:26Z by `preDeployCommand`, ~1 min
+after the merge. Verified with a REAL content read (`DEMO101/units/` → 5 units / 20
+lessons), not just `/api/health/?deep=1`. `POST /api/courses/join/` returns the
+generic 400 in prod. Prod holds 3 courses with 0 join codes and 3 invites with NULL
+delivery — nothing changed for anyone.
+**Two owner actions remain before inviting students: the Render throttle env vars and
+the DNS records. Neither is code; see Next steps 1-2.**
+Spec: `docs/specs/phase-67-email-deliverability-and-invite-fallback.md`.
 - Email hygiene (`backend/core/email.py`): `_html_to_text` + hand-authored
   `backend/templates/emails/{course_invite_link,announcement}.txt`, `reply_to`,
   From-domain `Message-ID`, `List-Unsubscribe` on announcements only, per-task
@@ -31,19 +38,21 @@ deploys.** Spec: `docs/specs/phase-67-email-deliverability-and-invite-fallback.m
   click-throughs; Sentry LoginPage; Dependabot #68/#86/#87/#88.
 
 ## Next steps
-1. **Review and merge PR #96.** Then verify with a REAL content read
-   (`POST /api/auth/demo-login/`, then `GET /api/courses/courses/DEMO101/units/`),
-   not just `/api/health/?deep=1`.
-2. **Set `THROTTLE_JOIN_CODE=10/hour` and `THROTTLE_INVITE_LINK=60/hour`** in the
-   Render dashboard. Without the first, `/join/` runs on the general anon ceiling.
-3. **Apply the DNS runbook** — this is where most of the deliverability win is; the
-   code alone adds no DMARC record. Cloudflare, DNS-only: `_dmarc.stemquests.com`
-   TXT `v=DMARC1; p=none; fo=1` and root SPF TXT `v=spf1 include:amazonses.com ~all`.
-4. **Send ONE invite to the school address that previously vanished**, then check
-   Gmail "Show original" (SPF/DKIM/DMARC all PASS) and the Resend dashboard.
-5. **Decide on the join-code design consequence** (see Decisions). Closing it means
+1. **Set `THROTTLE_JOIN_CODE=10/hour` and `THROTTLE_INVITE_LINK=60/hour`** in the
+   Render dashboard (backend service → Environment; it restarts itself). Without the
+   first, the public `/join/` runs on the general anon ceiling only. Do this BEFORE
+   any student invites go out.
+2. **Apply the DNS runbook** — `docs/runbooks/phase-67-email-deliverability-dns.txt`.
+   This is where most of the deliverability win is; the merged code adds no DMARC
+   record. Confirmed still absent 2026-08-03: `_dmarc`, root SPF, root MX. Cloudflare,
+   DNS-only (grey cloud): `_dmarc.stemquests.com` TXT `v=DMARC1; p=none; fo=1`, and
+   root TXT `v=spf1 include:amazonses.com ~all`.
+3. **Send ONE invite to the school address that previously vanished**, then check
+   Gmail "Show original" (SPF/DKIM/DMARC all PASS) and the Resend dashboard. This is
+   the only thing that actually proves the phase.
+4. **Decide on the join-code design consequence** (see Decisions). Closing it means
    scoping a code to a single successful redemption.
-6. Phase 68: Robotics 2 / ROB201 authoring. Delete the local ROB201 stub first.
+5. Phase 68: Robotics 2 / ROB201 authoring. Delete the local ROB201 stub first.
    Then handoff items 3–5 from phase 66 (health-endpoint content read, branch
    protection, Neon backup branch + `protected: true`).
 
