@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { ChevronDown, ChevronRight, CheckCircle, Circle, PlayCircle, FileText, FileQuestion } from 'lucide-react';
+import { ChevronDown, ChevronRight, CheckCircle, Circle, PlayCircle, FileText, FileQuestion, Lock } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
 interface Lesson {
@@ -23,6 +23,10 @@ interface Unit {
   title: string;
   order: number;
   lessons: LessonWithProgress[];
+  /** Phase 66 — locked by the instructor. */
+  is_locked?: boolean;
+  /** Total lessons in the unit, sent even when `lessons` is withheld. */
+  lesson_count?: number;
 }
 
 /** Unit-wide quiz (quizzes.Quiz), a graded sibling of lessons. */
@@ -154,6 +158,31 @@ export function CourseSidebar({
         {units.map((unit) => {
           const isExpanded = expandedUnits.includes(unit.id);
           const { completed, total } = getUnitProgress(unit);
+          // Phase 66: "withheld" means the API said this unit HAS lessons but
+          // sent none — the student view of a locked unit. Testing
+          // `lessons.length === 0` instead would also catch a locked unit that
+          // genuinely has no lessons, collapsing it for the instructor too and
+          // taking its unit-wide quizzes (rendered in the expanded body below)
+          // out of reach. Absent lesson_count degrades to expandable.
+          const lessonsWithheld =
+            !!unit.is_locked && (unit.lesson_count ?? 0) > unit.lessons.length;
+          const lockedLessonCount = unit.lesson_count ?? 0;
+
+          if (lessonsWithheld) {
+            return (
+              <div key={unit.id} className="border-b">
+                <div className="w-full px-5 py-4 flex items-center gap-2.5 bg-muted/40 opacity-80">
+                  <Lock className="h-5 w-5 flex-shrink-0 text-muted-foreground/60" />
+                  <div className="text-left">
+                    <p className="font-medium text-base text-muted-foreground">{unit.title}</p>
+                    <p className="text-sm text-muted-foreground/80">
+                      {lockedLessonCount} {lockedLessonCount === 1 ? 'lesson' : 'lessons'} · Locked by your instructor
+                    </p>
+                  </div>
+                </div>
+              </div>
+            );
+          }
 
           return (
             <div key={unit.id} className="border-b">
@@ -175,9 +204,18 @@ export function CourseSidebar({
                     </p>
                   </div>
                 </div>
-                {completed === total && total > 0 && (
-                  <CheckCircle className="h-5 w-5 text-green-500 flex-shrink-0" />
-                )}
+                <div className="flex items-center gap-2 flex-shrink-0">
+                  {/* Instructor view of a locked unit — content stays reachable. */}
+                  {unit.is_locked && (
+                    <span className="flex items-center gap-1 rounded-full bg-muted px-2 py-0.5 text-xs font-medium text-muted-foreground">
+                      <Lock className="h-3.5 w-3.5" />
+                      Locked
+                    </span>
+                  )}
+                  {completed === total && total > 0 && (
+                    <CheckCircle className="h-5 w-5 text-green-500" />
+                  )}
+                </div>
               </button>
 
               {/* Lessons list */}

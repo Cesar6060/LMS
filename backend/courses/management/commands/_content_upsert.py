@@ -187,7 +187,12 @@ def _lowest_pk_dedup(queryset, label):
 # ---------------------------------------------------------------------------
 
 def upsert_unit(course, order, title):
-    """Get-or-update the unit at ``(course, order)`` — already unique_together."""
+    """Get-or-update the unit at ``(course, order)`` — already unique_together.
+
+    ``defaults`` deliberately carries ONLY the title: ``is_locked`` (phase 66)
+    is instructor state, not blueprint state, so a reseed must never silently
+    unlock a unit an instructor locked. New units default to unlocked.
+    """
     unit, _created = Unit.objects.update_or_create(
         course=course, order=order, defaults={'title': title},
     )

@@ -8,7 +8,7 @@ from .models import (
     LessonAttachment, LessonSection, InstructorReminder, CourseInvite
 )
 from accounts.serializers import UserSerializer
-from .permissions import require_course_instructor
+from .permissions import require_course_instructor, is_course_instructor
 from .video import extract_youtube_video_id
 
 
@@ -394,21 +394,58 @@ class LessonListSerializer(LessonStatsMixin, serializers.ModelSerializer):
 
 
 class UnitSerializer(serializers.ModelSerializer):
-    """Serializer for Unit model with nested lessons."""
+    """Serializer for Unit model with nested lessons.
+
+    Phase 66: a locked unit stays *visible* to students — title, order and
+    ``lesson_count`` are still sent so the UI can render "N lessons · Locked" —
+    but ``lessons`` is emptied. Withholding the lesson list here is what makes
+    the lock hold for any caller of this serializer; the per-endpoint
+    ``require_unit_unlocked`` gates cover direct access to a known lesson id.
+    """
     lessons = LessonListSerializer(many=True, read_only=True)
+    lesson_count = serializers.SerializerMethodField()
 
     class Meta:
         model = Unit
-        fields = ['id', 'course', 'title', 'order', 'lessons', 'created_at', 'updated_at']
-        read_only_fields = ['id', 'created_at', 'updated_at']
+        fields = [
+            'id', 'course', 'title', 'order', 'is_locked',
+            'lessons', 'lesson_count', 'created_at', 'updated_at',
+        ]
+        read_only_fields = ['id', 'is_locked', 'created_at', 'updated_at']
+
+    def get_lesson_count(self, obj):
+        # Counts every lesson, locked or not — this is the number the student
+        # is shown alongside the lock, so it must not depend on visibility.
+        lessons = getattr(obj, 'lessons', None)
+        if lessons is None:
+            return 0
+        return len(lessons.all()) if hasattr(lessons, 'all') else len(lessons)
+
+    def to_representation(self, instance):
+        data = super().to_representation(instance)
+        if not instance.is_locked:
+            return data
+
+        request = self.context.get('request')
+        user = getattr(request, 'user', None)
+        if user is not None and is_course_instructor(user, instance.course):
+            return data
+
+        data['lessons'] = []
+        return data
 
 
 class UnitCreateSerializer(serializers.ModelSerializer):
-    """Serializer for creating units."""
+    """Serializer for creating and updating units.
+
+    ``is_locked`` is writable here (phase 66) — ``UnitViewSet`` uses this
+    serializer for update/partial_update, and that ViewSet already restricts
+    writes to the course instructor.
+    """
 
     class Meta:
         model = Unit
-        fields = ['id', 'title', 'order']
+        fields = ['id', 'title', 'order', 'is_locked']
         read_only_fields = ['id']
 
 
@@ -757,8 +794,10 @@ class StudentRosterSerializer(serializers.ModelSerializer):
         """
         totals = self.context.setdefault('roster_lesson_totals', {})
         if course_id not in totals:
+            # Locked units are excluded so a roster percentage matches the
+            # progress the student is actually able to make (phase 66).
             totals[course_id] = Lesson.objects.filter(
-                unit__course_id=course_id).count()
+                unit__course_id=course_id, unit__is_locked=False).count()
         return totals[course_id]
 
     def _completed_counts(self, course_id):
@@ -773,7 +812,8 @@ class StudentRosterSerializer(serializers.ModelSerializer):
         if course_id not in by_course:
             rows = (
                 LessonProgress.objects.filter(
-                    lesson__unit__course_id=course_id, completed=True)
+                    lesson__unit__course_id=course_id,
+                    lesson__unit__is_locked=False, completed=True)
                 .values('user_id')
                 .annotate(n=Count('id'))
                 .values_list('user_id', 'n')
@@ -976,11 +1016,21 @@ class CourseMapLessonNodeSerializer(serializers.Serializer):
     state = serializers.ChoiceField(
         choices=['completed', 'current', 'unlocked', 'locked']
     )
+    # Why a locked node is locked, so the UI can pick the right tooltip:
+    # 'sequence' = finish the previous node, 'instructor' = the unit is locked
+    # (phase 66). Null whenever state is not 'locked'.
+    lock_reason = serializers.ChoiceField(
+        choices=['sequence', 'instructor'], allow_null=True
+    )
 
 
 class CourseMapQuizNodeSerializer(CourseMapLessonNodeSerializer):
-    """A quiz ("boss") node — additionally carries scores."""
-    passing_score = serializers.IntegerField()
+    """A quiz ("boss") node — additionally carries scores.
+
+    Both are null inside an instructor-locked unit (phase 66): the passing bar
+    and the student's best score describe content they cannot see.
+    """
+    passing_score = serializers.IntegerField(allow_null=True)
     best_score = serializers.FloatField(allow_null=True)
 
 
@@ -988,6 +1038,7 @@ class CourseMapUnitSerializer(serializers.Serializer):
     id = serializers.IntegerField()
     title = serializers.CharField()
     order = serializers.IntegerField()
+    is_locked = serializers.BooleanField()
     nodes = serializers.SerializerMethodField()
 
     def get_nodes(self, obj):

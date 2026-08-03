@@ -885,3 +885,123 @@ class TestPhase63QuizAttemptAnswers:
         api_client.force_authenticate(user=student)
         response = api_client.get(f'/api/quizzes/{quiz.id}/attempts/')
         assert response.data[0]['answers'][0]['correct_choice_text'] is None
+
+
+# ==================== Phase 66: quizzes inside locked units ====================
+
+@pytest.fixture
+def locked_unit(course):
+    return Unit.objects.create(
+        course=course, title='Locked Unit', order=2, is_locked=True)
+
+
+@pytest.fixture
+def locked_quiz(locked_unit):
+    return Quiz.objects.create(
+        unit=locked_unit, title='Locked Quiz', passing_score=70,
+        points=10, order=1)
+
+
+@pytest.mark.django_db
+class TestLockedUnitQuizAccess:
+    LOCK_DETAIL = 'This unit is locked by your instructor.'
+
+    def test_quiz_endpoints_in_locked_unit_403_for_student(
+            self, api_client, student, enrollment, locked_quiz, locked_unit):
+        api_client.force_authenticate(user=student)
+
+        reads = [
+            f'/api/quizzes/{locked_quiz.id}/',
+            f'/api/units/{locked_unit.id}/quizzes/',
+            f'/api/quizzes/{locked_quiz.id}/session/',
+        ]
+        for url in reads:
+            response = api_client.get(url)
+            assert response.status_code == status.HTTP_403_FORBIDDEN, url
+            assert response.data['detail'] == self.LOCK_DETAIL
+
+        writes = [
+            f'/api/quizzes/{locked_quiz.id}/submit/',
+            f'/api/quizzes/{locked_quiz.id}/session/start/',
+            f'/api/quizzes/{locked_quiz.id}/session/answer/',
+        ]
+        for url in writes:
+            response = api_client.post(url, {})
+            assert response.status_code == status.HTTP_403_FORBIDDEN, url
+            assert response.data['detail'] == self.LOCK_DETAIL
+
+    def test_no_attempt_is_created_for_a_locked_quiz(
+            self, api_client, student, enrollment, locked_quiz):
+        api_client.force_authenticate(user=student)
+        api_client.post(f'/api/quizzes/{locked_quiz.id}/session/start/', {})
+        assert not QuizAttempt.objects.filter(
+            quiz=locked_quiz, student=student).exists()
+
+    def test_instructor_reads_locked_quiz_normally(
+            self, api_client, instructor, locked_quiz, locked_unit):
+        api_client.force_authenticate(user=instructor)
+
+        assert api_client.get(
+            f'/api/quizzes/{locked_quiz.id}/'
+        ).status_code == status.HTTP_200_OK
+        assert api_client.get(
+            f'/api/units/{locked_unit.id}/quizzes/'
+        ).status_code == status.HTTP_200_OK
+
+    def test_course_quiz_list_filters_locked_units(
+            self, api_client, student, enrollment, course, quiz, locked_quiz):
+        api_client.force_authenticate(user=student)
+        response = api_client.get(f'/api/courses/{course.code}/quizzes/')
+
+        assert response.status_code == status.HTTP_200_OK
+        titles = {q['title'] for q in response.data}
+        assert 'Test Quiz' in titles
+        assert 'Locked Quiz' not in titles
+
+    def test_course_quiz_list_keeps_locked_units_for_instructor(
+            self, api_client, instructor, course, quiz, locked_quiz):
+        api_client.force_authenticate(user=instructor)
+        response = api_client.get(f'/api/courses/{course.code}/quizzes/')
+
+        titles = {q['title'] for q in response.data}
+        assert {'Test Quiz', 'Locked Quiz'} <= titles
+
+    def test_unlocking_restores_student_access(
+            self, api_client, student, enrollment, locked_quiz, locked_unit):
+        api_client.force_authenticate(user=student)
+        assert api_client.get(
+            f'/api/quizzes/{locked_quiz.id}/'
+        ).status_code == status.HTTP_403_FORBIDDEN
+
+        locked_unit.is_locked = False
+        locked_unit.save(update_fields=['is_locked'])
+
+        assert api_client.get(
+            f'/api/quizzes/{locked_quiz.id}/'
+        ).status_code == status.HTTP_200_OK
+
+    def test_past_attempts_hidden_once_unit_is_locked(
+            self, api_client, student, enrollment, locked_quiz):
+        """An attempt renders question_text and correct_choice_text, so it is a
+        full copy of the quiz — taking it once must not buy permanent access."""
+        QuizAttempt.objects.create(
+            quiz=locked_quiz, student=student, score=100,
+            passed=True, status=QuizAttempt.STATUS_COMPLETED)
+
+        api_client.force_authenticate(user=student)
+        response = api_client.get(f'/api/quizzes/{locked_quiz.id}/attempts/')
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+        assert response.data['detail'] == self.LOCK_DETAIL
+
+    def test_instructor_still_sees_attempts_for_a_locked_quiz(
+            self, api_client, instructor, student, enrollment, locked_quiz):
+        QuizAttempt.objects.create(
+            quiz=locked_quiz, student=student, score=100,
+            passed=True, status=QuizAttempt.STATUS_COMPLETED)
+
+        api_client.force_authenticate(user=instructor)
+        response = api_client.get(f'/api/quizzes/{locked_quiz.id}/attempts/')
+
+        assert response.status_code == status.HTTP_200_OK
+        assert len(response.data) == 1

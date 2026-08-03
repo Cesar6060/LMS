@@ -40,6 +40,13 @@ function MapNode({ node, x, y, courseCode, scene }: MapNodeProps) {
   const isLocked = node.state === 'locked';
   const size = isBoss ? 80 : 64;
 
+  // Phase 66: an instructor lock isn't something the student can work off, so
+  // say so instead of pointing them at the previous lesson.
+  const lockTitle =
+    node.lock_reason === 'instructor'
+      ? 'Locked by your instructor'
+      : 'Complete the previous lesson to unlock';
+
   const textShadow = {
     textShadow: scene.dark
       ? '0 1px 3px rgba(0, 0, 0, 0.6)'
@@ -129,7 +136,7 @@ function MapNode({ node, x, y, courseCode, scene }: MapNodeProps) {
       {isLocked ? (
         <span
           className="cursor-not-allowed"
-          title="Complete the previous lesson to unlock"
+          title={lockTitle}
           aria-disabled="true"
         >
           {disc}

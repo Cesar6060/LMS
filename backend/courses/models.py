@@ -76,6 +76,15 @@ class Unit(models.Model):
     )
     title = models.CharField(max_length=200)
     order = models.PositiveIntegerField(default=0)
+    is_locked = models.BooleanField(
+        default=False,
+        db_default=False,
+        help_text=(
+            "When true, students see the unit title and lesson count but cannot "
+            "open its lessons or quizzes. Locked units drop out of every progress "
+            "denominator. The instructor always sees full content."
+        ),
+    )
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 

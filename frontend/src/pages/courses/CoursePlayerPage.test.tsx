@@ -300,3 +300,50 @@ describe('CoursePlayerPage — Present control (phase 62)', () => {
     expect(screen.queryByRole('heading', { name: 'What Is a Robot?' })).not.toBeInTheDocument();
   });
 });
+
+describe('CoursePlayerPage locked unit (phase 66)', () => {
+  beforeEach(() => {
+    mockUseAuth.mockReturnValue({ user });
+    mockGetCourseWithProgress.mockResolvedValue(course);
+    mockGetLessonProgress.mockResolvedValue(progress);
+    mockGetLessonQuestionsStatus.mockResolvedValue(null);
+    mockGetCourseQuizzes.mockResolvedValue([]);
+    mockUpdateCourseActivity.mockResolvedValue(undefined);
+  });
+
+  afterEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it('explains the lock when the lesson 403s instead of showing the neutral empty state', async () => {
+    // What a pasted URL for a locked unit's lesson actually returns.
+    mockGetLesson.mockRejectedValue({
+      response: { status: 403, data: { detail: 'This unit is locked by your instructor.' } },
+    });
+
+    renderPlayer();
+
+    expect(
+      await screen.findByText('This unit is locked by your instructor.')
+    ).toBeInTheDocument();
+    expect(screen.queryByText('Select a lesson to begin')).not.toBeInTheDocument();
+  });
+
+  it('falls back to the generic message when the 403 carries no detail', async () => {
+    mockGetLesson.mockRejectedValue({ response: { status: 403 } });
+
+    renderPlayer();
+
+    expect(
+      await screen.findByText('This unit is locked by your instructor.')
+    ).toBeInTheDocument();
+  });
+
+  it('keeps the neutral empty state for a non-403 failure', async () => {
+    mockGetLesson.mockRejectedValue({ response: { status: 500 } });
+
+    renderPlayer();
+
+    expect(await screen.findByText('Select a lesson to begin')).toBeInTheDocument();
+  });
+});

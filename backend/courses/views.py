@@ -12,7 +12,7 @@ from django.contrib.auth.password_validation import validate_password
 from django.core.exceptions import ValidationError as DjangoValidationError
 from django.core.validators import validate_email
 from django.db import models, transaction
-from django.db.models import F, Max, Count
+from django.db.models import F, Max, Count, Q
 from django.http import HttpResponse
 from django.utils import timezone
 from datetime import timedelta
@@ -49,6 +49,7 @@ from .permissions import (
     IsEnrolledOrInstructor,
     is_course_instructor, is_enrolled, can_access_course,
     require_course_instructor, require_course_access, require_enrollment,
+    require_unit_unlocked, locked_unit_ids_for,
     accessible_course_ids,
 )
 
@@ -193,6 +194,15 @@ class UnitViewSet(viewsets.ModelViewSet):
             return UnitCreateSerializer
         return UnitSerializer
 
+    def perform_update(self, serializer):
+        # Locking a unit changes what an entire class can see — a shared
+        # surface, so the demo account is refused it (learning writes stay
+        # open per the demo policy). Only checked when the lock is actually
+        # part of the payload, so demo instructors can still rename a unit.
+        if 'is_locked' in serializer.validated_data:
+            require_not_demo(self.request.user)
+        serializer.save()
+
     @action(detail=True, methods=['patch'])
     def reorder(self, request, pk=None):
         """Reorder a unit within its course."""
@@ -259,6 +269,10 @@ class CourseUnitsView(generics.ListCreateAPIView):
             self.request.user, course,
             "Only the course instructor can add units."
         )
+        # Same shared-surface rule as the toggle in UnitViewSet.perform_update:
+        # creating a unit already locked must not be a way around it.
+        if serializer.validated_data.get('is_locked'):
+            require_not_demo(self.request.user)
 
         # Set order to next available
         max_order = course.units.aggregate(
@@ -280,6 +294,14 @@ class LessonViewSet(viewsets.ModelViewSet):
             # List only shows lessons of courses the user teaches or is enrolled in;
             # detail actions keep the full queryset so object permissions return 403
             queryset = queryset.filter(unit__course_id__in=accessible_course_ids(self.request.user))
+            # Phase 66: the lock gate lives in get_object(), which a list never
+            # calls — so a locked unit's lessons would otherwise stream out of
+            # here with their titles and bodies. Drop locked units unless the
+            # requester teaches the course.
+            queryset = queryset.exclude(
+                Q(unit__is_locked=True)
+                & ~Q(unit__course__instructor=self.request.user)
+            )
         else:
             # Detail serves LessonSerializer, which nests sections and
             # attachments in full — so these rows are being fetched either way
@@ -290,6 +312,14 @@ class LessonViewSet(viewsets.ModelViewSet):
             queryset = queryset.prefetch_related(
                 'sections', 'attachments', 'questions')
         return queryset
+
+    def get_object(self):
+        # Locked units are refused here rather than in retrieve() so every
+        # detail action (including reorder) is covered by one check. The
+        # helper no-ops for the course instructor, so authoring is unaffected.
+        lesson = super().get_object()
+        require_unit_unlocked(self.request.user, lesson.unit)
+        return lesson
 
     def perform_create(self, serializer):
         # LessonCreateSerializer has no unit field; lessons are created via the
@@ -400,6 +430,7 @@ class UnitLessonsView(generics.ListCreateAPIView):
     def get_queryset(self):
         unit = get_object_or_404(Unit, pk=self.kwargs['unit_id'])
         require_course_access(self.request.user, unit.course)
+        require_unit_unlocked(self.request.user, unit)
         # Serves LessonSerializer, which nests sections and attachments in full
         # and reports counts over all three relations.
         return Lesson.objects.filter(unit=unit).select_related(
@@ -498,6 +529,8 @@ class LessonProgressView(generics.RetrieveUpdateAPIView):
             self.request.user, lesson.unit.course,
             "You must be enrolled in this course."
         )
+        # Blocks reads AND writes: a locked unit must not accrue new progress.
+        require_unit_unlocked(self.request.user, lesson.unit)
 
         # Get or create progress
         progress, created = LessonProgress.objects.get_or_create(
@@ -538,8 +571,12 @@ class CourseProgressView(generics.RetrieveAPIView):
             "You must be enrolled in this course."
         )
 
-        # Count total lessons in course
-        total_lessons = Lesson.objects.filter(unit__course=course).count()
+        # Locked units drop out of BOTH sides (phase 66): a student who has
+        # finished everything currently unlocked must read 100%, and their
+        # completions inside a since-locked unit must not inflate the numerator.
+        total_lessons = Lesson.objects.filter(
+            unit__course=course, unit__is_locked=False
+        ).count()
 
         if total_lessons == 0:
             return Response({
@@ -552,6 +589,7 @@ class CourseProgressView(generics.RetrieveAPIView):
         completed_lessons = LessonProgress.objects.filter(
             user=request.user,
             lesson__unit__course=course,
+            lesson__unit__is_locked=False,
             completed=True
         ).count()
 
@@ -596,9 +634,12 @@ def dashboard_stats(request):
             user=user, is_active=True
         ).values_list('course_id', flat=True)
 
-        # Lessons completed
+        # Lessons completed. Locked units are excluded here too, or this stat
+        # disagrees with every other progress surface by exactly the amount
+        # hidden behind the lock (phase 66).
         lessons_completed = LessonProgress.objects.filter(
             user=user,
+            lesson__unit__is_locked=False,
             completed=True
         ).count()
 
@@ -674,12 +715,15 @@ def enhanced_dashboard(request):
             completed_lessons = LessonProgress.objects.filter(
                 user=user,
                 lesson__unit__course=course,
+                lesson__unit__is_locked=False,
                 completed=True
             ).values_list('lesson_id', flat=True)
 
-            # Get all lessons in course order
+            # Get all lessons in course order. Locked units are skipped, so
+            # "continue" never points a student at a lesson they'd be 403'd on
+            # and the progress readout matches the course progress endpoint.
             all_lessons = Lesson.objects.filter(
-                unit__course=course
+                unit__course=course, unit__is_locked=False
             ).select_related('unit').order_by('unit__order', 'order')
 
             current_lesson = None
@@ -718,10 +762,18 @@ def enhanced_dashboard(request):
         # Get course IDs for bulk queries
         course_ids = list(enrollments.values_list('course_id', flat=True))
 
-        # Bulk fetch totals per course using annotations
+        # Bulk fetch totals per course using annotations. Locked units are
+        # filtered out of both totals so a dashboard card agrees with the
+        # course progress endpoint (phase 66).
         course_totals = Course.objects.filter(id__in=course_ids).annotate(
-            total_lessons=Count('units__lessons', distinct=True),
-            total_quizzes=Count('units__quizzes', distinct=True),
+            total_lessons=Count(
+                'units__lessons', distinct=True,
+                filter=Q(units__is_locked=False),
+            ),
+            total_quizzes=Count(
+                'units__quizzes', distinct=True,
+                filter=Q(units__is_locked=False),
+            ),
         ).values('id', 'code', 'title', 'total_lessons', 'total_quizzes')
 
         # Build lookup dict
@@ -732,6 +784,7 @@ def enhanced_dashboard(request):
             LessonProgress.objects.filter(
                 user=user,
                 lesson__unit__course_id__in=course_ids,
+                lesson__unit__is_locked=False,
                 completed=True
             ).values('lesson__unit__course_id').annotate(
                 count=Count('id')
@@ -743,6 +796,7 @@ def enhanced_dashboard(request):
             QuizAttempt.objects.filter(
                 student=user,
                 quiz__unit__course_id__in=course_ids,
+                quiz__unit__is_locked=False,
                 passed=True,
                 status=QuizAttempt.STATUS_COMPLETED,
             ).values('quiz__unit__course_id').annotate(
@@ -1011,8 +1065,10 @@ def gradebook(request, course_code):
         grading_config = None
 
     # Get all quizzes for the course, ordered by unit and then order
+    # Quizzes in locked units are ungradeable — students cannot open them — so
+    # they must not add points to the possible total (phase 66).
     quizzes = Quiz.objects.filter(
-        unit__course=course
+        unit__course=course, unit__is_locked=False
     ).select_related('unit').order_by('unit__order', 'order')
 
     # Get all actively enrolled students
@@ -1047,11 +1103,16 @@ def gradebook(request, course_code):
 
     total_possible = sum(q.points for q in quizzes)
 
-    # Lesson completion (participation), bulk-fetched per student
-    total_lessons = Lesson.objects.filter(unit__course=course).count()
+    # Lesson completion (participation), bulk-fetched per student.
+    # Locked units are excluded from both sides so participation matches the
+    # progress the student is actually able to make (phase 66).
+    total_lessons = Lesson.objects.filter(
+        unit__course=course, unit__is_locked=False
+    ).count()
     completed_lessons_by_student = dict(
         LessonProgress.objects.filter(
             lesson__unit__course=course,
+            lesson__unit__is_locked=False,
             completed=True
         ).values('user_id').annotate(count=Count('id')).values_list('user_id', 'count')
     )
@@ -1152,8 +1213,10 @@ def gradebook_export(request, course_code):
         grading_config = None
 
     # Get all quizzes for the course
+    # Quizzes in locked units are ungradeable — students cannot open them — so
+    # they must not add points to the possible total (phase 66).
     quizzes = Quiz.objects.filter(
-        unit__course=course
+        unit__course=course, unit__is_locked=False
     ).select_related('unit').order_by('unit__order', 'order')
 
     # Get all actively enrolled students
@@ -1174,11 +1237,14 @@ def gradebook_export(request, course_code):
         if key not in quiz_best_lookup or attempt.score > quiz_best_lookup[key].score:
             quiz_best_lookup[key] = attempt
 
-    # Lesson completion (participation)
-    total_lessons = Lesson.objects.filter(unit__course=course).count()
+    # Lesson completion (participation) — locked units excluded (phase 66)
+    total_lessons = Lesson.objects.filter(
+        unit__course=course, unit__is_locked=False
+    ).count()
     completed_lessons_by_student = dict(
         LessonProgress.objects.filter(
             lesson__unit__course=course,
+            lesson__unit__is_locked=False,
             completed=True
         ).values('user_id').annotate(count=Count('id')).values_list('user_id', 'count')
     )
@@ -1288,18 +1354,25 @@ def _analytics_student_rows(course):
         is_active=True
     ).select_related('user').order_by('user__last_name', 'user__first_name'))
 
-    total_lessons = Lesson.objects.filter(unit__course=course).count()
+    # Locked units excluded from both sides (phase 66)
+    total_lessons = Lesson.objects.filter(
+        unit__course=course, unit__is_locked=False
+    ).count()
     completed_lessons_by_student = dict(
         LessonProgress.objects.filter(
             lesson__unit__course=course,
+            lesson__unit__is_locked=False,
             completed=True
         ).values('user_id').annotate(count=Count('id')).values_list('user_id', 'count')
     )
 
-    # Best completed attempt per (student, quiz), grouped by student
+    # Best completed attempt per (student, quiz), grouped by student. Attempts
+    # in a locked unit are dropped so analytics agrees with the gradebook —
+    # otherwise locking a unit leaves stale scores driving at_risk flags.
     best_by_student = {}
     for attempt in QuizAttempt.objects.filter(
         quiz__unit__course=course,
+        quiz__unit__is_locked=False,
         status=QuizAttempt.STATUS_COMPLETED,
     ).select_related('quiz'):
         per_quiz = best_by_student.setdefault(attempt.student_id, {})
@@ -1414,9 +1487,13 @@ def analytics_quizzes(request, course_code):
             entry['best'] = score
         entry['passed'] = entry['passed'] or attempt.passed
 
+    # Locked units are excluded here too, matching the gradebook and
+    # _analytics_student_rows (phase 66). Listing an assessment that has no
+    # gradebook column and feeds no student's average is the same
+    # analytics-disagrees-with-the-gradebook trap, one level down.
     unit_quizzes = []
     for quiz in Quiz.objects.filter(
-        unit__course=course
+        unit__course=course, unit__is_locked=False
     ).select_related('unit').order_by('unit__order', 'order'):
         per_student = quiz_stats.get(quiz.id, {})
         attempted = len(per_student)
@@ -1455,7 +1532,7 @@ def analytics_quizzes(request, course_code):
 
     lesson_checks = []
     for lesson in Lesson.objects.filter(
-        unit__course=course
+        unit__course=course, unit__is_locked=False
     ).annotate(num_questions=Count('questions')).filter(
         num_questions__gt=0
     ).select_related('unit').order_by('unit__order', 'order'):
@@ -1978,7 +2055,7 @@ def student_grade_summary(request, course_code):
 
     # Calculate quiz grades and build per-quiz grade items
     all_quizzes = Quiz.objects.filter(
-        unit__course=course
+        unit__course=course, unit__is_locked=False
     ).select_related('unit').order_by('unit__order', 'order')
 
     quiz_earned = 0
@@ -2022,11 +2099,14 @@ def student_grade_summary(request, course_code):
         if quiz_possible > 0 else None
     )
 
-    # Calculate participation (lesson completion)
-    total_lessons = Lesson.objects.filter(unit__course=course).count()
+    # Calculate participation (lesson completion) — locked units excluded
+    total_lessons = Lesson.objects.filter(
+        unit__course=course, unit__is_locked=False
+    ).count()
     completed_lessons = LessonProgress.objects.filter(
         user=request.user,
         lesson__unit__course=course,
+        lesson__unit__is_locked=False,
         completed=True
     ).count()
 
@@ -2082,11 +2162,13 @@ def lesson_questions(request, lesson_id):
         - Students see questions without correct answer indicators
     POST: Create a new question (instructor only).
     """
-    lesson = get_object_or_404(Lesson, pk=lesson_id)
+    lesson = get_object_or_404(
+        Lesson.objects.select_related('unit__course'), pk=lesson_id)
     course = lesson.unit.course
 
     is_instructor = is_course_instructor(request.user, course)
     require_course_access(request.user, course, "You must be enrolled in this course.")
+    require_unit_unlocked(request.user, lesson.unit)
 
     if request.method == 'GET':
         questions = lesson.questions.prefetch_related('choices').all()
@@ -2152,12 +2234,14 @@ def lesson_question_detail(request, lesson_id, question_id):
     PUT: Update a question (instructor only).
     DELETE: Delete a question (instructor only).
     """
-    lesson = get_object_or_404(Lesson, pk=lesson_id)
+    lesson = get_object_or_404(
+        Lesson.objects.select_related('unit__course'), pk=lesson_id)
     question = get_object_or_404(LessonQuestion, pk=question_id, lesson=lesson)
     course = lesson.unit.course
 
     is_instructor = is_course_instructor(request.user, course)
     require_course_access(request.user, course, "You must be enrolled in this course.")
+    require_unit_unlocked(request.user, lesson.unit)
 
     if request.method == 'GET':
         if is_instructor:
@@ -2240,10 +2324,12 @@ def lesson_questions_status(request, lesson_id):
     Get the status of a student's progress on lesson questions.
     Returns total questions, answered count, correct count, and whether they can complete the lesson.
     """
-    lesson = get_object_or_404(Lesson, pk=lesson_id)
+    lesson = get_object_or_404(
+        Lesson.objects.select_related('unit__course'), pk=lesson_id)
     course = lesson.unit.course
 
     require_course_access(request.user, course, "You must be enrolled in this course.")
+    require_unit_unlocked(request.user, lesson.unit)
 
     total_questions = lesson.questions.count()
 
@@ -2347,8 +2433,10 @@ def start_lesson_quiz_session(request, lesson_id):
     Start (or resume) a mastery session for a lesson's comprehension check.
     Students only. max_quiz_attempts is intentionally ignored (cap retired).
     """
-    lesson = get_object_or_404(Lesson, pk=lesson_id)
+    lesson = get_object_or_404(
+        Lesson.objects.select_related('unit__course'), pk=lesson_id)
     require_enrollment(request.user, lesson.unit.course)
+    require_unit_unlocked(request.user, lesson.unit)
 
     if not lesson.questions.exists():
         return Response(
@@ -2382,8 +2470,10 @@ def start_lesson_quiz_session(request, lesson_id):
 @perm_classes([IsAuthenticated])
 def get_lesson_quiz_session(request, lesson_id):
     """Resume state for the current in-progress session; 404 if none."""
-    lesson = get_object_or_404(Lesson, pk=lesson_id)
+    lesson = get_object_or_404(
+        Lesson.objects.select_related('unit__course'), pk=lesson_id)
     require_enrollment(request.user, lesson.unit.course)
+    require_unit_unlocked(request.user, lesson.unit)
 
     attempt = LessonQuizAttempt.objects.filter(
         user=request.user, lesson=lesson,
@@ -2407,8 +2497,10 @@ def answer_lesson_quiz_session(request, lesson_id):
     completion gating stay consistent. Finalizes when all mastered:
     score = first-try correct count, passed=True, XP awarded once.
     """
-    lesson = get_object_or_404(Lesson, pk=lesson_id)
+    lesson = get_object_or_404(
+        Lesson.objects.select_related('unit__course'), pk=lesson_id)
     require_enrollment(request.user, lesson.unit.course)
+    require_unit_unlocked(request.user, lesson.unit)
 
     attempt = LessonQuizAttempt.objects.filter(
         user=request.user, lesson=lesson,
@@ -2531,10 +2623,12 @@ def lesson_attachments(request, lesson_id):
     GET: List attachments for a lesson (students and instructors)
     POST: Upload attachment to a lesson (instructor only)
     """
-    lesson = get_object_or_404(Lesson, pk=lesson_id)
+    lesson = get_object_or_404(
+        Lesson.objects.select_related('unit__course'), pk=lesson_id)
     course = lesson.unit.course
 
     require_course_access(request.user, course, "You must be enrolled in this course.")
+    require_unit_unlocked(request.user, lesson.unit)
 
     if request.method == 'GET':
         attachments = lesson.attachments.all()
@@ -2620,7 +2714,8 @@ def lesson_attachments(request, lesson_id):
 @perm_classes([IsAuthenticated])
 def lesson_attachment_detail(request, lesson_id, attachment_id):
     """Delete an attachment (instructor only)."""
-    lesson = get_object_or_404(Lesson, pk=lesson_id)
+    lesson = get_object_or_404(
+        Lesson.objects.select_related('unit__course'), pk=lesson_id)
     course = lesson.unit.course
 
     require_course_instructor(
@@ -2649,10 +2744,12 @@ def lesson_sections(request, lesson_id):
     GET: List sections for a lesson (students and instructors)
     POST: Create a new section (instructor only)
     """
-    lesson = get_object_or_404(Lesson, pk=lesson_id)
+    lesson = get_object_or_404(
+        Lesson.objects.select_related('unit__course'), pk=lesson_id)
     course = lesson.unit.course
 
     require_course_access(request.user, course, "You must be enrolled in this course.")
+    require_unit_unlocked(request.user, lesson.unit)
 
     if request.method == 'GET':
         sections = lesson.sections.all().order_by('order')
@@ -2689,11 +2786,13 @@ def lesson_section_detail(request, lesson_id, section_id):
     PUT: Update a section (instructor only)
     DELETE: Delete a section (instructor only)
     """
-    lesson = get_object_or_404(Lesson, pk=lesson_id)
+    lesson = get_object_or_404(
+        Lesson.objects.select_related('unit__course'), pk=lesson_id)
     course = lesson.unit.course
     section = get_object_or_404(LessonSection, pk=section_id, lesson=lesson)
 
     require_course_access(request.user, course, "You must be enrolled in this course.")
+    require_unit_unlocked(request.user, lesson.unit)
 
     if request.method == 'GET':
         serializer = LessonSectionSerializer(section, context={'request': request})
@@ -2739,7 +2838,8 @@ def lesson_sections_reorder(request, lesson_id):
     Reorder sections for a lesson.
     Expects: { "section_ids": [3, 1, 2] }
     """
-    lesson = get_object_or_404(Lesson, pk=lesson_id)
+    lesson = get_object_or_404(
+        Lesson.objects.select_related('unit__course'), pk=lesson_id)
     course = lesson.unit.course
 
     require_course_instructor(
@@ -2789,7 +2889,8 @@ def lesson_sections_bulk_create(request, lesson_id):
     New sections are appended after existing ones with server-assigned order.
     All-or-nothing: a single invalid child rolls back the whole batch (400).
     """
-    lesson = get_object_or_404(Lesson, pk=lesson_id)
+    lesson = get_object_or_404(
+        Lesson.objects.select_related('unit__course'), pk=lesson_id)
     course = lesson.unit.course
 
     require_course_instructor(
@@ -2860,7 +2961,8 @@ def lesson_section_import_slide(request, lesson_id):
     is the ONLY writer of ``LessonSection.image`` (the normal section
     serializers exclude it so full-object editor PUTs can't wipe it).
     """
-    lesson = get_object_or_404(Lesson, pk=lesson_id)
+    lesson = get_object_or_404(
+        Lesson.objects.select_related('unit__course'), pk=lesson_id)
     course = lesson.unit.course
 
     require_course_instructor(
@@ -2990,7 +3092,8 @@ def reset_lesson_progress(request, lesson_id):
 
     Used by instructors to repeatedly test the student experience.
     """
-    lesson = get_object_or_404(Lesson, pk=lesson_id)
+    lesson = get_object_or_404(
+        Lesson.objects.select_related('unit__course'), pk=lesson_id)
     course = lesson.unit.course
 
     # Only allow instructors of this course to reset their progress
@@ -3181,33 +3284,44 @@ def course_map(request, course_code):
     best_scores = {row['quiz_id']: float(row['best_score']) for row in quiz_stats}
     passed_quiz_ids = {row['quiz_id'] for row in quiz_stats if row['passed_count']}
 
+    # The instructor sees their own course as if nothing were locked.
+    viewer_is_instructor = is_course_instructor(request.user, course)
+
     # Flatten: for each unit (by order), lessons (by order) then quizzes
     # (by order) as boss nodes. Model Meta orderings apply to the prefetches.
     nodes = []
     unit_groups = []
     for unit in course.units.all():
         unit_start = len(nodes)
+        unit_locked = unit.is_locked and not viewer_is_instructor
         for lesson in unit.lessons.all():
             nodes.append({
                 'node_type': 'lesson',
                 'obj': lesson,
                 'completed': lesson.id in completed_lesson_ids,
+                'unit_locked': unit_locked,
             })
         for quiz in unit.quizzes.all():
             nodes.append({
                 'node_type': 'quiz',
                 'obj': quiz,
                 'completed': quiz.id in passed_quiz_ids,
+                'unit_locked': unit_locked,
             })
         unit_groups.append((unit, nodes[unit_start:]))
 
-    # Base unlock rule: first node, or previous node completed.
-    for i, node in enumerate(nodes):
-        node['unlocked'] = i == 0 or nodes[i - 1]['completed']
+    # Base unlock rule: first node, or previous node completed — computed over
+    # the reachable nodes only. An instructor-locked unit is transparent to the
+    # chain rather than a wall: locking unit 2 must not sequence-lock unit 3.
+    open_nodes = [node for node in nodes if not node['unit_locked']]
+    for node in nodes:
+        node['unlocked'] = False
+    for i, node in enumerate(open_nodes):
+        node['unlocked'] = i == 0 or open_nodes[i - 1]['completed']
 
     # Current = first unlocked-but-incomplete node in the sequence.
     current_node_id = None
-    for node in nodes:
+    for node in open_nodes:
         if node['unlocked'] and not node['completed']:
             node['current'] = True
             current_node_id = f"{node['node_type']}-{node['obj'].id}"
@@ -3215,7 +3329,13 @@ def course_map(request, course_code):
 
     def node_payload(node):
         obj = node['obj']
-        if node['completed']:
+        lock_reason = None
+        if node['unit_locked']:
+            # Locked by the instructor beats every other state — a completed
+            # lesson in a since-locked unit still reads as locked.
+            state = 'locked'
+            lock_reason = 'instructor'
+        elif node['completed']:
             state = 'completed'
         elif node.get('current'):
             state = 'current'
@@ -3223,29 +3343,45 @@ def course_map(request, course_code):
             state = 'unlocked'
         else:
             state = 'locked'
+            lock_reason = 'sequence'
         payload = {
             'node_type': node['node_type'],
             'id': obj.id,
-            'title': obj.title,
+            # Withhold the real title inside an instructor-locked unit — the
+            # rest of the phase hides lesson titles from students, and the map
+            # would otherwise be the one surface that prints them.
+            'title': (
+                'Locked lesson' if node['node_type'] == 'lesson' else 'Locked quiz'
+            ) if node['unit_locked'] else obj.title,
             'order': obj.order,
             'state': state,
+            'lock_reason': lock_reason,
         }
         if node['node_type'] == 'quiz':
-            payload['passing_score'] = obj.passing_score
-            payload['best_score'] = best_scores.get(obj.id)
+            # Scrubbed alongside the title for a locked unit: the passing bar
+            # and the student's own best score both describe hidden content.
+            payload['passing_score'] = (
+                None if node['unit_locked'] else obj.passing_score
+            )
+            payload['best_score'] = (
+                None if node['unit_locked'] else best_scores.get(obj.id)
+            )
         return payload
 
     data = {
         'course_code': course.code,
         'course_title': course.title,
-        'total_nodes': len(nodes),
-        'completed_nodes': sum(1 for node in nodes if node['completed']),
+        # Totals count reachable nodes only, so the map's progress readout
+        # agrees with the course progress endpoint.
+        'total_nodes': len(open_nodes),
+        'completed_nodes': sum(1 for node in open_nodes if node['completed']),
         'current_node_id': current_node_id,
         'units': [
             {
                 'id': unit.id,
                 'title': unit.title,
                 'order': unit.order,
+                'is_locked': unit.is_locked,
                 'nodes': [node_payload(node) for node in group],
             }
             for unit, group in unit_groups

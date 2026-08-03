@@ -22,8 +22,16 @@ def notify_instructor_on_enrollment(sender, instance, created, **kwargs):
 
 @receiver(post_save, sender=Lesson)
 def notify_students_on_new_lesson(sender, instance, created, **kwargs):
-    """Notify enrolled students when a new lesson is added."""
+    """Notify enrolled students when a new lesson is added.
+
+    Phase 66: silent when the lesson lands in a locked unit. Authoring inside a
+    locked unit is the point of the feature, but this notification carries the
+    lesson's real title AND a direct link — it would announce verbatim the
+    content the lock exists to hide, to every student in the course.
+    """
     if created:
+        if instance.unit.is_locked:
+            return
         course = instance.unit.course
         # Get all actively enrolled students
         enrollments = Enrollment.objects.filter(course=course, is_active=True).select_related('user')

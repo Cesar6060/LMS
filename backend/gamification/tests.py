@@ -1553,3 +1553,95 @@ class TestStrandedLedgerRows:
 
         assert result.xp_awarded == 20
         assert GameProfile.objects.get(user=other).total_xp == 20
+
+
+# ============ Phase 66: locked units and the course-complete badge ============
+
+@pytest.mark.django_db
+class TestCourseCompleteBadgeWithLockedUnits:
+    """A locked unit must not hold the badge hostage: a student who finishes
+    everything currently unlocked has completed the course as far as they can."""
+
+    def test_course_complete_badge_ignores_locked_units(
+            self, student, course, unit, lessons, enrollment):
+        locked = Unit.objects.create(
+            course=course, title='Locked', order=99, is_locked=True)
+        Lesson.objects.create(unit=locked, title='Unreachable', order=1)
+
+        for lsn in lessons:
+            LessonProgress.objects.create(user=student, lesson=lsn, completed=True)
+
+        profile, _ = GameProfile.objects.get_or_create(user=student)
+        _evaluate_badges(student, profile)
+
+        assert UserBadge.objects.filter(
+            user=student, badge__key='course_done').exists()
+
+    def test_unlocking_a_unit_makes_the_badge_unearned_again(
+            self, student, course, unit, lessons, enrollment):
+        """The denominator must actually track the lock, not just start right.
+
+        Earn the badge with a unit locked, then unlock that same unit: the
+        identical completions are no longer a finished course. Written as a
+        transition on one unit so it cannot pass with the filters reverted.
+        """
+        locked = Unit.objects.create(
+            course=course, title='Locked', order=99, is_locked=True)
+        Lesson.objects.create(unit=locked, title='Unreachable', order=1)
+
+        for lsn in lessons:
+            LessonProgress.objects.create(user=student, lesson=lsn, completed=True)
+
+        profile, _ = GameProfile.objects.get_or_create(user=student)
+        _evaluate_badges(student, profile)
+        assert UserBadge.objects.filter(
+            user=student, badge__key='course_done').exists()
+
+        # Unlock it: the same completions no longer cover the course. The badge
+        # already granted stays (grant-only ledger) — what must change is
+        # whether a student in this state would newly earn it.
+        UserBadge.objects.filter(user=student, badge__key='course_done').delete()
+        locked.is_locked = False
+        locked.save(update_fields=['is_locked'])
+
+        _evaluate_badges(student, profile)
+        assert not UserBadge.objects.filter(
+            user=student, badge__key='course_done').exists()
+
+    def test_completions_inside_a_locked_unit_do_not_earn_the_badge(
+            self, student, course, unit, lessons, enrollment):
+        """The numerator excludes locked units too, so banking completions in a
+        unit that is later locked cannot substitute for the open work."""
+        locked = Unit.objects.create(
+            course=course, title='Locked', order=99, is_locked=True)
+        banked = Lesson.objects.create(unit=locked, title='Banked', order=1)
+
+        LessonProgress.objects.create(user=student, lesson=banked, completed=True)
+        for lsn in lessons[:-1]:
+            LessonProgress.objects.create(user=student, lesson=lsn, completed=True)
+
+        profile, _ = GameProfile.objects.get_or_create(user=student)
+        _evaluate_badges(student, profile)
+
+        assert not UserBadge.objects.filter(
+            user=student, badge__key='course_done').exists()
+
+
+    def test_lessons_done_badge_keeps_counting_after_a_lock(
+            self, student, course, unit, lessons, enrollment):
+        """Counts vs ratios: a tally of work actually done must survive a lock.
+
+        The course-complete badge is a ratio and drops locked units from its
+        denominator; `lessons_done` is a count of real effort and must not be
+        retroactively un-earned when an instructor hides the unit.
+        """
+        locked = Unit.objects.create(
+            course=course, title='Locked', order=99, is_locked=True)
+        banked = Lesson.objects.create(unit=locked, title='Banked', order=1)
+        LessonProgress.objects.create(user=student, lesson=banked, completed=True)
+
+        profile, _ = GameProfile.objects.get_or_create(user=student)
+        _evaluate_badges(student, profile)
+
+        assert UserBadge.objects.filter(
+            user=student, badge__key='first_lesson').exists()

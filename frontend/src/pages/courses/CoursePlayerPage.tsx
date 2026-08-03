@@ -15,7 +15,7 @@ import { useAuth } from '@/contexts/useAuth';
 import { useGamificationFeedback } from '@/components/gamification/useGamificationFeedback';
 import type { LessonProgress, LessonQuestionsStatus, LessonAttachment, LessonSection, Quiz } from '@/types';
 import {
-  Loader2, ChevronLeft, ChevronRight, CheckCircle, Circle, FileQuestion, Map as MapIcon
+  Loader2, ChevronLeft, ChevronRight, CheckCircle, Circle, FileQuestion, Map as MapIcon, Lock
 } from 'lucide-react';
 
 interface LessonDetail {
@@ -56,6 +56,10 @@ interface UnitWithProgress {
   order: number;
   course: number;
   lessons: LessonWithProgress[];
+  /** Phase 66 — locked by the instructor; students get `lessons: []`. */
+  is_locked?: boolean;
+  /** Total lessons in the unit, sent even when `lessons` is withheld. */
+  lesson_count?: number;
 }
 
 interface CourseWithProgress {
@@ -85,6 +89,10 @@ export function CoursePlayerPage() {
   const [progress, setProgress] = useState<LessonProgress | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isLessonLoading, setIsLessonLoading] = useState(false);
+  // Phase 66: set when the requested lesson sits in a locked unit. Without it a
+  // pasted URL fell through to the neutral "Select a lesson to begin" state,
+  // which reads like an app glitch rather than an answer.
+  const [lockedNotice, setLockedNotice] = useState('');
   const [error, setError] = useState('');
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(() => {
     return localStorage.getItem('coursePlayerSidebarCollapsed') === 'true';
@@ -135,8 +143,13 @@ export function CoursePlayerPage() {
     localStorage.setItem('coursePlayerSidebarCollapsed', isSidebarCollapsed.toString());
   }, [isSidebarCollapsed]);
 
+  // Phase 66: never resume into a locked unit. A student's locked unit arrives
+  // with `lessons: []` so it drops out anyway, but the instructor still gets its
+  // lessons — and every lesson endpoint under it 403s for everyone else, so the
+  // skip is explicit rather than a side effect of the empty list.
   const findFirstIncompleteLesson = useCallback((courseData: CourseWithProgress) => {
     for (const unit of courseData.units) {
+      if (unit.is_locked) continue;
       for (const lesson of unit.lessons) {
         if (!lesson.is_completed) {
           return lesson;
@@ -161,7 +174,11 @@ export function CoursePlayerPage() {
       // If no lessonId in URL, navigate to first incomplete lesson or first lesson
       if (!lessonId && courseData.units.length > 0) {
         const firstIncompleteLesson = findFirstIncompleteLesson(courseData);
-        const firstLesson = courseData.units[0]?.lessons[0];
+        // Fallback (everything complete): first lesson of the first *unlocked*
+        // unit — unit 1 being locked must not strand the player on a 403.
+        const firstLesson = courseData.units.find(
+          unit => !unit.is_locked && unit.lessons.length > 0
+        )?.lessons[0];
         const targetLesson = firstIncompleteLesson || firstLesson;
 
         if (targetLesson) {
@@ -184,6 +201,7 @@ export function CoursePlayerPage() {
   const loadLesson = useCallback(async (id: number) => {
     try {
       setIsLessonLoading(true);
+      setLockedNotice('');
       setQuestionsStatus(null); // Reset questions status when loading new lesson
       setCurrentSectionIndex(0); // Reset section index
       setNavDirection('forward'); // New lesson always enters forward
@@ -220,6 +238,13 @@ export function CoursePlayerPage() {
         courseService.updateCourseActivity(code).catch(() => {});
       }
     } catch (err) {
+      const error = err as { response?: { status?: number; data?: { detail?: string } } };
+      if (error.response?.status === 403) {
+        setCurrentLesson(null);
+        setLockedNotice(
+          error.response.data?.detail || 'This unit is locked by your instructor.'
+        );
+      }
       console.error('Failed to load lesson:', err);
     } finally {
       setIsLessonLoading(false);
@@ -939,8 +964,18 @@ export function CoursePlayerPage() {
               </div>
             </>
           ) : (
-            <div className="flex-1 flex items-center justify-center text-muted-foreground">
-              Select a lesson to begin
+            <div className="flex-1 flex items-center justify-center p-8">
+              {lockedNotice ? (
+                <div className="max-w-md text-center">
+                  <Lock className="h-10 w-10 mx-auto mb-4 text-amber-600 dark:text-amber-400" />
+                  <p className="text-lg font-semibold mb-2">{lockedNotice}</p>
+                  <p className="text-base text-muted-foreground">
+                    Pick an unlocked lesson from the sidebar to keep going.
+                  </p>
+                </div>
+              ) : (
+                <span className="text-muted-foreground">Select a lesson to begin</span>
+              )}
             </div>
           )}
         </div>

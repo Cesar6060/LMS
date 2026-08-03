@@ -311,7 +311,7 @@ export function CourseDetailPage() {
                         {unit.isComplete ? (
                           <CheckCircle className="h-4 w-4" />
                         ) : (
-                          idx + 1
+                          unit.unitNumber
                         )}
                       </div>
                       <span className="text-xs text-muted-foreground mt-1 max-w-16 truncate text-center hidden sm:block">
@@ -447,54 +447,84 @@ export function CourseDetailPage() {
             </CardContent>
           </Card>
         ) : (
-          course.units.map((unit, unitIndex) => (
-            <Card key={unit.id}>
-              <CardHeader className="pb-3">
-                <CardTitle className="text-lg">
-                  Unit {unitIndex + 1}: {unit.title}
-                </CardTitle>
-              </CardHeader>
-              <CardContent className="pt-0">
-                {unit.lessons.length === 0 ? (
-                  <p className="text-sm text-muted-foreground">No lessons in this unit.</p>
-                ) : (
-                  <ul className="divide-y">
-                    {unit.lessons.map((lesson, lessonIndex) => (
-                      <li key={lesson.id}>
-                        {canAccessContent ? (
-                          <Link
-                            to={`/courses/${course.code}/learn/${lesson.id}`}
-                            className="flex items-center justify-between py-3 hover:bg-muted/50 -mx-6 px-6 transition-colors"
-                          >
-                            <div className="flex items-center gap-3">
-                              {lesson.has_video ? (
-                                <Play className="h-4 w-4 text-muted-foreground" />
-                              ) : (
-                                <FileText className="h-4 w-4 text-muted-foreground" />
-                              )}
-                              <span>
-                                {unitIndex + 1}.{lessonIndex + 1} {lesson.title}
-                              </span>
+          course.units.map((unit, unitIndex) => {
+            // Phase 66 — a locked unit stays visible. Students see the title and
+            // `lesson_count` only (the backend sends `lessons: []` for them), so
+            // there are no rows to render; the instructor keeps the full lesson
+            // list plus a "Locked" chip so the state is obvious from this page.
+            const isUnitLocked = unit.is_locked === true;
+            const lessonCount = unit.lesson_count ?? unit.lessons.length;
+            const showLockedNotice = isUnitLocked && !isCourseOwner;
+
+            return (
+              <Card key={unit.id}>
+                <CardHeader className="pb-3">
+                  <CardTitle className="text-lg flex flex-wrap items-center gap-3">
+                    <span>
+                      Unit {unitIndex + 1}: {unit.title}
+                    </span>
+                    {isUnitLocked && isCourseOwner && (
+                      <span className="text-sm font-semibold px-2.5 py-1 rounded flex items-center gap-1.5 bg-amber-100 text-amber-800 dark:bg-amber-900 dark:text-amber-200">
+                        <Lock className="h-4 w-4" />
+                        Locked
+                      </span>
+                    )}
+                  </CardTitle>
+                </CardHeader>
+                <CardContent className="pt-0">
+                  {showLockedNotice ? (
+                    <div className="flex items-center gap-4 rounded-lg border border-amber-300 bg-amber-100/60 px-4 py-4 dark:border-amber-800 dark:bg-amber-900/30">
+                      <Lock className="h-6 w-6 flex-shrink-0 text-amber-700 dark:text-amber-300" />
+                      <div>
+                        <p className="text-base font-semibold text-amber-800 dark:text-amber-200">
+                          Locked by your instructor
+                        </p>
+                        <p className="text-sm text-amber-700 dark:text-amber-300">
+                          {lessonCount} {lessonCount === 1 ? 'lesson' : 'lessons'}
+                        </p>
+                      </div>
+                    </div>
+                  ) : unit.lessons.length === 0 ? (
+                    <p className="text-sm text-muted-foreground">No lessons in this unit.</p>
+                  ) : (
+                    <ul className="divide-y">
+                      {unit.lessons.map((lesson, lessonIndex) => (
+                        <li key={lesson.id}>
+                          {canAccessContent ? (
+                            <Link
+                              to={`/courses/${course.code}/learn/${lesson.id}`}
+                              className="flex items-center justify-between py-3 hover:bg-muted/50 -mx-6 px-6 transition-colors"
+                            >
+                              <div className="flex items-center gap-3">
+                                {lesson.has_video ? (
+                                  <Play className="h-4 w-4 text-muted-foreground" />
+                                ) : (
+                                  <FileText className="h-4 w-4 text-muted-foreground" />
+                                )}
+                                <span>
+                                  {unitIndex + 1}.{lessonIndex + 1} {lesson.title}
+                                </span>
+                              </div>
+                              <ChevronRight className="h-4 w-4 text-muted-foreground" />
+                            </Link>
+                          ) : (
+                            <div className="flex items-center justify-between py-3 text-muted-foreground">
+                              <div className="flex items-center gap-3">
+                                <Lock className="h-4 w-4" />
+                                <span>
+                                  {unitIndex + 1}.{lessonIndex + 1} {lesson.title}
+                                </span>
+                              </div>
                             </div>
-                            <ChevronRight className="h-4 w-4 text-muted-foreground" />
-                          </Link>
-                        ) : (
-                          <div className="flex items-center justify-between py-3 text-muted-foreground">
-                            <div className="flex items-center gap-3">
-                              <Lock className="h-4 w-4" />
-                              <span>
-                                {unitIndex + 1}.{lessonIndex + 1} {lesson.title}
-                              </span>
-                            </div>
-                          </div>
-                        )}
-                      </li>
-                    ))}
-                  </ul>
-                )}
-              </CardContent>
-            </Card>
-          ))
+                          )}
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </CardContent>
+              </Card>
+            );
+          })
         )}
       </div>
 
