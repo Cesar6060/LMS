@@ -3,7 +3,7 @@
 ## Current state
 Phase 66 code-complete on `feat/phase-66-unit-locking`. **PR #95 open, NOT merged**
 (https://github.com/Cesar6060/LMS/pull/95). All 23 spec checklist items done.
-- Verified: pytest **945** (main: 892), tsc 0, lint 0 (+1 known), vitest **132**,
+- Verified: pytest **947** (main: 892), tsc 0, lint 0 (+1 known), vitest **138**,
   `makemigrations --check` clean. Manual click-through done on local Docker (VGD101).
 - Migration `courses/0025_unit_is_locked` — `db_default=False`, reverse tested down/up,
   and a raw INSERT omitting the column proven to succeed with `False`.
@@ -12,24 +12,19 @@ Phase 66 code-complete on `feat/phase-66-unit-locking`. **PR #95 open, NOT merge
   course/unit surfaces and `lib/courseProgress.ts`. See `git diff main...HEAD --stat`.
 
 ## In progress / not done
-- **`code-reviewer` never ran** — agent died on an API session limit. I reviewed manually
-  (queryset sweep + contract drift, which caught nullable `passing_score`); an independent
-  pass before merge is worth it.
-- Three findings deliberately deferred, recorded in the spec and PR body: `_badge_satisfied`
-  `CRITERIA_LESSONS_DONE` lock-filter asymmetry; `course_map` still emitting locked node
-  `id`s; the player's neutral empty state on a pasted locked-lesson URL.
+- Nothing outstanding on the phase itself. `code-reviewer` ran on the second attempt
+  (approve w/ minor changes); its two frontend bugs and three test-tightenings are fixed,
+  and every previously deferred item is now resolved or documented as a decision in the
+  spec's "Cleanup pass" section.
 - Carried, untouched: branch protection on `main`; whether to track `.claude/`;
   `THROTTLE_SLIDE_IMPORT` ceiling; phase-61 slide-import smoke test; JAVA101 answer-rotation
   reseed; phase-56 + 64 click-throughs; Sentry LoginPage; Dependabot #68/#86/#87/#88.
 
 ## Next steps
-1. Optionally re-run `code-reviewer` on `git diff main...HEAD` before merging PR #95.
-2. Merge PR #95 when ready — **this deploys**. Verify with BOTH `/api/health/?deep=1` AND a
-   real content read (demo-login → `GET /api/courses/courses/DEMO101/units/`, expect
+1. Merge PR #95 — **this deploys**. Verify with BOTH `/api/health/?deep=1` AND a real
+   content read (demo-login → `GET /api/courses/courses/DEMO101/units/`, expect
    `is_locked: false` + `lesson_count`).
-3. Decide the deferred badge question: should a completion inside a later-locked unit still
-   count toward `lessons_done` badges?
-4. Add branch protection on `main` (require both CI jobs).
+2. Add branch protection on `main` (require both CI jobs).
 
 ## Decisions made
 - **Denominators exclude locked units unconditionally**, not per-viewer — they measure what
@@ -43,6 +38,8 @@ Phase 66 code-complete on `feat/phase-66-unit-locking`. **PR #95 open, NOT merge
   rename a unit. **Reseeds never touch `is_locked`** — instructor state, not blueprint state.
 - **New-lesson notification suppressed inside a locked unit** — authoring there is
   supported, announcing the title verbatim is not.
+- **Badges: counts survive a lock, ratios don't.** `lessons_done` keeps counting real
+  effort; `course_complete` drops locked units from its denominator or it is unearnable.
 
 ## Gotchas discovered
 - **The per-object gate is never the leak.** Both adversarial passes found the same shape:
