@@ -52,9 +52,11 @@ describe('ClassCodeCard', () => {
     expect(screen.queryByRole('button', { name: /rotate code/i })).not.toBeInTheDocument();
   });
 
-  it('renders identically whichever page mounts it', async () => {
-    // The whole reason this is one component: ManageCoursePage and
-    // StudentRosterPage must never show different states for one course.
+  it('is deterministic for a given course', async () => {
+    // Guards the card itself. That BOTH pages actually mount it is asserted
+    // where it can fail — in StudentRosterPage.test.tsx and
+    // ManageCoursePage.test.tsx — since rendering it twice here could never
+    // detect a page dropping it.
     mockGetJoinCode.mockResolvedValue('ABCD2345');
 
     const fromRoster = render(<ClassCodeCard courseCode="VGD101" />);

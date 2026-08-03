@@ -4,6 +4,7 @@ from pathlib import Path
 import pytest
 from django.conf import settings
 from django.core.files.uploadedfile import SimpleUploadedFile
+from django.db import IntegrityError
 from PIL import Image as PILImage
 from django.urls import reverse
 from rest_framework import status
@@ -6697,9 +6698,10 @@ class TestInviteRequiredEnrollment:
             invited_by=instructor)
 
         api_client.force_authenticate(user=student)
-        body = str(enroll_via(api_client, 'action', course).data)
+        response = enroll_via(api_client, 'action', course)
 
-        assert 'classmate@example.com' not in body
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+        assert 'classmate@example.com' not in str(response.data)
 
     @pytest.mark.parametrize('path', ENROLL_PATHS)
     @pytest.mark.parametrize('bad_code', [123, [], {'a': 1}, True])
@@ -6849,6 +6851,35 @@ class TestInviteDelete:
         assert response.status_code == status.HTTP_403_FORBIDDEN
         assert response.data['code'] == 'demo_blocked'
         assert CourseInvite.objects.filter(pk=invite.pk).exists()
+
+    def test_demo_course_refuses_bulk_delete(
+            self, api_client, instructor, settings):
+        """The two delete endpoints have to agree — an asymmetric demo guard
+        is how one of them quietly becomes the way in."""
+        settings.DEMO_ACCOUNT_EMAIL = 'jdoe@demo.test'
+        demo_student = User.objects.create_user(
+            email='jdoe@demo.test', password='testpass123')
+        demo_course = Course.objects.create(
+            code='DEMOX', title='Demo', instructor=instructor)
+        Enrollment.objects.create(user=demo_student, course=demo_course)
+        invite = CourseInvite.objects.create(
+            course=demo_course, email='gone@example.com',
+            invited_by=instructor, revoked_at=timezone.now())
+
+        api_client.force_authenticate(user=instructor)
+        response = api_client.delete(self.closed_url(demo_course))
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+        assert response.data['code'] == 'demo_blocked'
+        assert CourseInvite.objects.filter(pk=invite.pk).exists()
+
+    def test_another_instructor_cannot_bulk_delete(
+            self, api_client, other_instructor, course, revoked_invite):
+        api_client.force_authenticate(user=other_instructor)
+        response = api_client.delete(self.closed_url(course))
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+        assert CourseInvite.objects.filter(pk=revoked_invite.pk).exists()
 
     def test_delete_closed_removes_only_closed(
             self, api_client, instructor, course):
@@ -7045,3 +7076,99 @@ class TestPhase68AdversarialPass:
 
         assert alone.status_code == with_classmate.status_code
         assert alone.data == with_classmate.data
+
+    @pytest.mark.parametrize('path', ENROLL_PATHS)
+    def test_an_unrelated_integrity_error_is_not_reported_as_already_enrolled(
+            self, api_client, student, course, student_invite, monkeypatch,
+            path):
+        """The already-enrolled 400 is confirmed by re-reading the row, not
+        inferred from the exception class. Otherwise a future constraint
+        reachable from this block would be relabelled as a business-rule
+        400 and never reach Sentry."""
+        import courses.views as courses_views
+
+        def boom(*args, **kwargs):
+            raise IntegrityError('simulated: some_other_fk_violation')
+
+        # Patching views is enough for BOTH paths: the serializer imports
+        # consume_invite_for from views inside create(), so it resolves the
+        # attribute at call time.
+        monkeypatch.setattr(courses_views, 'consume_invite_for', boom)
+
+        api_client.force_authenticate(user=student)
+        with pytest.raises(IntegrityError):
+            enroll_via(api_client, path, course)
+
+    @pytest.mark.parametrize('path', ENROLL_PATHS)
+    def test_a_refused_enroll_leaves_no_ghost_notification(
+            self, api_client, student, course, instructor, student_invite,
+            monkeypatch, path):
+        """Enrollment's post_save signal writes the instructor a
+        notification, and it fires INSIDE the atomic block. A refusal that
+        rolls the enrollment back must take the notification with it."""
+        import courses.serializers as courses_serializers
+        import courses.views as courses_views
+
+        real = courses_views.require_pending_invite
+
+        def check_then_revoke(user, course_arg, *args, **kwargs):
+            real(user, course_arg, *args, **kwargs)
+            CourseInvite.objects.filter(pk=student_invite.pk).update(
+                revoked_at=timezone.now())
+
+        monkeypatch.setattr(
+            courses_views, 'require_pending_invite', check_then_revoke)
+        monkeypatch.setattr(
+            courses_serializers, 'require_pending_invite', check_then_revoke)
+
+        api_client.force_authenticate(user=student)
+        response = enroll_via(api_client, path, course)
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+        assert not Notification.objects.filter(
+            recipient=instructor, type='enrollment').exists()
+
+    def test_consume_invite_for_claims_only_the_callers_own_invite(
+            self, course, instructor, student, student_invite):
+        from courses.views import consume_invite_for
+
+        classmate_invite = CourseInvite.objects.create(
+            course=course, email='classmate@example.com',
+            invited_by=instructor)
+
+        assert consume_invite_for(student, course) is True
+
+        student_invite.refresh_from_db()
+        classmate_invite.refresh_from_db()
+        assert student_invite.status == 'accepted'
+        assert classmate_invite.status == 'pending'
+        assert classmate_invite.accepted_at is None
+
+    def test_consume_invite_for_never_claims_a_revoked_row(
+            self, course, instructor, student, student_invite):
+        """The unique constraint is conditional on `revoked_at IS NULL`, so
+        any number of dead rows can coexist with the one live invite. Only
+        the live one may be claimed."""
+        from courses.views import consume_invite_for
+
+        dead = [
+            CourseInvite.objects.create(
+                course=course, email=student.email, invited_by=instructor,
+                revoked_at=timezone.now())
+            for _ in range(5)
+        ]
+
+        assert consume_invite_for(student, course) is True
+
+        student_invite.refresh_from_db()
+        assert student_invite.status == 'accepted'
+        for row in dead:
+            row.refresh_from_db()
+            assert row.accepted_at is None
+
+    def test_consume_invite_for_is_idempotent(
+            self, course, student, student_invite):
+        from courses.views import consume_invite_for
+
+        assert consume_invite_for(student, course) is True
+        assert consume_invite_for(student, course) is False

@@ -654,7 +654,13 @@ class EnrollmentCreateSerializer(serializers.Serializer):
                     raise PermissionDenied(INVITE_REQUIRED_DETAIL)
         except IntegrityError:
             # A concurrent request took the unique ('user','course') row
-            # between validate() and here. Already-enrolled, not a 500.
+            # between validate() and here. Already-enrolled, not a 500 —
+            # but confirmed by re-reading rather than inferred from the
+            # exception class, so a future constraint reachable from this
+            # block cannot be silently relabelled as a business-rule 400.
+            if not Enrollment.objects.filter(
+                    user=user, course=self.course).exists():
+                raise
             raise serializers.ValidationError(
                 {'enrollment_code': ["You are already enrolled in this course."]})
         return enrollment

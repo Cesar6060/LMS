@@ -167,6 +167,15 @@ class CourseViewSet(viewsets.ModelViewSet):
             # A concurrent request (an impatient double-click is enough) beat
             # us to the unique ('user','course') row between the check above
             # and this insert. That is the already-enrolled case, not a 500.
+            #
+            # Confirmed by re-reading, NOT assumed from the exception class: a
+            # bare `except IntegrityError` would quietly relabel any future
+            # constraint reachable from this block as a business-rule 400 and
+            # hide it from Sentry. Anything that is not the duplicate we
+            # expect gets re-raised.
+            if not Enrollment.objects.filter(
+                    user=request.user, course=course).exists():
+                raise
             return Response(
                 {'detail': 'You are already enrolled in this course'},
                 status=status.HTTP_400_BAD_REQUEST

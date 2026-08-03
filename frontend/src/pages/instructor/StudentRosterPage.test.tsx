@@ -73,6 +73,18 @@ describe('StudentRosterPage invite cleanup (Phase 68)', () => {
     mockDeleteClosedInvites.mockResolvedValue(2);
   });
 
+  it('renders the shared ClassCodeCard', async () => {
+    // Phase 68: the same component must appear on ManageCoursePage too, so
+    // the two pages cannot show different states for one course. Asserted on
+    // both pages rather than by rendering the card twice in isolation, which
+    // could not detect either page dropping it.
+    mockListInvites.mockResolvedValue([]);
+
+    renderPage();
+
+    expect(await screen.findByTestId('class-code-card')).toBeInTheDocument();
+  });
+
   it('offers Revoke but no Delete on a pending row', async () => {
     // A misclick must never void a live invitation.
     mockListInvites.mockResolvedValue([makeInvite({ id: 7, status: 'pending' })]);
