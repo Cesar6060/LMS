@@ -1,0 +1,17 @@
+{% autoescape off %}New announcement in {{ course_title }}
+
+{{ announcement_title }}
+
+{{ announcement_content }}
+
+Posted by {{ instructor_name }} on {{ posted_date }}.
+
+Read it in the course:
+
+{{ announcement_url }}
+
+You are receiving this because announcement emails are on for your account.
+Turn them off any time at {{ frontend_url }}/settings
+
+-- STEM Quest
+{% endautoescape %}

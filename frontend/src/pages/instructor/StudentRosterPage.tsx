@@ -1,11 +1,13 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { useParams } from 'react-router';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { courseService, type RosterStudent } from '@/services/courses';
 import { inviteService } from '@/services/invites';
-import type { CourseInvite, InviteOutcome, InviteOutcomeRow } from '@/types';
+import type {
+  CourseInvite, CourseInviteDelivery, InviteOutcome, InviteOutcomeRow,
+} from '@/types';
 import { isForbidden } from '@/services/api';
 import { AccessDenied } from '@/components/AccessDenied';
 import { Skeleton } from '@/components/ui/Skeleton';
@@ -15,7 +17,8 @@ import { CourseToolsNav } from '@/components/instructor/CourseToolsNav';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 import {
   Mail, Users, AlertCircle, Trash2,
-  Search, CheckCircle, Clock, AlertTriangle, RefreshCw, XCircle, Send
+  Search, CheckCircle, Clock, AlertTriangle, RefreshCw, XCircle, Send,
+  Link2, Copy, KeyRound, Power
 } from 'lucide-react';
 
 type SortField = 'name' | 'email' | 'enrolled_at' | 'last_activity_at' | 'progress';
@@ -33,6 +36,56 @@ const OUTCOME_STYLES: Record<InviteOutcome, string> = {
   resent: 'bg-blue-100 text-blue-700 dark:bg-blue-900/50 dark:text-blue-300',
   already_enrolled: 'bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-400',
   invalid: 'bg-red-100 text-red-700 dark:bg-red-900/50 dark:text-red-300',
+};
+
+// Phase 67. Deliberately careful wording: "Sent" means our mail server
+// accepted the message, which is NOT the same as it reaching an inbox — a
+// district filter can still drop it silently, which is exactly what happened
+// before this column existed.
+//
+// `unknown` is a display-only fourth state, not an API value. An invite that
+// is pending but was not sent from this page is not "still sending" — it
+// either predates delivery tracking (every invite sent before phase 67) or
+// its send never ran. Saying "Sending…" forever would be wrong exactly where
+// it matters most: the school address whose invite vanished.
+//
+// Keyed on what this page just submitted rather than on the row's age.
+// `created_at` looks like the obvious signal and is the wrong one: a resent
+// invite keeps its original created_at (auto_now_add; CourseInvite.refresh
+// does not touch it), so an age test would label every genuine resend "No
+// record" while its email was still in flight. An age test would also compare
+// the browser's clock against the server's.
+type DeliveryDisplay = CourseInviteDelivery | 'unknown';
+
+const deliveryDisplay = (
+  invite: CourseInvite,
+  sendingNow: Set<string>,
+): DeliveryDisplay => {
+  if (invite.delivery !== 'pending') return invite.delivery;
+  return sendingNow.has(invite.email) ? 'pending' : 'unknown';
+};
+
+const DELIVERY_LABELS: Record<DeliveryDisplay, string> = {
+  sent: 'Sent',
+  failed: 'Failed',
+  pending: 'Sending…',
+  unknown: 'No record',
+};
+
+const DELIVERY_STYLES: Record<DeliveryDisplay, string> = {
+  sent: 'bg-green-100 text-green-700 dark:bg-green-900/50 dark:text-green-300',
+  failed: 'bg-red-100 text-red-700 dark:bg-red-900/50 dark:text-red-300',
+  pending: 'bg-blue-100 text-blue-700 dark:bg-blue-900/50 dark:text-blue-300',
+  unknown: 'bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-400',
+};
+
+const DELIVERY_TITLES: Record<DeliveryDisplay, string> = {
+  sent: 'Our mail server accepted this message. That is not a guarantee it reached the inbox.',
+  failed: 'The send failed. Use Copy link or the class code instead.',
+  pending: 'Being sent right now — this updates on its own in a few seconds.',
+  unknown:
+    'No delivery record. This invitation was sent before delivery tracking existed, '
+    + 'or the send never ran. Resend it to get a result, or use Copy link.',
 };
 
 const INVITE_STATUS_STYLES: Record<CourseInvite['status'], string> = {
@@ -62,6 +115,23 @@ export function StudentRosterPage() {
   const [inviteError, setInviteError] = useState('');
   const [invites, setInvites] = useState<CourseInvite[]>([]);
   const [busyInviteId, setBusyInviteId] = useState<number | null>(null);
+
+  // Copy-link fallback (Phase 67) — links are fetched per invite on click, so
+  // live tokens never ride along in the invite list payload.
+  const [copiedInviteId, setCopiedInviteId] = useState<number | null>(null);
+  const [revealedLink, setRevealedLink] = useState<{ id: number; url: string } | null>(null);
+
+  // Join-code card (Phase 67)
+  const [joinCode, setJoinCode] = useState<string | null>(null);
+  const [joinCodeAvailable, setJoinCodeAvailable] = useState(true);
+  const [joinCodeBusy, setJoinCodeBusy] = useState(false);
+  const [joinCodeError, setJoinCodeError] = useState('');
+  const [joinCodeCopied, setJoinCodeCopied] = useState(false);
+  const [confirmRotate, setConfirmRotate] = useState(false);
+  const refreshTimers = useRef<number[]>([]);
+  // Addresses this page has just submitted a send for. Drives the
+  // "Sending…" vs "No record" distinction — see deliveryDisplay above.
+  const [sendingNow, setSendingNow] = useState<Set<string>>(new Set());
 
   // Remove student dialog
   const [removeStudent, setRemoveStudent] = useState<RosterStudent | null>(null);
@@ -95,12 +165,69 @@ export function StudentRosterPage() {
     }
   }, [code]);
 
+  /** Re-poll the invite list a couple of times after a send.
+   *
+   * The POST returns as soon as the rows exist; the delivery result is
+   * written afterwards by `send_emails_async`'s background thread. Without
+   * this, every freshly invited row would sit on "Sending…" until the
+   * instructor reloaded the page by hand — the observability this phase
+   * exists to provide would look broken on first use.
+   */
+  const scheduleInviteRefresh = useCallback((rawEmails: string[]) => {
+    // Lowercased to match `invite.email` coming back from the API — the
+    // backend stores invite addresses lowercased, and the instructor may
+    // well have pasted mixed case.
+    const emails = rawEmails.map((e) => e.trim().toLowerCase());
+    setSendingNow((current) => new Set([...current, ...emails]));
+    [2500, 6000].forEach((delay) => {
+      const timer = window.setTimeout(loadInvites, delay);
+      refreshTimers.current.push(timer);
+    });
+    // After the last poll, stop claiming these are in flight: whatever the
+    // row says by then is the real answer.
+    refreshTimers.current.push(
+      window.setTimeout(() => {
+        setSendingNow((current) => {
+          const next = new Set(current);
+          emails.forEach((email) => next.delete(email));
+          return next;
+        });
+      }, 6500)
+    );
+  }, [loadInvites]);
+
+  // Keyed on the course, not [] — this component is reused when the
+  // instructor switches courses, and a timer left over from the previous
+  // course would write its invites into the new course's table.
+  useEffect(() => {
+    const timers = refreshTimers.current;
+    return () => timers.splice(0).forEach(window.clearTimeout);
+  }, [code]);
+
+  const loadJoinCode = useCallback(async () => {
+    try {
+      setJoinCode(await courseService.getJoinCode(code!));
+    } catch (err) {
+      if (isForbidden(err)) {
+        // The demo course refuses this endpoint outright (403 demo_blocked).
+        // Hide the card rather than offer an action that can never work.
+        setJoinCodeAvailable(false);
+      } else {
+        // A blip, a 500, a 429 — keep the card and say so, rather than
+        // silently removing a feature the instructor may be looking for.
+        setJoinCodeError('Could not load the class code. Reload to try again.');
+      }
+      console.error('Failed to load the join code:', err);
+    }
+  }, [code]);
+
   useEffect(() => {
     if (code) {
       loadRoster();
       loadInvites();
+      loadJoinCode();
     }
-  }, [code, loadRoster, loadInvites]);
+  }, [code, loadRoster, loadInvites, loadJoinCode]);
 
   const handleSort = (field: SortField) => {
     if (sortField === field) {
@@ -125,6 +252,7 @@ export function StudentRosterPage() {
       setInviteResults(result.results);
       setInviteText('');
       loadInvites();
+      scheduleInviteRefresh(emails);
     } catch (err: unknown) {
       const e = err as { response?: { status?: number; data?: { detail?: string } } };
       if (e.response?.status === 429) {
@@ -145,6 +273,7 @@ export function StudentRosterPage() {
       const result = await inviteService.createInvites(code!, [invite.email]);
       setInviteResults(result.results);
       loadInvites();
+      scheduleInviteRefresh([invite.email]);
     } catch (err) {
       setInviteError('Failed to re-send the invitation');
       console.error(err);
@@ -164,6 +293,97 @@ export function StudentRosterPage() {
       console.error(err);
     } finally {
       setBusyInviteId(null);
+    }
+  };
+
+  /** Write to the clipboard, reporting whether it actually landed.
+   *
+   * `navigator.clipboard` is absent on insecure origins and rejects when the
+   * browser withholds permission. Both must surface the text instead of
+   * failing silently — a copy button that quietly does nothing is worse than
+   * no button at all.
+   *
+   * The timeout is not belt-and-braces: writeText does not always settle. When
+   * the browser wants a permission decision it can leave the promise pending
+   * indefinitely (reproduced under Chrome automation), which would strand the
+   * row on "busy" with no copy and no explanation. Treat silence as failure
+   * and show the link.
+   */
+  const copyToClipboard = async (text: string): Promise<boolean> => {
+    const timeout = new Promise<false>((resolve) =>
+      window.setTimeout(() => resolve(false), 2000)
+    );
+    try {
+      return await Promise.race([
+        navigator.clipboard.writeText(text).then(() => true),
+        timeout,
+      ]);
+    } catch {
+      return false;
+    }
+  };
+
+  const handleCopyInviteLink = async (invite: CourseInvite) => {
+    try {
+      setBusyInviteId(invite.id);
+      setInviteError('');
+      setRevealedLink(null);
+      const url = await inviteService.getInviteLink(code!, invite.id);
+
+      if (await copyToClipboard(url)) {
+        setCopiedInviteId(invite.id);
+        window.setTimeout(() => setCopiedInviteId(null), 2500);
+      } else {
+        setRevealedLink({ id: invite.id, url });
+      }
+    } catch (err: unknown) {
+      const e = err as { response?: { data?: { detail?: string } } };
+      setInviteError(e.response?.data?.detail || 'Could not get the invitation link');
+      console.error(err);
+    } finally {
+      setBusyInviteId(null);
+    }
+  };
+
+  const handleCopyJoinCode = async () => {
+    if (!joinCode) return;
+    setJoinCodeError('');
+    if (await copyToClipboard(joinCode)) {
+      setJoinCodeCopied(true);
+      window.setTimeout(() => setJoinCodeCopied(false), 2500);
+    } else {
+      // Same honesty rule as the per-invite copy button: never let a copy
+      // that did nothing look like one that worked. The code is on screen at
+      // 4xl and selectable, so pointing at it is enough here.
+      setJoinCodeError('Your browser blocked the copy — select the code above instead.');
+    }
+  };
+
+  const handleGenerateJoinCode = async () => {
+    try {
+      setJoinCodeBusy(true);
+      setJoinCodeError('');
+      setJoinCode(await courseService.rotateJoinCode(code!));
+    } catch (err) {
+      setJoinCodeError('Could not update the class code');
+      console.error(err);
+    } finally {
+      setJoinCodeBusy(false);
+      setConfirmRotate(false);
+    }
+  };
+
+  const handleDisableJoinCode = async () => {
+    try {
+      setJoinCodeBusy(true);
+      setJoinCodeError('');
+      await courseService.disableJoinCode(code!);
+      setJoinCode(null);
+    } catch (err) {
+      setJoinCodeError('Could not turn off the class code');
+      console.error(err);
+    } finally {
+      setJoinCodeBusy(false);
     }
   };
 
@@ -396,6 +616,7 @@ export function StudentRosterPage() {
                     <tr className="border-b bg-muted/50 text-left">
                       <th className="p-3 font-medium">Email</th>
                       <th className="p-3 font-medium">Status</th>
+                      <th className="p-3 font-medium">Delivery</th>
                       <th className="p-3 font-medium">Expires</th>
                       <th className="p-3 font-medium text-right">Actions</th>
                     </tr>
@@ -409,9 +630,42 @@ export function StudentRosterPage() {
                             {invite.status}
                           </span>
                         </td>
+                        <td className="p-3">
+                          <span
+                            className={`text-sm px-2 py-1 rounded ${DELIVERY_STYLES[deliveryDisplay(invite, sendingNow)]}`}
+                            title={DELIVERY_TITLES[deliveryDisplay(invite, sendingNow)]}
+                          >
+                            {DELIVERY_LABELS[deliveryDisplay(invite, sendingNow)]}
+                          </span>
+                          {invite.email_error && (
+                            <p className="mt-1 text-xs text-destructive break-words max-w-xs">
+                              {invite.email_error}
+                            </p>
+                          )}
+                        </td>
                         <td className="p-3">{formatDate(invite.expires_at)}</td>
                         <td className="p-3">
                           <div className="flex justify-end gap-2">
+                            {invite.status === 'pending' && (
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                onClick={() => handleCopyInviteLink(invite)}
+                                disabled={busyInviteId === invite.id}
+                              >
+                                {copiedInviteId === invite.id ? (
+                                  <>
+                                    <CheckCircle className="h-4 w-4 mr-1" />
+                                    Copied
+                                  </>
+                                ) : (
+                                  <>
+                                    <Link2 className="h-4 w-4 mr-1" />
+                                    Copy link
+                                  </>
+                                )}
+                              </Button>
+                            )}
                             <Button
                               variant="outline"
                               size="sm"
@@ -434,16 +688,124 @@ export function StudentRosterPage() {
                               </Button>
                             )}
                           </div>
+                          {revealedLink?.id === invite.id && (
+                            <div className="mt-2 text-left">
+                              <label
+                                className="text-xs text-muted-foreground"
+                                htmlFor={`invite-link-${invite.id}`}
+                              >
+                                Your browser blocked the copy — select and copy this link:
+                              </label>
+                              <input
+                                id={`invite-link-${invite.id}`}
+                                readOnly
+                                value={revealedLink.url}
+                                onFocus={(e) => e.currentTarget.select()}
+                                className="mt-1 w-full rounded-md border border-input bg-background px-2 py-1 text-sm font-mono"
+                              />
+                            </div>
+                          )}
                         </td>
                       </tr>
                     ))}
                   </tbody>
                 </table>
               </div>
+              <p className="mt-2 text-sm text-muted-foreground">
+                <strong>Sent</strong> means our mail server accepted the message — it
+                does not prove the school's filter let it through. If a student says
+                nothing arrived, use <strong>Copy link</strong> or the class code below.
+              </p>
             </div>
           )}
         </CardContent>
       </Card>
+
+      {/* Class code — the fallback when invite email never lands (Phase 67) */}
+      {joinCodeAvailable && (
+        <Card className="mb-6">
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2 text-xl">
+              <KeyRound className="h-5 w-5" />
+              Class code
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <p className="text-base text-muted-foreground">
+              A backup way in for students whose invitation email was blocked or
+              never arrived. The code only works together with an email address you
+              have already invited, so it is safe to read out loud in class — on its
+              own it enrols nobody.
+            </p>
+
+            {joinCodeError && (
+              <div className="bg-destructive/10 border border-destructive/20 rounded-lg p-3 flex items-center gap-2">
+                <AlertCircle className="h-4 w-4 text-destructive shrink-0" />
+                <p className="text-sm text-destructive">{joinCodeError}</p>
+              </div>
+            )}
+
+            {joinCode ? (
+              <>
+                <div className="flex flex-wrap items-center gap-4">
+                  <span className="font-mono text-4xl font-bold tracking-[0.2em] select-all">
+                    {joinCode}
+                  </span>
+                  <Button size="lg" variant="outline" onClick={handleCopyJoinCode}>
+                    {joinCodeCopied ? (
+                      <>
+                        <CheckCircle className="h-4 w-4 mr-2" />
+                        Copied
+                      </>
+                    ) : (
+                      <>
+                        <Copy className="h-4 w-4 mr-2" />
+                        Copy code
+                      </>
+                    )}
+                  </Button>
+                </div>
+
+                <div className="rounded-lg border bg-muted/30 p-4">
+                  <p className="text-sm font-semibold mb-1">Read this to your class:</p>
+                  <p className="text-base select-all">
+                    Go to {window.location.origin}/join, enter the class code{' '}
+                    <strong>{joinCode}</strong>, and the email address I invited you
+                    with.
+                  </p>
+                </div>
+
+                <div className="flex flex-wrap gap-3">
+                  <Button
+                    size="lg"
+                    variant="outline"
+                    onClick={() => setConfirmRotate(true)}
+                    disabled={joinCodeBusy}
+                  >
+                    <RefreshCw className="h-4 w-4 mr-2" />
+                    Rotate code
+                  </Button>
+                  <Button
+                    size="lg"
+                    variant="outline"
+                    onClick={handleDisableJoinCode}
+                    disabled={joinCodeBusy}
+                    className="text-destructive hover:text-destructive"
+                  >
+                    <Power className="h-4 w-4 mr-2" />
+                    Turn off
+                  </Button>
+                </div>
+              </>
+            ) : (
+              <Button size="lg" onClick={handleGenerateJoinCode} disabled={joinCodeBusy}>
+                <KeyRound className="h-4 w-4 mr-2" />
+                {joinCodeBusy ? 'Generating...' : 'Generate a class code'}
+              </Button>
+            )}
+          </CardContent>
+        </Card>
+      )}
 
       {/* Search */}
       <div className="mb-4">
@@ -586,6 +948,21 @@ export function StudentRosterPage() {
           </CardContent>
         </Card>
       )}
+
+      {/* Rotate class code */}
+      <ConfirmDialog
+        open={confirmRotate}
+        onOpenChange={setConfirmRotate}
+        title="Rotate the class code?"
+        confirmLabel="Rotate code"
+        loadingLabel="Rotating..."
+        onConfirm={handleGenerateJoinCode}
+        isLoading={joinCodeBusy}
+      >
+        The current code <span className="font-mono font-medium text-foreground">{joinCode}</span>{' '}
+        stops working immediately. Any student who has it but has not joined yet
+        will need the new one.
+      </ConfirmDialog>
 
       {/* Remove Student Dialog */}
       <ConfirmDialog

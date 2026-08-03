@@ -1,5 +1,5 @@
 import api from './api';
-import type { Course, Unit, Lesson, Enrollment, LessonProgress, GradingConfig, GradeSummary, EnhancedDashboard, LessonQuestion, LessonQuestionsStatus, LessonAttachment, LessonSection, InstructorReminder, CalendarResponse, QuizSessionState, LessonSessionAnswerResult, CourseMap, PaginatedResponse } from '../types';
+import type { Course, Unit, Lesson, Enrollment, LessonProgress, GradingConfig, GradeSummary, EnhancedDashboard, LessonQuestion, LessonQuestionsStatus, LessonAttachment, LessonSection, InstructorReminder, CalendarResponse, QuizSessionState, LessonSessionAnswerResult, CourseMap, PaginatedResponse, JoinCodeResponse } from '../types';
 
 // Re-export types for convenience
 export type { Unit, Lesson } from '../types';
@@ -175,6 +175,22 @@ export const courseService = {
   async regenerateEnrollmentCode(code: string): Promise<{ enrollment_code: string }> {
     const response = await api.post<{ enrollment_code: string }>(`/courses/courses/${code}/regenerate_code/`);
     return response.data;
+  },
+
+  // Join code (phase 67) — instructor-only. Null means the code is turned off.
+  async getJoinCode(courseCode: string): Promise<string | null> {
+    const response = await api.get<JoinCodeResponse>(`/courses/courses/${courseCode}/join-code/`);
+    return response.data.join_code;
+  },
+
+  /** Generates a code, or rotates it — the previous code stops working at once. */
+  async rotateJoinCode(courseCode: string): Promise<string> {
+    const response = await api.post<{ join_code: string }>(`/courses/courses/${courseCode}/join-code/`);
+    return response.data.join_code;
+  },
+
+  async disableJoinCode(courseCode: string): Promise<void> {
+    await api.delete(`/courses/courses/${courseCode}/join-code/`);
   },
 
   // Enrollment

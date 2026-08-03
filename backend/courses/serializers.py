@@ -1061,7 +1061,16 @@ class CourseMapSerializer(serializers.Serializer):
 
 class CourseInviteSerializer(serializers.ModelSerializer):
     status = serializers.ReadOnlyField()
+    # Phase 67: delivery is the email's fate, status is the invite's. Note the
+    # deliberate absence of `token` / `invite_url` — live tokens stay out of
+    # this list payload (and therefore out of browser cache and logs); the
+    # roster fetches one on demand from the link endpoint instead.
+    delivery = serializers.ReadOnlyField()
 
     class Meta:
         model = CourseInvite
-        fields = ['id', 'email', 'status', 'created_at', 'expires_at']
+        fields = [
+            'id', 'email', 'status', 'created_at', 'expires_at',
+            'email_sent_at', 'email_error', 'delivery',
+        ]
+        read_only_fields = ['email_sent_at', 'email_error']

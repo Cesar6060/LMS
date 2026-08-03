@@ -5499,3 +5499,973 @@ class TestLockedUnitLessonListBoundaryMatrix:
         assert 'Open Quiz' in titles
         assert 'Locked Quiz' not in titles
         assert 'Locked 1' not in {c['title'] for c in response.data['lesson_checks']}
+
+
+# ===========================================================================
+# Phase 67 — invite delivery visibility, copy-link, and the course join code
+# ===========================================================================
+#
+# The premise: an invite to a school address vanished silently, and nothing in
+# the product could tell the instructor whether it had even left our side.
+# These guards cover the three replies to that — a persisted delivery result,
+# an on-demand copy-link, and a join code a pre-invited student can redeem
+# themselves.
+#
+# The join code is a DELIVERY CHANNEL, NOT AN AUTHORIZATION. Redeeming it
+# requires the code *and* an address that already has a pending CourseInvite.
+# Several tests below exist only to keep it that way.
+
+
+def link_url(course, invite):
+    return f'/api/courses/courses/{course.code}/invites/{invite.id}/link/'
+
+
+def join_code_url(course):
+    return f'/api/courses/courses/{course.code}/join-code/'
+
+
+JOIN_URL = '/api/courses/join/'
+
+# Pinned as a literal rather than imported from the view: this string IS the
+# contract. Every failure mode of /join/ must be this and nothing else.
+JOIN_GENERIC_DETAIL = "That code and email don't match an open invitation."
+
+
+@pytest.fixture
+def inline_email(monkeypatch):
+    """Run send_emails_async's queued tasks inline.
+
+    The real thing is a daemon thread, so any assertion about the outbox or
+    the delivery columns would race it. Faithful in the one way that matters
+    for these tests: a task that raises is swallowed per-task, exactly as
+    `send_emails_async` does, so a failed send never reaches the caller.
+    """
+    import courses.views as courses_views
+
+    def run_inline(tasks):
+        for func, args, kwargs in tasks:
+            try:
+                func(*args, **kwargs)
+            except Exception:
+                pass
+
+    monkeypatch.setattr(courses_views, 'send_emails_async', run_inline)
+
+
+@pytest.fixture
+def pending_invite(course, instructor):
+    return CourseInvite.objects.create(
+        course=course, email='kid@example.com', invited_by=instructor)
+
+
+@pytest.mark.django_db
+class TestInviteDeliveryState:
+    """"Invitation sent" used to mean "a row was written" — the roster read it
+    off a response built before the sending thread had even started."""
+
+    def test_invite_records_email_sent_at_on_success(
+            self, api_client, instructor, course, inline_email):
+        api_client.force_authenticate(user=instructor)
+        response = api_client.post(
+            invites_url(course), {'emails': ['kid@example.com']},
+            format='json')
+
+        assert response.status_code == status.HTTP_200_OK
+        invite = CourseInvite.objects.get(email='kid@example.com')
+        assert invite.email_sent_at is not None
+        assert invite.email_error is None
+        assert invite.delivery == 'sent'
+
+    def test_invite_records_email_error_on_failure(
+            self, api_client, instructor, course, inline_email, monkeypatch):
+        import courses.views as courses_views
+
+        def boom(**kwargs):
+            raise OSError('x' * 400)
+
+        monkeypatch.setattr(
+            courses_views, 'send_course_invite_link_email', boom)
+
+        api_client.force_authenticate(user=instructor)
+        response = api_client.post(
+            invites_url(course), {'emails': ['kid@example.com']},
+            format='json')
+
+        # The send failing must not fail the request: the invite row is real
+        # and the instructor still has the copy-link and join-code paths.
+        assert response.status_code == status.HTTP_200_OK
+        invite = CourseInvite.objects.get(email='kid@example.com')
+        assert invite.email_sent_at is None
+        assert len(invite.email_error) == 255      # truncated, not overflowed
+        assert invite.delivery == 'failed'
+
+    def test_delivery_state_is_serialized_to_the_roster(
+            self, api_client, instructor, course, inline_email):
+        api_client.force_authenticate(user=instructor)
+        api_client.post(
+            invites_url(course), {'emails': ['kid@example.com']},
+            format='json')
+
+        row = api_client.get(invites_url(course)).data[0]
+
+        assert row['delivery'] == 'sent'
+        assert row['email_sent_at'] is not None
+        assert row['email_error'] is None
+        # A live token in a bulk list payload would end up in browser cache,
+        # proxy logs, and every screen share of the roster.
+        assert 'token' not in row
+        assert 'invite_url' not in row
+
+    def test_refresh_clears_delivery_state(self, instructor, course):
+        invite = CourseInvite.objects.create(
+            course=course, email='kid@example.com', invited_by=instructor,
+            email_sent_at=timezone.now(), email_error='old failure')
+
+        invite.refresh(invited_by=instructor)
+
+        invite.refresh_from_db()
+        assert invite.email_sent_at is None
+        assert invite.email_error is None
+        assert invite.delivery == 'pending'
+
+    def test_resend_starts_a_fresh_delivery_attempt(
+            self, api_client, instructor, course, inline_email):
+        CourseInvite.objects.create(
+            course=course, email='kid@example.com', invited_by=instructor,
+            email_error='previous failure')
+
+        api_client.force_authenticate(user=instructor)
+        api_client.post(
+            invites_url(course), {'emails': ['kid@example.com']},
+            format='json')
+
+        invite = CourseInvite.objects.get(email='kid@example.com')
+        assert invite.email_error is None
+        assert invite.delivery == 'sent'
+
+    def test_delivery_write_cannot_clobber_a_concurrent_revoke(
+            self, api_client, instructor, course, inline_email, monkeypatch):
+        """The send runs on a background thread holding an instance that was
+        loaded before the request finished. It must write through a targeted
+        UPDATE, not save() a stale row."""
+        import courses.views as courses_views
+
+        original = courses_views.send_course_invite_link_email
+
+        def revoke_mid_send(**kwargs):
+            CourseInvite.objects.filter(email='kid@example.com').update(
+                revoked_at=timezone.now())
+            return original(**kwargs)
+
+        monkeypatch.setattr(
+            courses_views, 'send_course_invite_link_email', revoke_mid_send)
+
+        api_client.force_authenticate(user=instructor)
+        api_client.post(
+            invites_url(course), {'emails': ['kid@example.com']},
+            format='json')
+
+        invite = CourseInvite.objects.get(email='kid@example.com')
+        assert invite.revoked_at is not None, 'the revoke was overwritten'
+        assert invite.email_sent_at is not None
+
+
+@pytest.mark.django_db
+class TestInviteReplyTo:
+    """Reply-To is the instructor's own address, so a student who hits Reply
+    reaches a human instead of bouncing off noreply@. Accepted consequence:
+    the instructor's address is visible to every invited student."""
+
+    def test_invite_email_sets_reply_to_instructor(
+            self, api_client, instructor, course, inline_email):
+        from django.core import mail
+
+        mail.outbox.clear()
+        api_client.force_authenticate(user=instructor)
+        api_client.post(
+            invites_url(course), {'emails': ['kid@example.com']},
+            format='json')
+
+        assert mail.outbox[0].reply_to == [instructor.email]
+
+    def test_no_reply_to_for_the_demo_account(self, course, settings):
+        """Unit-level on purpose: if the demo account were the *instructor*,
+        core.email would refuse the whole send before Reply-To mattered, so
+        the endpoint cannot exercise this branch. The guard has to hold on its
+        own — the demo address must never be handed to a stranger."""
+        from courses.views import _instructor_reply_to
+
+        settings.DEMO_ACCOUNT_EMAIL = course.instructor.email
+        assert _instructor_reply_to(course) is None
+
+    def test_no_reply_to_when_the_instructor_has_no_address(self, course):
+        from courses.views import _instructor_reply_to
+
+        course.instructor.email = ''
+        assert _instructor_reply_to(course) is None
+
+
+@pytest.mark.django_db
+class TestInviteLinkEndpoint:
+    """The instructor's out-of-band path when our mail is filtered."""
+
+    def test_instructor_gets_the_link(
+            self, api_client, instructor, course, pending_invite):
+        api_client.force_authenticate(user=instructor)
+        response = api_client.get(link_url(course, pending_invite))
+
+        assert response.status_code == status.HTTP_200_OK
+        assert pending_invite.token in response.data['invite_url']
+
+    def test_link_matches_the_one_in_the_email(
+            self, api_client, instructor, course, inline_email):
+        from django.core import mail
+
+        mail.outbox.clear()
+        api_client.force_authenticate(user=instructor)
+        api_client.post(
+            invites_url(course), {'emails': ['kid@example.com']},
+            format='json')
+        invite = CourseInvite.objects.get(email='kid@example.com')
+
+        link = api_client.get(link_url(course, invite)).data['invite_url']
+
+        assert link in mail.outbox[0].body
+
+    def test_other_instructor_forbidden(
+            self, api_client, other_instructor, course, pending_invite):
+        api_client.force_authenticate(user=other_instructor)
+        response = api_client.get(link_url(course, pending_invite))
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+
+    def test_enrolled_student_forbidden(
+            self, api_client, student, enrollment, course, pending_invite):
+        api_client.force_authenticate(user=student)
+        response = api_client.get(link_url(course, pending_invite))
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+
+    def test_anonymous_unauthorized(self, api_client, course, pending_invite):
+        response = api_client.get(link_url(course, pending_invite))
+
+        assert response.status_code == status.HTTP_401_UNAUTHORIZED
+
+    def test_invite_from_another_course_is_404(
+            self, api_client, instructor, course, pending_invite):
+        """Path scoping enforced, not assumed: this instructor owns both
+        courses, so only the course= filter stops the cross-course read."""
+        other = Course.objects.create(
+            code='OTHER1', title='Other', instructor=instructor)
+
+        api_client.force_authenticate(user=instructor)
+        response = api_client.get(link_url(other, pending_invite))
+
+        assert response.status_code == status.HTTP_404_NOT_FOUND
+
+    @pytest.mark.parametrize('field,value', [
+        ('accepted_at', 'now'),
+        ('revoked_at', 'now'),
+        ('expires_at', 'past'),
+    ])
+    def test_dead_invites_refuse_to_hand_out_a_link(
+            self, api_client, instructor, course, pending_invite, field, value):
+        setattr(
+            pending_invite, field,
+            timezone.now() - timedelta(days=1) if value == 'past'
+            else timezone.now())
+        pending_invite.save()
+
+        api_client.force_authenticate(user=instructor)
+        response = api_client.get(link_url(course, pending_invite))
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert 'detail' in response.data
+        assert pending_invite.token not in str(response.data)
+
+
+@pytest.mark.django_db
+class TestJoinCodeHelpers:
+
+    def test_join_code_alphabet_has_no_ambiguous_characters(self):
+        from courses.models import JOIN_CODE_ALPHABET
+
+        for ambiguous in '0O1IL':
+            assert ambiguous not in JOIN_CODE_ALPHABET
+
+    def test_generated_codes_use_only_that_alphabet(self):
+        from courses.models import (
+            JOIN_CODE_ALPHABET, JOIN_CODE_LENGTH, generate_join_code)
+
+        for _ in range(20):
+            code = generate_join_code()
+            assert len(code) == JOIN_CODE_LENGTH
+            assert set(code) <= set(JOIN_CODE_ALPHABET)
+
+    @pytest.mark.parametrize('raw', [
+        'abcd-2345', 'ABCD 2345', 'ABCD2345', ' abcd 2345 ', 'abcd_2345'])
+    def test_normalize_join_code(self, raw):
+        from courses.models import normalize_join_code
+
+        assert normalize_join_code(raw) == 'ABCD2345'
+
+    def test_normalize_tolerates_non_strings(self):
+        from courses.models import normalize_join_code
+
+        assert normalize_join_code(None) == ''
+        assert normalize_join_code(12345678) == ''
+
+
+@pytest.mark.django_db
+class TestJoinCodeManagement:
+
+    def test_get_is_null_before_one_is_generated(
+            self, api_client, instructor, course):
+        api_client.force_authenticate(user=instructor)
+        response = api_client.get(join_code_url(course))
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.data['join_code'] is None
+
+    def test_post_generates_then_rotates(
+            self, api_client, instructor, course):
+        api_client.force_authenticate(user=instructor)
+
+        first = api_client.post(join_code_url(course)).data['join_code']
+        second = api_client.post(join_code_url(course)).data['join_code']
+
+        assert first and second and first != second
+        course.refresh_from_db()
+        assert course.join_code == second
+
+    def test_rotation_kills_the_previous_code_immediately(
+            self, api_client, instructor, course, pending_invite):
+        api_client.force_authenticate(user=instructor)
+        old = api_client.post(join_code_url(course)).data['join_code']
+        api_client.post(join_code_url(course))
+        api_client.force_authenticate(user=None)
+
+        response = api_client.post(
+            JOIN_URL, {'join_code': old, 'email': pending_invite.email},
+            format='json')
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+
+    def test_delete_turns_it_off(
+            self, api_client, instructor, course, pending_invite):
+        api_client.force_authenticate(user=instructor)
+        code = api_client.post(join_code_url(course)).data['join_code']
+
+        response = api_client.delete(join_code_url(course))
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.data['join_code'] is None
+        course.refresh_from_db()
+        assert course.join_code is None
+
+        api_client.force_authenticate(user=None)
+        refused = api_client.post(
+            JOIN_URL, {'join_code': code, 'email': pending_invite.email},
+            format='json')
+        assert refused.status_code == status.HTTP_400_BAD_REQUEST
+
+    def test_other_instructor_forbidden(
+            self, api_client, other_instructor, course):
+        api_client.force_authenticate(user=other_instructor)
+
+        assert api_client.get(
+            join_code_url(course)).status_code == status.HTTP_403_FORBIDDEN
+        assert api_client.post(
+            join_code_url(course)).status_code == status.HTTP_403_FORBIDDEN
+        assert api_client.delete(
+            join_code_url(course)).status_code == status.HTTP_403_FORBIDDEN
+
+    def test_enrolled_student_forbidden(
+            self, api_client, student, enrollment, course):
+        api_client.force_authenticate(user=student)
+        response = api_client.post(join_code_url(course))
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+        course.refresh_from_db()
+        assert course.join_code is None
+
+    def test_anonymous_unauthorized(self, api_client, course):
+        response = api_client.get(join_code_url(course))
+
+        assert response.status_code == status.HTTP_401_UNAUTHORIZED
+
+
+@pytest.mark.django_db
+class TestJoinWithCode:
+
+    @pytest.fixture
+    def joinable(self, course, instructor):
+        """A course with the fallback on and one pending invite."""
+        from courses.models import generate_join_code
+
+        course.join_code = generate_join_code()
+        course.save(update_fields=['join_code'])
+        invite = CourseInvite.objects.create(
+            course=course, email='kid@example.com', invited_by=instructor)
+        return course, invite
+
+    def test_happy_path_returns_the_pending_invite_token(
+            self, api_client, joinable):
+        course, invite = joinable
+
+        response = api_client.post(
+            JOIN_URL, {'join_code': course.join_code, 'email': invite.email},
+            format='json')
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.data['token'] == invite.token
+        assert response.data['course_title'] == course.title
+        assert response.data['course_code'] == course.code
+
+    def test_token_then_drives_accept_end_to_end(self, api_client, joinable):
+        course, invite = joinable
+
+        token = api_client.post(
+            JOIN_URL, {'join_code': course.join_code, 'email': invite.email},
+            format='json').data['token']
+        accepted = api_client.post(
+            accept_url(token), VALID_ACCEPT_BODY, format='json')
+
+        assert accepted.status_code == status.HTTP_201_CREATED
+        user = User.objects.get(email=invite.email)
+        assert Enrollment.objects.filter(
+            user=user, course=course, is_active=True).exists()
+
+    def test_join_creates_no_user_and_no_enrollment(
+            self, api_client, joinable):
+        course, invite = joinable
+        users_before = User.objects.count()
+        enrollments_before = Enrollment.objects.count()
+
+        api_client.post(
+            JOIN_URL, {'join_code': course.join_code, 'email': invite.email},
+            format='json')
+
+        assert User.objects.count() == users_before
+        assert Enrollment.objects.count() == enrollments_before
+        invite.refresh_from_db()
+        assert invite.accepted_at is None
+
+    @pytest.mark.parametrize('style', ['exact', 'lower', 'dashed', 'spaced'])
+    def test_join_code_input_is_normalized(
+            self, api_client, joinable, style):
+        """Students retype these off a whiteboard. abcd-2345, ABCD 2345 and
+        ABCD2345 all have to reach the same course."""
+        course, invite = joinable
+        code = course.join_code
+        supplied = {
+            'exact': code,
+            'lower': code.lower(),
+            'dashed': f'{code[:4].lower()}-{code[4:].lower()}',
+            'spaced': f' {code[:4]} {code[4:]} ',
+        }[style]
+
+        response = api_client.post(
+            JOIN_URL, {'join_code': supplied, 'email': invite.email},
+            format='json')
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.data['token'] == invite.token
+
+    def test_email_is_matched_case_insensitively(self, api_client, joinable):
+        course, invite = joinable
+
+        response = api_client.post(
+            JOIN_URL,
+            {'join_code': course.join_code, 'email': invite.email.upper()},
+            format='json')
+
+        assert response.status_code == status.HTTP_200_OK
+
+    def test_every_failure_mode_is_indistinguishable(
+            self, api_client, joinable, instructor, course):
+        """The enumeration guard. A join code is meant to be read out to a
+        whole class, so anyone can hold one. If the failures differed, that
+        code would answer "is alice@district.edu invited to this course?" for
+        any address someone cared to try."""
+        code = course.join_code
+
+        revoked = CourseInvite.objects.create(
+            course=course, email='revoked@example.com',
+            invited_by=instructor, revoked_at=timezone.now())
+        expired = CourseInvite.objects.create(
+            course=course, email='expired@example.com',
+            invited_by=instructor,
+            expires_at=timezone.now() - timedelta(days=1))
+        accepted = CourseInvite.objects.create(
+            course=course, email='accepted@example.com',
+            invited_by=instructor, accepted_at=timezone.now())
+
+        codeless = Course.objects.create(
+            code='NOCODE', title='No Code', instructor=instructor)
+        CourseInvite.objects.create(
+            course=codeless, email='nocode@example.com',
+            invited_by=instructor)
+
+        attempts = [
+            ('unknown code', {'join_code': 'ZZZZZZZZ',
+                              'email': 'kid@example.com'}),
+            ('disabled code', {'join_code': '', 'email': 'nocode@example.com'}),
+            ('unknown email', {'join_code': code, 'email': 'nobody@example.com'}),
+            ('revoked invite', {'join_code': code, 'email': revoked.email}),
+            ('expired invite', {'join_code': code, 'email': expired.email}),
+            ('accepted invite', {'join_code': code, 'email': accepted.email}),
+        ]
+
+        responses = [
+            (label, api_client.post(JOIN_URL, body, format='json'))
+            for label, body in attempts
+        ]
+
+        for label, response in responses:
+            assert response.status_code == status.HTTP_400_BAD_REQUEST, label
+        details = {str(r.data.get('detail')) for _, r in responses}
+        assert len(details) == 1, f'failure modes are distinguishable: {details}'
+        assert details == {JOIN_GENERIC_DETAIL}
+
+    def test_a_null_join_code_never_matches(
+            self, api_client, instructor, course):
+        """Postgres holds NULL for every course with the fallback off. A blank
+        or missing code must be refused before the lookup, not treated as
+        "match whatever has no code"."""
+        CourseInvite.objects.create(
+            course=course, email='kid@example.com', invited_by=instructor)
+        assert course.join_code is None
+
+        for body in ({'email': 'kid@example.com'},
+                     {'join_code': None, 'email': 'kid@example.com'},
+                     {'join_code': '', 'email': 'kid@example.com'},
+                     {'join_code': '   ', 'email': 'kid@example.com'}):
+            response = api_client.post(JOIN_URL, body, format='json')
+            assert response.status_code == status.HTTP_400_BAD_REQUEST
+
+    def test_missing_email_is_refused(self, api_client, joinable):
+        course, _ = joinable
+
+        response = api_client.post(
+            JOIN_URL, {'join_code': course.join_code}, format='json')
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+
+    def test_a_leaked_code_alone_enrolls_nobody(self, api_client, joinable):
+        """The whole authorization story in one test: the code is a delivery
+        channel. An address with no pending invite gets nothing, whatever it
+        knows."""
+        course, _ = joinable
+
+        response = api_client.post(
+            JOIN_URL,
+            {'join_code': course.join_code, 'email': 'stranger@example.com'},
+            format='json')
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert not User.objects.filter(email='stranger@example.com').exists()
+
+
+@pytest.mark.django_db
+class TestDemoCourseIsNeverJoinable:
+    """Everyone who clicks "Try the demo" is already the same account; a join
+    code on that course would be meaningless at best."""
+
+    @pytest.fixture
+    def demo_course(self, instructor, settings):
+        settings.DEMO_ACCOUNT_EMAIL = 'jdoe@demo.test'
+        demo_student = User.objects.create_user(
+            email='jdoe@demo.test', password='testpass123')
+        course = Course.objects.create(
+            code='DEMOX', title='Demo Course', instructor=instructor)
+        Enrollment.objects.create(user=demo_student, course=course)
+        return course
+
+    def test_management_endpoints_refuse(
+            self, api_client, instructor, demo_course):
+        api_client.force_authenticate(user=instructor)
+
+        for response in (api_client.get(join_code_url(demo_course)),
+                         api_client.post(join_code_url(demo_course)),
+                         api_client.delete(join_code_url(demo_course))):
+            assert response.status_code == status.HTTP_403_FORBIDDEN
+            assert response.data['code'] == 'demo_blocked'
+
+        demo_course.refresh_from_db()
+        assert demo_course.join_code is None
+
+    def test_join_refuses_the_demo_course(
+            self, api_client, instructor, demo_course):
+        from courses.models import generate_join_code
+
+        # Force a code on directly — the endpoint above will not set one.
+        demo_course.join_code = generate_join_code()
+        demo_course.save(update_fields=['join_code'])
+        invite = CourseInvite.objects.create(
+            course=demo_course, email='kid@example.com',
+            invited_by=instructor)
+
+        response = api_client.post(
+            JOIN_URL,
+            {'join_code': demo_course.join_code, 'email': invite.email},
+            format='json')
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+        assert response.data['code'] == 'demo_blocked'
+
+    def test_a_normal_course_is_not_mistaken_for_the_demo(
+            self, api_client, instructor, course, settings):
+        settings.DEMO_ACCOUNT_EMAIL = 'jdoe@demo.test'
+        api_client.force_authenticate(user=instructor)
+
+        assert api_client.post(
+            join_code_url(course)).status_code == status.HTTP_200_OK
+
+
+@pytest.mark.django_db
+class TestPhase67Throttles:
+    """Same env-gated pattern as the phase-51 throttles: unset = unlimited
+    locally and in tests, so the rate is monkeypatched in."""
+
+    def test_invite_link_scoped_throttle(
+            self, api_client, instructor, course, pending_invite, monkeypatch):
+        from django.core.cache import caches
+        from rest_framework.throttling import ScopedRateThrottle
+
+        monkeypatch.setattr(
+            ScopedRateThrottle, 'THROTTLE_RATES', {'invite_link': '2/hour'})
+        caches['throttle'].clear()
+        try:
+            api_client.force_authenticate(user=instructor)
+            for _ in range(2):
+                ok = api_client.get(link_url(course, pending_invite))
+                assert ok.status_code == status.HTTP_200_OK
+
+            throttled = api_client.get(link_url(course, pending_invite))
+            assert throttled.status_code == status.HTTP_429_TOO_MANY_REQUESTS
+        finally:
+            caches['throttle'].clear()
+
+    def test_join_code_scoped_throttle(self, api_client, monkeypatch):
+        from django.core.cache import caches
+        from rest_framework.throttling import ScopedRateThrottle
+
+        monkeypatch.setattr(
+            ScopedRateThrottle, 'THROTTLE_RATES', {'join_code': '2/hour'})
+        caches['throttle'].clear()
+        try:
+            body = {'join_code': 'ZZZZZZZZ', 'email': 'kid@example.com'}
+            for _ in range(2):
+                response = api_client.post(JOIN_URL, body, format='json')
+                assert response.status_code == status.HTTP_400_BAD_REQUEST
+
+            throttled = api_client.post(JOIN_URL, body, format='json')
+            assert throttled.status_code == status.HTTP_429_TOO_MANY_REQUESTS
+        finally:
+            caches['throttle'].clear()
+
+    def test_phase_67_throttles_are_off_by_default(self):
+        from rest_framework.settings import api_settings
+
+        assert api_settings.DEFAULT_THROTTLE_RATES['invite_link'] is None
+        assert api_settings.DEFAULT_THROTTLE_RATES['join_code'] is None
+
+
+@pytest.mark.django_db
+class TestPhase67AdversarialGaps:
+    """Promoted from the phase-67 adversarial pass. Each of these covers a
+    gap the spec's own checklist did not name."""
+
+    @pytest.mark.parametrize('bad_code', [
+        None, 123, 12.5, True, ['ABCD2345'], {'$ne': None}, {'code': 'x'}])
+    def test_non_string_join_code_is_refused_not_500(
+            self, api_client, bad_code):
+        response = api_client.post(
+            JOIN_URL, {'join_code': bad_code, 'email': 'kid@example.com'},
+            format='json')
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.data == {'detail': JOIN_GENERIC_DETAIL}
+
+    @pytest.mark.parametrize('bad_email', [
+        None, 123, True, ['kid@example.com'], {'email': 'kid@example.com'}])
+    def test_non_string_email_is_refused_not_500(
+            self, api_client, instructor, course, bad_email):
+        from courses.models import generate_join_code
+
+        course.join_code = generate_join_code()
+        course.save(update_fields=['join_code'])
+
+        response = api_client.post(
+            JOIN_URL, {'join_code': course.join_code, 'email': bad_email},
+            format='json')
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+
+    @pytest.mark.parametrize('body', [
+        {}, {'join_code': 'A' * 200_000, 'email': 'kid@example.com'},
+        {'join_code': 'ABCD2345', 'email': 'a' * 200_000 + '@example.com'},
+        {'join_code': '----   ', 'email': 'kid@example.com'}])
+    def test_hostile_bodies_never_500(self, api_client, body):
+        response = api_client.post(JOIN_URL, body, format='json')
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+
+    def test_a_code_only_ever_resolves_its_own_courses_invite(
+            self, api_client, instructor):
+        """Same student, pending invites on two courses. Course B's code must
+        resolve course B's token and nothing else — the invite lookup is
+        scoped by course, not by email alone."""
+        from courses.models import generate_join_code
+
+        course_a = Course.objects.create(
+            code='AAA101', title='A', instructor=instructor,
+            join_code=generate_join_code())
+        course_b = Course.objects.create(
+            code='BBB101', title='B', instructor=instructor,
+            join_code=generate_join_code())
+        invite_a = CourseInvite.objects.create(
+            course=course_a, email='kid@example.com', invited_by=instructor)
+        invite_b = CourseInvite.objects.create(
+            course=course_b, email='kid@example.com', invited_by=instructor)
+
+        resolved = api_client.post(
+            JOIN_URL,
+            {'join_code': course_b.join_code, 'email': 'kid@example.com'},
+            format='json')
+
+        assert resolved.status_code == status.HTTP_200_OK
+        assert resolved.data['token'] == invite_b.token
+        assert resolved.data['token'] != invite_a.token
+
+    def test_a_code_does_not_resolve_an_invite_on_another_course(
+            self, api_client, instructor):
+        from courses.models import generate_join_code
+
+        course_a = Course.objects.create(
+            code='AAA102', title='A', instructor=instructor,
+            join_code=generate_join_code())
+        course_b = Course.objects.create(
+            code='BBB102', title='B', instructor=instructor,
+            join_code=generate_join_code())
+        CourseInvite.objects.create(
+            course=course_a, email='kid@example.com', invited_by=instructor)
+
+        response = api_client.post(
+            JOIN_URL,
+            {'join_code': course_b.join_code, 'email': 'kid@example.com'},
+            format='json')
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert 'token' not in response.data
+
+    @pytest.mark.parametrize('invite_id', ['-1', '99999999999999999999'])
+    def test_link_endpoint_survives_absurd_invite_ids(
+            self, api_client, instructor, course, invite_id):
+        api_client.force_authenticate(user=instructor)
+        response = api_client.get(
+            f'/api/courses/courses/{course.code}/invites/{invite_id}/link/')
+
+        assert response.status_code in (
+            status.HTTP_400_BAD_REQUEST, status.HTTP_404_NOT_FOUND)
+
+    def test_link_endpoint_404s_for_an_unknown_course(
+            self, api_client, instructor):
+        api_client.force_authenticate(user=instructor)
+        response = api_client.get(
+            '/api/courses/courses/NOPE999/invites/1/link/')
+
+        assert response.status_code == status.HTTP_404_NOT_FOUND
+
+    def test_join_code_endpoint_rejects_unsupported_methods(
+            self, api_client, instructor, course):
+        api_client.force_authenticate(user=instructor)
+        response = api_client.put(join_code_url(course), {}, format='json')
+
+        assert response.status_code == status.HTTP_405_METHOD_NOT_ALLOWED
+
+    def test_disabling_an_already_disabled_code_is_idempotent(
+            self, api_client, instructor, course):
+        api_client.force_authenticate(user=instructor)
+        response = api_client.delete(join_code_url(course))
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.data['join_code'] is None
+
+    def test_link_endpoint_refuses_the_demo_course(
+            self, api_client, instructor, settings):
+        """The two new instructor endpoints must agree on the demo guard. The
+        adversarial pass found invite_link without it while course_join_code
+        had it — an asymmetry is how one of them becomes the way in."""
+        settings.DEMO_ACCOUNT_EMAIL = 'jdoe@demo.test'
+        demo_student = User.objects.create_user(
+            email='jdoe@demo.test', password='testpass123')
+        demo_course = Course.objects.create(
+            code='DEMOY', title='Demo', instructor=instructor)
+        Enrollment.objects.create(user=demo_student, course=demo_course)
+        invite = CourseInvite.objects.create(
+            course=demo_course, email='kid@example.com',
+            invited_by=instructor)
+
+        api_client.force_authenticate(user=instructor)
+        response = api_client.get(link_url(demo_course, invite))
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+        assert response.data['code'] == 'demo_blocked'
+        assert invite.token not in str(response.data)
+
+    def test_the_smtp_password_is_scrubbed_from_email_error(
+            self, api_client, instructor, course, inline_email, monkeypatch,
+            settings):
+        """`email_error` is third-party text rendered on the roster. The one
+        secret this process holds that could ride along in an SMTP failure is
+        removed before it is stored."""
+        import courses.views as courses_views
+
+        settings.EMAIL_HOST_PASSWORD = 'super-secret-relay-key'
+
+        def boom(**kwargs):
+            raise OSError(
+                "(535, b'authentication failed for "
+                "super-secret-relay-key')")
+
+        monkeypatch.setattr(
+            courses_views, 'send_course_invite_link_email', boom)
+
+        api_client.force_authenticate(user=instructor)
+        api_client.post(
+            invites_url(course), {'emails': ['kid@example.com']},
+            format='json')
+
+        invite = CourseInvite.objects.get(email='kid@example.com')
+        assert 'super-secret-relay-key' not in invite.email_error
+        assert '[redacted]' in invite.email_error
+        # Still useful: the rest of the failure survives.
+        assert 'authentication failed' in invite.email_error
+
+
+@pytest.mark.django_db
+class TestPhase67SecondAdversarialPass:
+    """Promoted from the second adversarial pass, which attacked the fixes
+    from the first. Every one of these was a live defect."""
+
+    def test_dotless_i_cannot_resolve_someone_elses_invite(
+            self, api_client, instructor, course):
+        """The join lookup must be an EXACT match.
+
+        `email__iexact` looked like a harmless hardening. On Postgres it
+        compiles to UPPER(col) = UPPER(value), and the non-ICU UPPER() folds
+        Turkish dotless i (U+0131) onto ASCII 'I' — so a caller typing their
+        own valid address `iid@…` was handed the token belonging to the
+        different, equally valid `ıid@…`.
+        """
+        from courses.models import generate_join_code
+
+        course.join_code = generate_join_code()
+        course.save(update_fields=['join_code'])
+        theirs = CourseInvite.objects.create(
+            course=course, email='ıid@example.com',
+            invited_by=instructor)
+
+        response = api_client.post(
+            JOIN_URL,
+            {'join_code': course.join_code, 'email': 'iid@example.com'},
+            format='json')
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert theirs.token not in str(response.data)
+
+    def test_join_is_throttled_for_authenticated_callers_too(
+            self, api_client, student, monkeypatch):
+        """AnonRateThrottle returns no cache key once a request is
+        authenticated, so listing it alone left every logged-in account —
+        which every enrolled student has — with no ceiling at all on the
+        endpoint whose whole threat model is walking an email list."""
+        from django.core.cache import caches
+        from rest_framework.throttling import UserRateThrottle
+
+        monkeypatch.setattr(
+            UserRateThrottle, 'THROTTLE_RATES', {'user': '2/hour'})
+        caches['throttle'].clear()
+        try:
+            api_client.force_authenticate(user=student)
+            body = {'join_code': 'ZZZZZZZZ', 'email': 'kid@example.com'}
+            for _ in range(2):
+                assert api_client.post(
+                    JOIN_URL, body, format='json'
+                ).status_code == status.HTTP_400_BAD_REQUEST
+
+            throttled = api_client.post(JOIN_URL, body, format='json')
+            assert throttled.status_code == status.HTTP_429_TOO_MANY_REQUESTS
+        finally:
+            caches['throttle'].clear()
+
+    def test_demo_guard_survives_an_inactive_demo_enrollment(
+            self, api_client, instructor, settings):
+        """Unenrolling the demo account must not quietly switch the demo
+        guard off for that course."""
+        settings.DEMO_ACCOUNT_EMAIL = 'jdoe@demo.test'
+        demo_student = User.objects.create_user(
+            email='jdoe@demo.test', password='testpass123')
+        demo_course = Course.objects.create(
+            code='DEMOZ', title='Demo', instructor=instructor)
+        Enrollment.objects.create(
+            user=demo_student, course=demo_course, is_active=False)
+
+        api_client.force_authenticate(user=instructor)
+        response = api_client.post(join_code_url(demo_course))
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+        assert response.data['code'] == 'demo_blocked'
+
+    def test_secret_is_scrubbed_despite_a_case_mismatch(self, settings):
+        """The relay decides the case it echoes back, not us."""
+        from courses.views import _delivery_error_text
+
+        settings.EMAIL_HOST_PASSWORD = 'Super-Secret-Relay-Key'
+        text = _delivery_error_text(
+            OSError('535 auth failed for SUPER-SECRET-RELAY-KEY at relay'))
+
+        assert 'super-secret-relay-key' not in text.lower()
+        assert '[redacted]' in text
+        assert 'auth failed' in text
+
+    @pytest.mark.parametrize('secret', ["sec'ret-pw01", 'sec\\ret-pw01'])
+    def test_secret_is_scrubbed_out_of_a_bytes_carrying_smtp_error(
+            self, settings, secret):
+        """smtplib carries the server's reply as `bytes`, so `str(exc)` runs
+        it through bytes.__repr__ — a password holding a quote or a backslash
+        reaches the text re-escaped, and a plain substring check sails right
+        past it. Built through the real exception rather than a hand-written
+        escaped string, so the test cannot drift from Python's actual repr.
+        """
+        import smtplib
+
+        from courses.views import _delivery_error_text
+
+        settings.EMAIL_HOST_PASSWORD = secret
+        exc = smtplib.SMTPAuthenticationError(
+            535, f'5.7.8 auth failed: {secret}'.encode())
+
+        text = _delivery_error_text(exc)
+
+        # Neither the literal password nor the escaped form Python's bytes
+        # repr produced for it may survive.
+        assert secret not in text
+        assert repr(secret)[1:-1] not in text
+        assert '[redacted]' in text
+        assert 'auth failed' in text
+
+    def test_a_short_password_does_not_shred_the_error_message(
+            self, settings):
+        """Blind substring replacement of a one-character 'secret' turned
+        every message into noise. Legibility wins below credential length —
+        the diagnostic is the whole point of the field."""
+        from courses.views import _delivery_error_text
+
+        settings.EMAIL_HOST_PASSWORD = 'a'
+        text = _delivery_error_text(
+            OSError('Connection refused after a while'))
+
+        assert text == 'Connection refused after a while'

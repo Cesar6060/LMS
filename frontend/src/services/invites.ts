@@ -5,6 +5,7 @@ import type {
   InviteBatchResult,
   InviteTokenInfo,
   AcceptInvitePayload,
+  JoinWithCodeResponse,
 } from '../types';
 
 export const inviteService = {
@@ -29,7 +30,32 @@ export const inviteService = {
     await api.delete(`/courses/courses/${courseCode}/invites/${inviteId}/`);
   },
 
+  /**
+   * Phase 67 — fetch a pending invite's accept URL on demand. Live tokens are
+   * deliberately kept out of the roster list payload, so this is a separate
+   * call made only when the instructor asks to copy a link.
+   */
+  async getInviteLink(courseCode: string, inviteId: number): Promise<string> {
+    const response = await api.get<{ invite_url: string }>(
+      `/courses/courses/${courseCode}/invites/${inviteId}/link/`
+    );
+    return response.data.invite_url;
+  },
+
   // ---- Public token endpoints (accept page) ----
+
+  /**
+   * Phase 67 — redeem a course join code. Public; succeeds only when the email
+   * already has a pending invite on that course. Returns the invite token so
+   * the caller can hand off to the existing /invite/<token> accept flow.
+   */
+  async joinWithCode(joinCode: string, email: string): Promise<JoinWithCodeResponse> {
+    const response = await api.post<JoinWithCodeResponse>('/courses/join/', {
+      join_code: joinCode,
+      email,
+    });
+    return response.data;
+  },
 
   async getInvite(token: string): Promise<InviteTokenInfo> {
     const response = await api.get<InviteTokenInfo>(`/courses/invites/${token}/`);

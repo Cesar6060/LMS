@@ -1,0 +1,17 @@
+{% autoescape off %}Hi there,
+
+{{ instructor_name }} has invited you to join their course on STEM Quest:
+
+{{ course_title }}
+
+Open the link below to accept the invitation. You will create your account
+(or log in if you already have one) and land directly in the course.
+
+{{ invite_url }}
+
+This invitation link expires in 14 days and can only be used once.
+
+If you were not expecting this invitation, you can ignore this email.
+
+-- STEM Quest
+{% endautoescape %}
