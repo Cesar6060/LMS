@@ -225,6 +225,12 @@ def _badge_satisfied(user, profile, badge):
         return profile.total_xp >= (badge.threshold or 0)
     if criteria == Badge.CRITERIA_STREAK:
         return profile.longest_streak >= (badge.threshold or 0)
+    # Phase 66, deliberate asymmetry — the rule is COUNTS vs RATIOS.
+    # A tally of work the student actually did (lessons done, a perfect score)
+    # keeps counting after the unit is locked: they really did it, and locking
+    # must not retroactively un-earn effort. A *ratio* (course complete) must
+    # drop locked units from its denominator, or the badge becomes unearnable
+    # for the whole class the moment an instructor locks anything.
     if criteria == Badge.CRITERIA_LESSONS_DONE:
         done = LessonProgress.objects.filter(user=user, completed=True).count()
         return done >= (badge.threshold or 0)

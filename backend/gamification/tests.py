@@ -1625,3 +1625,23 @@ class TestCourseCompleteBadgeWithLockedUnits:
 
         assert not UserBadge.objects.filter(
             user=student, badge__key='course_done').exists()
+
+
+    def test_lessons_done_badge_keeps_counting_after_a_lock(
+            self, student, course, unit, lessons, enrollment):
+        """Counts vs ratios: a tally of work actually done must survive a lock.
+
+        The course-complete badge is a ratio and drops locked units from its
+        denominator; `lessons_done` is a count of real effort and must not be
+        retroactively un-earned when an instructor hides the unit.
+        """
+        locked = Unit.objects.create(
+            course=course, title='Locked', order=99, is_locked=True)
+        banked = Lesson.objects.create(unit=locked, title='Banked', order=1)
+        LessonProgress.objects.create(user=student, lesson=banked, completed=True)
+
+        profile, _ = GameProfile.objects.get_or_create(user=student)
+        _evaluate_badges(student, profile)
+
+        assert UserBadge.objects.filter(
+            user=student, badge__key='first_lesson').exists()

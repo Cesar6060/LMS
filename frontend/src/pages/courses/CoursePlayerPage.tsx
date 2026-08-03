@@ -15,7 +15,7 @@ import { useAuth } from '@/contexts/useAuth';
 import { useGamificationFeedback } from '@/components/gamification/useGamificationFeedback';
 import type { LessonProgress, LessonQuestionsStatus, LessonAttachment, LessonSection, Quiz } from '@/types';
 import {
-  Loader2, ChevronLeft, ChevronRight, CheckCircle, Circle, FileQuestion, Map as MapIcon
+  Loader2, ChevronLeft, ChevronRight, CheckCircle, Circle, FileQuestion, Map as MapIcon, Lock
 } from 'lucide-react';
 
 interface LessonDetail {
@@ -89,6 +89,10 @@ export function CoursePlayerPage() {
   const [progress, setProgress] = useState<LessonProgress | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isLessonLoading, setIsLessonLoading] = useState(false);
+  // Phase 66: set when the requested lesson sits in a locked unit. Without it a
+  // pasted URL fell through to the neutral "Select a lesson to begin" state,
+  // which reads like an app glitch rather than an answer.
+  const [lockedNotice, setLockedNotice] = useState('');
   const [error, setError] = useState('');
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(() => {
     return localStorage.getItem('coursePlayerSidebarCollapsed') === 'true';
@@ -197,6 +201,7 @@ export function CoursePlayerPage() {
   const loadLesson = useCallback(async (id: number) => {
     try {
       setIsLessonLoading(true);
+      setLockedNotice('');
       setQuestionsStatus(null); // Reset questions status when loading new lesson
       setCurrentSectionIndex(0); // Reset section index
       setNavDirection('forward'); // New lesson always enters forward
@@ -233,6 +238,13 @@ export function CoursePlayerPage() {
         courseService.updateCourseActivity(code).catch(() => {});
       }
     } catch (err) {
+      const error = err as { response?: { status?: number; data?: { detail?: string } } };
+      if (error.response?.status === 403) {
+        setCurrentLesson(null);
+        setLockedNotice(
+          error.response.data?.detail || 'This unit is locked by your instructor.'
+        );
+      }
       console.error('Failed to load lesson:', err);
     } finally {
       setIsLessonLoading(false);
@@ -952,8 +964,18 @@ export function CoursePlayerPage() {
               </div>
             </>
           ) : (
-            <div className="flex-1 flex items-center justify-center text-muted-foreground">
-              Select a lesson to begin
+            <div className="flex-1 flex items-center justify-center p-8">
+              {lockedNotice ? (
+                <div className="max-w-md text-center">
+                  <Lock className="h-10 w-10 mx-auto mb-4 text-amber-600 dark:text-amber-400" />
+                  <p className="text-lg font-semibold mb-2">{lockedNotice}</p>
+                  <p className="text-base text-muted-foreground">
+                    Pick an unlocked lesson from the sidebar to keep going.
+                  </p>
+                </div>
+              ) : (
+                <span className="text-muted-foreground">Select a lesson to begin</span>
+              )}
             </div>
           )}
         </div>

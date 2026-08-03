@@ -1487,9 +1487,13 @@ def analytics_quizzes(request, course_code):
             entry['best'] = score
         entry['passed'] = entry['passed'] or attempt.passed
 
+    # Locked units are excluded here too, matching the gradebook and
+    # _analytics_student_rows (phase 66). Listing an assessment that has no
+    # gradebook column and feeds no student's average is the same
+    # analytics-disagrees-with-the-gradebook trap, one level down.
     unit_quizzes = []
     for quiz in Quiz.objects.filter(
-        unit__course=course
+        unit__course=course, unit__is_locked=False
     ).select_related('unit').order_by('unit__order', 'order'):
         per_student = quiz_stats.get(quiz.id, {})
         attempted = len(per_student)
@@ -1528,7 +1532,7 @@ def analytics_quizzes(request, course_code):
 
     lesson_checks = []
     for lesson in Lesson.objects.filter(
-        unit__course=course
+        unit__course=course, unit__is_locked=False
     ).annotate(num_questions=Count('questions')).filter(
         num_questions__gt=0
     ).select_related('unit').order_by('unit__order', 'order'):
@@ -2158,7 +2162,8 @@ def lesson_questions(request, lesson_id):
         - Students see questions without correct answer indicators
     POST: Create a new question (instructor only).
     """
-    lesson = get_object_or_404(Lesson, pk=lesson_id)
+    lesson = get_object_or_404(
+        Lesson.objects.select_related('unit__course'), pk=lesson_id)
     course = lesson.unit.course
 
     is_instructor = is_course_instructor(request.user, course)
@@ -2229,7 +2234,8 @@ def lesson_question_detail(request, lesson_id, question_id):
     PUT: Update a question (instructor only).
     DELETE: Delete a question (instructor only).
     """
-    lesson = get_object_or_404(Lesson, pk=lesson_id)
+    lesson = get_object_or_404(
+        Lesson.objects.select_related('unit__course'), pk=lesson_id)
     question = get_object_or_404(LessonQuestion, pk=question_id, lesson=lesson)
     course = lesson.unit.course
 
@@ -2318,7 +2324,8 @@ def lesson_questions_status(request, lesson_id):
     Get the status of a student's progress on lesson questions.
     Returns total questions, answered count, correct count, and whether they can complete the lesson.
     """
-    lesson = get_object_or_404(Lesson, pk=lesson_id)
+    lesson = get_object_or_404(
+        Lesson.objects.select_related('unit__course'), pk=lesson_id)
     course = lesson.unit.course
 
     require_course_access(request.user, course, "You must be enrolled in this course.")
@@ -2426,7 +2433,8 @@ def start_lesson_quiz_session(request, lesson_id):
     Start (or resume) a mastery session for a lesson's comprehension check.
     Students only. max_quiz_attempts is intentionally ignored (cap retired).
     """
-    lesson = get_object_or_404(Lesson, pk=lesson_id)
+    lesson = get_object_or_404(
+        Lesson.objects.select_related('unit__course'), pk=lesson_id)
     require_enrollment(request.user, lesson.unit.course)
     require_unit_unlocked(request.user, lesson.unit)
 
@@ -2462,7 +2470,8 @@ def start_lesson_quiz_session(request, lesson_id):
 @perm_classes([IsAuthenticated])
 def get_lesson_quiz_session(request, lesson_id):
     """Resume state for the current in-progress session; 404 if none."""
-    lesson = get_object_or_404(Lesson, pk=lesson_id)
+    lesson = get_object_or_404(
+        Lesson.objects.select_related('unit__course'), pk=lesson_id)
     require_enrollment(request.user, lesson.unit.course)
     require_unit_unlocked(request.user, lesson.unit)
 
@@ -2488,7 +2497,8 @@ def answer_lesson_quiz_session(request, lesson_id):
     completion gating stay consistent. Finalizes when all mastered:
     score = first-try correct count, passed=True, XP awarded once.
     """
-    lesson = get_object_or_404(Lesson, pk=lesson_id)
+    lesson = get_object_or_404(
+        Lesson.objects.select_related('unit__course'), pk=lesson_id)
     require_enrollment(request.user, lesson.unit.course)
     require_unit_unlocked(request.user, lesson.unit)
 
@@ -2613,7 +2623,8 @@ def lesson_attachments(request, lesson_id):
     GET: List attachments for a lesson (students and instructors)
     POST: Upload attachment to a lesson (instructor only)
     """
-    lesson = get_object_or_404(Lesson, pk=lesson_id)
+    lesson = get_object_or_404(
+        Lesson.objects.select_related('unit__course'), pk=lesson_id)
     course = lesson.unit.course
 
     require_course_access(request.user, course, "You must be enrolled in this course.")
@@ -2703,7 +2714,8 @@ def lesson_attachments(request, lesson_id):
 @perm_classes([IsAuthenticated])
 def lesson_attachment_detail(request, lesson_id, attachment_id):
     """Delete an attachment (instructor only)."""
-    lesson = get_object_or_404(Lesson, pk=lesson_id)
+    lesson = get_object_or_404(
+        Lesson.objects.select_related('unit__course'), pk=lesson_id)
     course = lesson.unit.course
 
     require_course_instructor(
@@ -2732,7 +2744,8 @@ def lesson_sections(request, lesson_id):
     GET: List sections for a lesson (students and instructors)
     POST: Create a new section (instructor only)
     """
-    lesson = get_object_or_404(Lesson, pk=lesson_id)
+    lesson = get_object_or_404(
+        Lesson.objects.select_related('unit__course'), pk=lesson_id)
     course = lesson.unit.course
 
     require_course_access(request.user, course, "You must be enrolled in this course.")
@@ -2773,7 +2786,8 @@ def lesson_section_detail(request, lesson_id, section_id):
     PUT: Update a section (instructor only)
     DELETE: Delete a section (instructor only)
     """
-    lesson = get_object_or_404(Lesson, pk=lesson_id)
+    lesson = get_object_or_404(
+        Lesson.objects.select_related('unit__course'), pk=lesson_id)
     course = lesson.unit.course
     section = get_object_or_404(LessonSection, pk=section_id, lesson=lesson)
 
@@ -2824,7 +2838,8 @@ def lesson_sections_reorder(request, lesson_id):
     Reorder sections for a lesson.
     Expects: { "section_ids": [3, 1, 2] }
     """
-    lesson = get_object_or_404(Lesson, pk=lesson_id)
+    lesson = get_object_or_404(
+        Lesson.objects.select_related('unit__course'), pk=lesson_id)
     course = lesson.unit.course
 
     require_course_instructor(
@@ -2874,7 +2889,8 @@ def lesson_sections_bulk_create(request, lesson_id):
     New sections are appended after existing ones with server-assigned order.
     All-or-nothing: a single invalid child rolls back the whole batch (400).
     """
-    lesson = get_object_or_404(Lesson, pk=lesson_id)
+    lesson = get_object_or_404(
+        Lesson.objects.select_related('unit__course'), pk=lesson_id)
     course = lesson.unit.course
 
     require_course_instructor(
@@ -2945,7 +2961,8 @@ def lesson_section_import_slide(request, lesson_id):
     is the ONLY writer of ``LessonSection.image`` (the normal section
     serializers exclude it so full-object editor PUTs can't wipe it).
     """
-    lesson = get_object_or_404(Lesson, pk=lesson_id)
+    lesson = get_object_or_404(
+        Lesson.objects.select_related('unit__course'), pk=lesson_id)
     course = lesson.unit.course
 
     require_course_instructor(
@@ -3075,7 +3092,8 @@ def reset_lesson_progress(request, lesson_id):
 
     Used by instructors to repeatedly test the student experience.
     """
-    lesson = get_object_or_404(Lesson, pk=lesson_id)
+    lesson = get_object_or_404(
+        Lesson.objects.select_related('unit__course'), pk=lesson_id)
     course = lesson.unit.course
 
     # Only allow instructors of this course to reset their progress

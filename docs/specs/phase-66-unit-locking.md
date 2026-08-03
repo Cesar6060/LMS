@@ -237,9 +237,35 @@ lock→unlock transition (mutation-checked — it fails when the filter is rever
 `lesson_question_detail`'s gate is now pinned, and the instructor course-map test
 asserts titles and post-progress states rather than only the absence of a lock reason.
 
-**Additionally deferred:** `analytics_quizzes` still lists locked units' quizzes and
-lesson checks, so the analytics page can show an assessment that has no gradebook
-column and feeds no student's quiz average. Spec-conformant (it lists only
-`_analytics_student_rows`) and defensible as historical instructor data, but it is
-the same "analytics disagrees with the gradebook" class as finding 6 and wants an
-explicit product decision — exclude, or tag those rows as locked in the payload.
+### Cleanup pass — every deferred item resolved
+
+Nothing is left deferred. Each open item was either fixed or turned into an
+explicit, documented decision:
+
+11. **`analytics_quizzes` now excludes locked units** (both the unit-quiz table and
+    the lesson-checks table). It was the last surface where analytics could show an
+    assessment with no gradebook column that feeds no student's average.
+12. **The badge count-vs-ratio rule is now stated in code**
+    (`gamification/services.py`). The asymmetry was real and intentional, not an
+    omission: a **count** of work actually done (`lessons_done`, a perfect score)
+    keeps counting after a lock, because the student really did it and locking must
+    not retroactively un-earn effort; a **ratio** (`course_complete`) must drop
+    locked units from its denominator or it becomes unearnable for the whole class.
+    Pinned by `test_lessons_done_badge_keeps_counting_after_a_lock`.
+13. **The player now explains the lock.** A pasted URL for a locked lesson used to
+    fall through to the neutral "Select a lesson to begin" state, which reads as an
+    app glitch; the 403 was caught and discarded. It now renders the server's own
+    detail message. Three vitest cases cover detail / no-detail / non-403.
+14. **`require_unit_unlocked`'s extra queries removed** — all 14 lesson-scoped views
+    now `select_related('unit__course')`, which every one of them needed anyway for
+    its permission check.
+
+**Accepted as-is, with reasons:**
+- `course_map` still emits the real `id` of a locked node. The frontend needs it as a
+  React key and for routing, every id-taking endpoint is gated, and the title,
+  passing score and best score are all withheld — so the id alone reveals only that
+  a node exists.
+- `UnitSerializer.to_representation` empties `lessons` *after* rendering them. Wasted
+  work on a student's course-detail request, but converting it to a
+  `SerializerMethodField` is a real refactor of a hot path for modest gain — not
+  worth doing in the same change as the lock itself.

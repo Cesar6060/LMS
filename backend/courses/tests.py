@@ -5475,3 +5475,27 @@ class TestLockedUnitLessonListBoundaryMatrix:
     def test_anonymous_is_401(self, api_client, locked_course):
         assert api_client.get(
             '/api/courses/lessons/').status_code == status.HTTP_401_UNAUTHORIZED
+
+    def test_analytics_quizzes_excludes_locked_units(
+            self, api_client, instructor, locked_course):
+        """An assessment with no gradebook column must not appear in analytics."""
+        from quizzes.models import Quiz
+
+        Quiz.objects.create(
+            unit=locked_course['locked_unit'], title='Locked Quiz',
+            passing_score=70, points=10, order=1)
+        Quiz.objects.create(
+            unit=locked_course['open_unit'], title='Open Quiz',
+            passing_score=70, points=10, order=1)
+        LessonQuestion.objects.create(
+            lesson=locked_course['locked_lessons'][0], text='Hidden?', order=1)
+
+        api_client.force_authenticate(user=instructor)
+        response = api_client.get(
+            f"/api/courses/courses/{locked_course['course'].code}/analytics/quizzes/")
+
+        assert response.status_code == status.HTTP_200_OK
+        titles = {q['title'] for q in response.data['unit_quizzes']}
+        assert 'Open Quiz' in titles
+        assert 'Locked Quiz' not in titles
+        assert 'Locked 1' not in {c['title'] for c in response.data['lesson_checks']}
