@@ -13,7 +13,7 @@ from django.shortcuts import get_object_or_404
 from django.contrib.auth.password_validation import validate_password
 from django.core.exceptions import ValidationError as DjangoValidationError
 from django.core.validators import validate_email
-from django.db import models, transaction
+from django.db import IntegrityError, models, transaction
 from django.db.models import F, Max, Count, Q
 from django.http import HttpResponse
 from django.utils import timezone
@@ -51,8 +51,8 @@ from .permissions import (
     IsEnrolledOrInstructor,
     is_course_instructor, is_enrolled, can_access_course,
     require_course_instructor, require_course_access, require_enrollment,
-    require_unit_unlocked, locked_unit_ids_for,
-    accessible_course_ids,
+    require_pending_invite, require_unit_unlocked, locked_unit_ids_for,
+    accessible_course_ids, INVITE_REQUIRED_DETAIL,
 )
 
 
@@ -99,18 +99,31 @@ class CourseViewSet(viewsets.ModelViewSet):
 
     @action(detail=True, methods=['post'], permission_classes=[IsAuthenticated])
     def enroll(self, request, code=None):
-        """Enroll in a course using enrollment code."""
+        """Enroll in a course using an enrollment code AND a pending invite.
+
+        Phase 68: the enrollment code is a SECOND FACTOR, not the
+        authorization. `require_pending_invite` is what says this caller was
+        asked to join this course; without it a code overheard in a hallway
+        enrolled anyone with an account, and a removed student re-added
+        themselves with the code their instructor had read to the class. Do
+        not "simplify" the invite check away — it is the whole security
+        contract of this action, and it must stay identical to the one in
+        `EnrollmentCreateSerializer` (the other code-based join path).
+        """
         # The demo account lives in DEMO101 only — with a leaked enrollment
         # code it must not be able to join a real course and see a real
         # roster. Mirrors the destroy() guard below (both directions closed).
         require_not_demo(request.user)
         course = get_object_or_404(Course, code=code, is_active=True)
 
-        # Verify enrollment code matches
-        provided_code = request.data.get('enrollment_code', '').upper()
+        # Verify enrollment code matches. Coerced first: `.upper()` on a
+        # non-string body (`{"enrollment_code": 123}`) used to raise
+        # AttributeError and 500. Same treatment as normalize_join_code.
+        raw_code = request.data.get('enrollment_code', '')
+        provided_code = raw_code.upper() if isinstance(raw_code, str) else ''
         if provided_code != course.enrollment_code:
             return Response(
-                {'error': 'Invalid enrollment code'},
+                {'detail': 'Invalid enrollment code'},
                 status=status.HTTP_400_BAD_REQUEST
             )
 
@@ -118,26 +131,46 @@ class CourseViewSet(viewsets.ModelViewSet):
         existing = Enrollment.objects.filter(user=request.user, course=course).first()
         if existing and existing.is_active:
             return Response(
-                {'error': 'You are already enrolled in this course'},
+                {'detail': 'You are already enrolled in this course'},
                 status=status.HTTP_400_BAD_REQUEST
             )
-
-        # Re-activate if previously removed
-        if existing and not existing.is_active:
-            existing.is_active = True
-            existing.save(update_fields=['is_active'])
-            serializer = EnrollmentSerializer(existing)
-            return Response(serializer.data, status=status.HTTP_200_OK)
 
         # Check if user is instructor
         if course.instructor == request.user:
             return Response(
-                {'error': 'Instructors cannot enroll in their own courses'},
+                {'detail': 'Instructors cannot enroll in their own courses'},
                 status=status.HTTP_400_BAD_REQUEST
             )
 
-        # Create enrollment
-        enrollment = Enrollment.objects.create(user=request.user, course=course)
+        require_pending_invite(request.user, course)
+
+        # A soft-deleted enrollment is NOT revived here any more. Removal is
+        # the instructor's decision and sticks until they re-invite, at which
+        # point accept_invite's _activate_enrollment brings the row back with
+        # its grades — that path, and only that path. The refusal reuses the
+        # invite-required body verbatim so it never tells a student they were
+        # removed, and so this branch is indistinguishable from "no invite".
+        if existing:
+            raise PermissionDenied(INVITE_REQUIRED_DETAIL)
+
+        try:
+            with transaction.atomic():
+                enrollment = Enrollment.objects.create(
+                    user=request.user, course=course)
+                # The invite check above is a read; this write is the one that
+                # actually claims the invitation, and it re-tests pending() in
+                # its WHERE clause. If it matches nothing, an instructor's
+                # revoke landed in the gap and won — roll the enrollment back.
+                if not consume_invite_for(request.user, course):
+                    raise PermissionDenied(INVITE_REQUIRED_DETAIL)
+        except IntegrityError:
+            # A concurrent request (an impatient double-click is enough) beat
+            # us to the unique ('user','course') row between the check above
+            # and this insert. That is the already-enrolled case, not a 500.
+            return Response(
+                {'detail': 'You are already enrolled in this course'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
         return Response(
             EnrollmentSerializer(enrollment).data,
             status=status.HTTP_201_CREATED
@@ -1709,6 +1742,31 @@ def _activate_enrollment(user, course):
     return enrollment
 
 
+def consume_invite_for(user, course):
+    """Claim the caller's pending invite on `course`. True if one was claimed.
+
+    Phase 68: a code-based enrollment consumes its invite exactly as
+    `accept_invite` does. Without this the invite stays pending and remains a
+    live second way in, so a later removal could be undone with an invitation
+    that was already spent.
+
+    Targeted `filter(...).update(...)` rather than fetch-then-save, mirroring
+    the phase-67 delivery writes: it re-checks `pending()` in the WHERE clause
+    at write time, so it cannot clobber a concurrent revoke.
+
+    The boolean matters. `require_pending_invite` is a read, and an instructor
+    revoking in the gap between that read and the insert would otherwise lose
+    a race they should win — leaving an active enrollment hanging off an
+    invite the roster shows as "revoked". Callers treat False as a refusal and
+    roll the enrollment back, which makes THIS the authoritative check.
+    """
+    email = (getattr(user, 'email', '') or '').lower()
+    if not email:
+        return False
+    return bool(course.invites.pending().filter(email=email).update(
+        accepted_at=timezone.now()))
+
+
 def invite_url_for(invite):
     """The accept-page URL for an invite.
 
@@ -1974,6 +2032,70 @@ def invite_link(request, course_code, invite_id):
 
 
 invite_link.cls.throttle_scope = 'invite_link'
+
+
+# Phase 68. Deleting is for tidying the roster, not for cancelling anything:
+# a PENDING invite must be revoked (which stops its link working) before it
+# can be removed, so a misclick can never void a live invitation. Deleting a
+# closed invite destroys no enrollment — the `Enrollment` row is the record
+# that matters and lives in a separate table.
+PENDING_INVITE_DELETE_DETAIL = (
+    'This invitation is still open. Revoke it first if you want to cancel it, '
+    'then delete it.'
+)
+
+
+@api_view(['DELETE'])
+@perm_classes([IsAuthenticated])
+def delete_course_invite(request, course_code, invite_id):
+    """Hard-delete one closed (accepted/revoked/expired) invite.
+
+    Revoked rows are otherwise unbounded per (course, email): the unique
+    constraint is conditional on `revoked_at IS NULL`, so every
+    invite -> revoke -> re-invite cycle leaves another dead row on the roster
+    forever. This is the only way to clear them.
+    """
+    course = get_object_or_404(Course, code=course_code)
+    require_course_instructor(
+        request.user, course,
+        "Only the course instructor can manage invitations."
+    )
+    require_not_demo_course(course)
+
+    # Scoped by course, not just by id: an invite belonging to someone else's
+    # course must 404 here even for a real instructor.
+    invite = get_object_or_404(CourseInvite, id=invite_id, course=course)
+    if invite.status == 'pending':
+        return Response(
+            {'detail': PENDING_INVITE_DELETE_DETAIL},
+            status=status.HTTP_400_BAD_REQUEST
+        )
+
+    invite.delete()
+    return Response(status=status.HTTP_204_NO_CONTENT)
+
+
+@api_view(['DELETE'])
+@perm_classes([IsAuthenticated])
+def delete_closed_course_invites(request, course_code):
+    """Hard-delete every closed invite on the course; returns {'deleted': n}.
+
+    "Closed" is expressed in SQL as "not in pending()" rather than by
+    evaluating the `status` property row by row — the expiry half of the
+    lifecycle is a timestamp comparison, and doing it in Python would both
+    scan the table and open a race against invites expiring mid-loop.
+    """
+    course = get_object_or_404(Course, code=course_code)
+    require_course_instructor(
+        request.user, course,
+        "Only the course instructor can manage invitations."
+    )
+    require_not_demo_course(course)
+
+    deleted, _ = course.invites.exclude(
+        pk__in=course.invites.pending().values('pk')
+    ).delete()
+    return Response({'deleted': deleted})
 
 
 # ==================== Course join code (Phase 67) ====================

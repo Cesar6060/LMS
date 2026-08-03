@@ -225,7 +225,16 @@ What it does here — three monitors:
     eat a cold start. Shallow on purpose (no DB touch) so it doesn't
     keep Neon awake too.
   - API /api/health/?deep=1 hourly, keyword-matching "database": "ok" —
-    the only monitor that proves Django can actually reach Neon.
+    the only monitor that proves Django can actually reach Neon AND that
+    the schema it finds there is the one this code expects. Phase 68
+    added a real ORM content read (named columns off Course and Lesson)
+    behind the existing SELECT 1, because SELECT 1 reported 200 straight
+    through the phase-65 outage, where the connection was fine and a
+    column was missing. It tolerates zero rows on purpose: a missing
+    column raises ProgrammingError on an empty table too, so requiring
+    rows would only break fresh databases. Keep the response containing
+    the literal string "database": "ok" — the monitor's keyword match is
+    on that exact text, and reshaping the body reads as a false DOWN.
   - The frontend URL every 5 min.
 
 Why we use it: it answers "is the site down?" (Sentry only answers "is

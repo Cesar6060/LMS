@@ -495,6 +495,14 @@ class TestNormalUsersUnaffected:
 
     def test_student_can_enroll_and_post(
             self, api_client, student, course, other_course, seeded_thread):
+        # Phase 68: enrolling with a code also needs a pending invite for the
+        # caller's address. The point of this test is that the DEMO guard does
+        # not fire for a real student, so give them the invite and keep it.
+        from courses.models import CourseInvite
+        CourseInvite.objects.create(
+            course=other_course, email=student.email,
+            invited_by=other_course.instructor)
+
         api_client.force_authenticate(user=student)
 
         enroll = api_client.post(

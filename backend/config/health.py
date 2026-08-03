@@ -37,7 +37,34 @@ def health(request):
         return JsonResponse(
             {'status': 'error', 'database': 'unavailable'}, status=503)
 
-    return JsonResponse({'status': 'ok', 'database': 'ok'})
+    # SELECT 1 proves the connection, not the schema — during the phase-65
+    # outage a missing column returned 200 through a total content failure.
+    # So read real columns through the ORM. Deliberately tolerant of zero rows:
+    # a missing column raises ProgrammingError even on an empty table, while
+    # requiring rows would break every fresh database and prove nothing extra.
+    try:
+        _content_probe()
+    except Exception:  # noqa: BLE001 - a broken schema must not 500 the monitor
+        logger.exception('Health deep-check content probe failed')
+        return JsonResponse(
+            {'status': 'error', 'content': 'unavailable'}, status=503)
+
+    # `"database": "ok"` must appear verbatim: UptimeRobot monitor 803564235
+    # keyword-matches that exact string, and a reshaped body would show up as
+    # a silent monitoring outage rather than an alert.
+    return JsonResponse({'status': 'ok', 'database': 'ok', 'content': 'ok'})
+
+
+def _content_probe():
+    """Read named columns off the two tables the whole app is built on.
+
+    Imported lazily so this module stays importable before the app registry is
+    ready, and kept separate so tests can force the failure path.
+    """
+    from courses.models import Course, Lesson
+
+    Course.objects.values('id', 'code', 'join_code').first()
+    Lesson.objects.values('id', 'content_key', 'unit_id').first()
 
 
 @never_cache

@@ -31,6 +31,28 @@ export const inviteService = {
   },
 
   /**
+   * Phase 68 — hard-delete one CLOSED invite (accepted / revoked / expired).
+   * The backend refuses a pending one with a 400: a misclick must never void
+   * a live invitation, so those are revoked first and deleted after.
+   */
+  async deleteInvite(courseCode: string, inviteId: number): Promise<void> {
+    await api.delete(`/courses/courses/${courseCode}/invites/${inviteId}/delete/`);
+  },
+
+  /**
+   * Phase 68 — clear every closed invite off the course in one call. Revoked
+   * rows are otherwise unbounded per (course, email): the unique constraint
+   * is conditional on `revoked_at IS NULL`, so every revoke/re-invite cycle
+   * leaves another dead row on the roster forever.
+   */
+  async deleteClosedInvites(courseCode: string): Promise<number> {
+    const response = await api.delete<{ deleted: number }>(
+      `/courses/courses/${courseCode}/invites/closed/`
+    );
+    return response.data.deleted;
+  },
+
+  /**
    * Phase 67 — fetch a pending invite's accept URL on demand. Live tokens are
    * deliberately kept out of the roster list payload, so this is a separate
    * call made only when the instructor asks to copy a link.

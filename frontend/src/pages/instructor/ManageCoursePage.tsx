@@ -27,6 +27,8 @@ import { AccessDenied } from '@/components/AccessDenied';
 import { OutlineUnitCard, type OutlineUnit } from '@/components/manage/OutlineUnitCard';
 import { CourseSettingsDialog } from '@/components/manage/CourseSettingsDialog';
 import { CourseToolsNav } from '@/components/instructor/CourseToolsNav';
+import { ClassCodeCard } from '@/components/course/ClassCodeCard';
+import { copyToClipboard } from '@/lib/clipboard';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 import { BackLink } from '@/components/layout/BackLink';
 import type { Quiz } from '@/types';
@@ -197,10 +199,16 @@ export function ManageCoursePage() {
   }, [course, user]);
 
   const handleCopyEnrollmentCode = async () => {
-    if (course?.enrollment_code) {
-      await navigator.clipboard.writeText(course.enrollment_code);
+    if (!course?.enrollment_code) return;
+    // Phase 67's clipboard rule: writeText does not always settle, so a bare
+    // await here could hang the button forever with no copy and no
+    // explanation. copyToClipboard treats silence as failure; the code is
+    // selectable on screen, which is the fallback.
+    if (await copyToClipboard(course.enrollment_code)) {
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
+    } else {
+      setError('Your browser blocked the copy — select the code instead.');
     }
   };
 
@@ -503,16 +511,18 @@ export function ManageCoursePage() {
             </div>
           </div>
 
-          {/* Enrollment code — the thing instructors share with students */}
-          <div className="flex items-center gap-3 rounded-xl border border-neon-green/30 bg-neon-green/5 pl-4 pr-2 py-2.5">
-            <div>
-              <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-                Enrollment Code
-              </p>
-              <p className="font-mono text-2xl font-bold tracking-[0.2em] text-neon-green leading-tight">
-                {course.enrollment_code}
-              </p>
-            </div>
+          {/* Enrollment code, DEMOTED (Phase 68).
+              This used to be the largest code on the page, so it was what an
+              instructor read to the class — and under invite-only it enrols
+              nobody without an account, which on day one is everybody. It is
+              still a real second factor for an already-enrolled student
+              adding another course, so it stays reachable; the class code
+              below is the one to read out. */}
+          <div className="flex items-center gap-2 text-sm text-muted-foreground">
+            <span className="uppercase tracking-wider">Enrollment code</span>
+            <span className="font-mono font-semibold tracking-[0.15em] text-foreground select-all">
+              {course.enrollment_code}
+            </span>
             <Button
               variant="ghost"
               size="icon"
@@ -521,9 +531,9 @@ export function ManageCoursePage() {
               title="Copy enrollment code"
             >
               {copied ? (
-                <CheckCircle className="h-5 w-5 text-green-500" />
+                <CheckCircle className="h-4 w-4 text-green-500" />
               ) : (
-                <Copy className="h-5 w-5" />
+                <Copy className="h-4 w-4" />
               )}
             </Button>
           </div>
@@ -554,6 +564,10 @@ export function ManageCoursePage() {
           </Button>
         </div>
       </div>
+
+      {/* The code that actually works for a student with no account yet.
+          Same component the roster page renders, so the two cannot drift. */}
+      <ClassCodeCard courseCode={course.code} className="mb-6" />
 
       {error && (
         <div className="bg-destructive/10 border border-destructive/20 text-destructive rounded-md px-4 py-3 text-sm mb-4">
