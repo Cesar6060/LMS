@@ -1,8 +1,9 @@
-# Handoff: Phase 66 instructor unit locking — PR open, not merged
+# Handoff: Phase 66 instructor unit locking — MERGED AND DEPLOYED
 
 ## Current state
-Phase 66 code-complete on `feat/phase-66-unit-locking`. **PR #95 open, NOT merged**
-(https://github.com/Cesar6060/LMS/pull/95). All 23 spec checklist items done.
+Phase 66 is **merged and live in production** — PR #95 squash-merged as `5a49df3f`,
+deploy verified with a real content read. All 23 spec checklist items done.
+**Superseded by `2026-08-02-launch-prep-and-robotics-2.md` — read that one first.**
 - Verified: pytest **947** (main: 892), tsc 0, lint 0 (+1 known), vitest **138**,
   `makemigrations --check` clean. Manual click-through done on local Docker (VGD101).
 - Migration `courses/0025_unit_is_locked` — `db_default=False`, reverse tested down/up,
@@ -21,10 +22,8 @@ Phase 66 code-complete on `feat/phase-66-unit-locking`. **PR #95 open, NOT merge
   reseed; phase-56 + 64 click-throughs; Sentry LoginPage; Dependabot #68/#86/#87/#88.
 
 ## Next steps
-1. Merge PR #95 — **this deploys**. Verify with BOTH `/api/health/?deep=1` AND a real
-   content read (demo-login → `GET /api/courses/courses/DEMO101/units/`, expect
-   `is_locked: false` + `lesson_count`).
-2. Add branch protection on `main` (require both CI jobs).
+Done — merged and verified. Remaining work moved to
+`docs/handoffs/2026-08-02-launch-prep-and-robotics-2.md`.
 
 ## Decisions made
 - **Denominators exclude locked units unconditionally**, not per-viewer — they measure what
