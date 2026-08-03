@@ -1,3 +1,4 @@
+import re
 import secrets
 import uuid
 from datetime import timedelta
@@ -10,6 +11,38 @@ from django.utils import timezone
 def generate_enrollment_code():
     """Generate an 8-character alphanumeric enrollment code."""
     return secrets.token_urlsafe(6)[:8].upper()
+
+
+# Deliberately missing 0/O and 1/I/L: students read this code off a
+# whiteboard or a slide, and every ambiguous glyph is a support ticket.
+JOIN_CODE_ALPHABET = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789'
+JOIN_CODE_LENGTH = 8
+
+
+def generate_join_code():
+    """A unique, unambiguous 8-character course join code (Phase 67).
+
+    Retries on the unique-index collision rather than trusting 31**8 to never
+    repeat. Stored uppercase; `normalize_join_code` is the read-side partner.
+    """
+    for _ in range(10):
+        code = ''.join(
+            secrets.choice(JOIN_CODE_ALPHABET) for _ in range(JOIN_CODE_LENGTH)
+        )
+        if not Course.objects.filter(join_code=code).exists():
+            return code
+    raise RuntimeError('Could not generate a unique join code.')
+
+
+def normalize_join_code(raw) -> str:
+    """Uppercase, drop whitespace and dashes.
+
+    `abcd-2345`, `ABCD 2345` and `ABCD2345` must all resolve to one course —
+    students retype these by hand.
+    """
+    if not isinstance(raw, str):
+        return ''
+    return re.sub(r'[\s\-_]', '', raw).upper()
 
 
 def generate_content_key():
@@ -45,6 +78,24 @@ class Course(models.Model):
         unique=True,
         default=generate_enrollment_code,
         help_text='Code students use to enroll'
+    )
+    join_code = models.CharField(
+        max_length=12,
+        null=True,
+        blank=True,
+        # unique=True is the index. Django's Postgres backend treats unique
+        # and db_index identically when building a CharField's indexes, so the
+        # db_index=True the spec also listed emits no additional SQL at all —
+        # left off rather than implying a second index exists.
+        unique=True,
+        help_text=(
+            'Phase 67 invite fallback. A student who never received their '
+            'invite email can redeem this code at /join — but only together '
+            'with an email address that already has a pending CourseInvite '
+            'on this course, so the code alone enrolls nobody. Null (the '
+            'default for every course) means the fallback is off; Postgres '
+            'permits many NULLs under a unique index.'
+        ),
     )
     is_active = models.BooleanField(default=True)
     created_at = models.DateTimeField(auto_now_add=True)
@@ -248,6 +299,21 @@ class CourseInvite(models.Model):
     expires_at = models.DateTimeField(default=default_invite_expiry)
     accepted_at = models.DateTimeField(null=True, blank=True)
     revoked_at = models.DateTimeField(null=True, blank=True)
+    # Phase 67: what SMTP actually did with this invite. Before these columns
+    # the roster said "Invitation sent" from a response built before the
+    # sending thread had even run, so a filtered or refused message looked
+    # identical to a delivered one.
+    email_sent_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text='When our mail server accepted this invite for delivery.',
+    )
+    email_error = models.CharField(
+        max_length=255,
+        null=True,
+        blank=True,
+        help_text='Truncated failure from the last send attempt, if it failed.',
+    )
 
     objects = CourseInviteQuerySet.as_manager()
 
@@ -287,14 +353,36 @@ class CourseInvite(models.Model):
             return 'expired'
         return 'pending'
 
+    @property
+    def delivery(self):
+        """Email delivery state, kept separate from `status`.
+
+        `status` is the invite lifecycle (pending/accepted/revoked/expired);
+        this is what happened to the message. 'sent' means our mail server
+        accepted it — not that it reached an inbox.
+        """
+        if self.email_error:
+            return 'failed'
+        if self.email_sent_at is not None:
+            return 'sent'
+        return 'pending'
+
     def refresh(self, invited_by):
-        """Re-issue this invite: new token, new expiry, cleared acceptance."""
+        """Re-issue this invite: new token, new expiry, cleared acceptance.
+
+        Delivery state resets too — a re-sent invite is a fresh attempt, and
+        leaving the old result would show a stale "Sent" for a message that
+        has not gone out yet.
+        """
         self.token = generate_invite_token()
         self.expires_at = default_invite_expiry()
         self.accepted_at = None
         self.invited_by = invited_by
+        self.email_sent_at = None
+        self.email_error = None
         self.save(update_fields=[
             'token', 'expires_at', 'accepted_at', 'invited_by',
+            'email_sent_at', 'email_error',
         ])
 
 

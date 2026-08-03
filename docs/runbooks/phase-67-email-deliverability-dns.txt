@@ -1,0 +1,416 @@
+PHASE 67 — EMAIL DELIVERABILITY: DNS RECORDS + INVITE FALLBACKS
+================================================================
+
+What this fixes
+---------------
+One invite sent to a school district address never arrived — no bounce,
+no error, it simply vanished into the district's mail filter. The cause
+is that stemquests.com publishes DKIM and a sending-subdomain SPF record
+but no DMARC policy and no SPF record on the root domain, so a strict
+district gateway sees mail from noreply@stemquests.com as coming from a
+domain with no stated authentication policy and quietly drops it. This
+runbook adds the two missing DNS records, proves they work, and gives
+the instructor two ways to get a student in on day one even if a filter
+eats the email anyway.
+
+Where things stand before you start
+-----------------------------------
+  Domain      stemquests.com, DNS hosted at Cloudflare
+  Email       Resend, over its SMTP relay
+  Sending on  send.stemquests.com
+  From        STEM Quest <noreply@stemquests.com>
+  App         https://stemquests.com
+  API         https://api.stemquests.com
+
+Already present in Cloudflare DNS (do not touch these):
+  TXT   resend._domainkey.stemquests.com   the DKIM key
+  TXT   send.stemquests.com                v=spf1 include:amazonses.com ~all
+  MX    send.stemquests.com                feedback-smtp (Amazon SES)
+
+Missing, and added below:
+  TXT   _dmarc.stemquests.com
+  TXT   stemquests.com                     root SPF
+
+Also missing, and deliberately NOT added in this phase:
+  MX    stemquests.com                     see PART A, STEP A3
+
+You need the Cloudflare dashboard login, the Resend dashboard login, a
+personal Gmail address, and a terminal for the dig commands.
+
+================================================================
+PART A — ADD THE DNS RECORDS
+================================================================
+
+STEP A1 — Add the DMARC record
+------------------------------
+1. Cloudflare dashboard -> stemquests.com -> DNS -> Records -> Add
+   record.
+2. Fill it in exactly:
+
+       Type     TXT
+       Name     _dmarc
+       Content  v=DMARC1; p=none; fo=1
+       TTL      Auto
+
+   Cloudflare shows the Name field as just "_dmarc" and expands it to
+   _dmarc.stemquests.com for you. If your entry shows up as
+   _dmarc.stemquests.com.stemquests.com you typed the full name into a
+   field that already appends the domain — fix the Name back to
+   "_dmarc".
+3. Proxy status: this MUST be DNS only (grey cloud), NOT proxied
+   (orange cloud). TXT records normally have no proxy toggle at all; if
+   you see one, make sure it is grey.
+4. Save.
+
+Why p=none, and what to do later. The policy p=none means "publish that
+we authenticate, but ask no receiver to reject anything." That is
+deliberate: it turns stemquests.com from a domain with no policy into a
+domain with a policy, which is what the district gateways and the
+Google/Yahoo bulk-sender rules score on, and it cannot cause a single
+legitimate message to be thrown away while you are still learning how
+the domain behaves. After roughly a week of clean sending — invites and
+password resets landing, nothing reported missing — come back and change
+the Content to:
+
+       v=DMARC1; p=quarantine; fo=1
+
+That tells receivers to put unauthenticated mail claiming to be from
+stemquests.com in the spam folder. Do not skip straight to
+p=quarantine, and do not go to p=reject at all for now.
+
+Note there is no rua= address in this record. rua= is where aggregate
+DMARC reports get mailed, and stemquests.com currently has no mailbox
+that can receive them. STEP A3 is how you would get one.
+
+STEP A2 — Add the root SPF record
+---------------------------------
+1. Same screen: Cloudflare -> stemquests.com -> DNS -> Records -> Add
+   record.
+2. Fill it in exactly:
+
+       Type     TXT
+       Name     @            (this means the root, stemquests.com itself)
+       Content  v=spf1 include:amazonses.com ~all
+       TTL      Auto
+
+3. DNS only, not proxied, same as above.
+4. Save.
+
+Important: a domain may have only ONE SPF record. If Cloudflare already
+lists a TXT record on the root that starts with v=spf1, do not add a
+second one — edit the existing record instead and merge the include into
+it. Two SPF records on the same name is a permanent error and is worse
+than having none. The record on send.stemquests.com is a different name
+and is unaffected; leave it exactly as it is.
+
+STEP A3 — OPTIONAL, NOT REQUIRED: Cloudflare Email Routing
+-----------------------------------------------------------
+Skip this step. It was considered for phase 67 and deliberately not
+selected. It is written down here because it is the natural next
+improvement, not because anything below depends on it.
+
+What it is: Cloudflare Email Routing adds MX records to
+stemquests.com and forwards anything sent to an address at the domain
+to a real inbox you already read, such as your personal Gmail. It is
+free and it is a few clicks: Cloudflare -> stemquests.com -> Email ->
+Email Routing -> Get started, let Cloudflare add its MX and SPF records,
+then create a route and confirm the forwarding address from the
+verification email Cloudflare sends you.
+
+What it would buy:
+  1. It removes the "sender domain does not accept mail" scoring
+     penalty. Barracuda- and Proofpoint-class appliances — exactly the
+     kind a school district runs — add spam points when the From domain
+     has no MX record at all, because legitimate senders normally can
+     receive mail.
+  2. It gives DMARC a self-owned rua= destination, so you could add
+     rua=mailto:dmarc@stemquests.com to the record from STEP A1 and
+     start receiving aggregate reports telling you who is sending as
+     your domain and whether it passes.
+  3. A student who hits Reply on an invite stops getting a bounce. Today
+     noreply@stemquests.com cannot receive anything.
+
+The catch, and the reason it is optional: Email Routing wants to manage
+the domain's SPF record, so doing this after STEP A2 means reconciling
+its record with yours by hand rather than letting it write its own. If
+you ever do turn it on, re-run the whole of PART B afterwards and
+confirm SPF still passes.
+
+================================================================
+PART B — VERIFY THE RECORDS
+================================================================
+
+STEP B1 — Check DNS from the terminal
+-------------------------------------
+Wait a few minutes after saving. Cloudflare usually propagates in under
+a minute, but give it five before you worry. Then run each of these:
+
+    dig TXT _dmarc.stemquests.com +short
+
+  Expect exactly:
+
+    "v=DMARC1; p=none; fo=1"
+
+    dig TXT stemquests.com +short
+
+  Expect (possibly alongside other unrelated TXT records such as a
+  domain-verification string — that is fine, as long as only ONE line
+  starts with v=spf1):
+
+    "v=spf1 include:amazonses.com ~all"
+
+Then confirm you did not disturb what was already working:
+
+    dig TXT send.stemquests.com +short
+
+  Expect: "v=spf1 include:amazonses.com ~all"
+
+    dig TXT resend._domainkey.stemquests.com +short
+
+  Expect a long string beginning p= — that is the DKIM public key.
+
+    dig MX send.stemquests.com +short
+
+  Expect a feedback-smtp host at amazonses.com with priority 10.
+
+Empty output means the record is not live yet or the name is wrong.
+Re-read the Name field in Cloudflare first; the usual mistake is a
+doubled domain (_dmarc.stemquests.com.stemquests.com).
+
+While you are here, open the Resend dashboard -> Domains ->
+stemquests.com and confirm it still reads Verified.
+
+STEP B2 — Send yourself one message and read the headers
+--------------------------------------------------------
+1. Log into https://stemquests.com as the instructor account.
+2. Open a course -> Student Roster -> invite your own personal Gmail
+   address. (A password reset to that address works too; it uses the
+   same sending path.)
+3. The mail should arrive within a minute, From: STEM Quest
+   <noreply@stemquests.com>. If it landed in Spam, note that and keep
+   going — the headers still tell you what you need.
+4. In Gmail, open the message, click the three-dot menu at the top
+   right of the message, and choose "Show original".
+5. At the top of that page Gmail prints a small summary table. All
+   three lines must say PASS:
+
+       SPF     PASS   with domain send.stemquests.com
+       DKIM    PASS   with domain stemquests.com
+       DMARC   PASS   with domain stemquests.com
+
+   Before this runbook, the DMARC line read FAIL or was absent
+   entirely. Seeing DMARC: PASS is the whole point of PART A. If it
+   still does not say PASS, your record has not propagated yet or has a
+   typo — go back to STEP B1.
+6. While the message is open, check two more things by eye: the plain
+   text version reads like sentences rather than stylesheet gibberish,
+   and the Reply-To is the instructor's address rather than noreply.
+
+STEP B3 — Score the message with mail-tester
+--------------------------------------------
+1. Open https://www.mail-tester.com in a browser. It shows you a
+   one-time address such as test-abc123@srv1.mail-tester.com.
+2. Send an invite to that address from the roster exactly as you did in
+   STEP B2. (The invite will never be accepted; you only need the mail
+   to arrive.)
+3. Go back to the mail-tester tab and click "Then check your score."
+4. Expect 9 out of 10 or 10 out of 10. Anything at 8 or above will get
+   through normal filters.
+
+If the score is lower, read the itemised list rather than the number.
+The two deductions you should expect to see and can ignore for now:
+"your domain is not on any MX" (that is STEP A3, deliberately skipped)
+and a note about the domain being newly registered with little sending
+history (that only fixes itself with time). A deduction naming SPF,
+DKIM, DMARC, or a broken plain-text part is real and needs fixing
+before you send to the school.
+
+================================================================
+PART C — THE REAL TEST
+================================================================
+
+STEP C1 — One invite to the address that vanished
+-------------------------------------------------
+Everything above proves the mail is well-formed. Only the district's own
+filter can prove it is deliverable.
+
+1. Log into https://stemquests.com as the instructor.
+2. Student Roster for the course -> invite the SAME school address whose
+   invite disappeared the first time.
+3. Send exactly ONE. Do not send a burst of retries — repeated identical
+   mail to a domain that already filtered you is the fastest way to get
+   the whole sending domain listed.
+4. Ask the student (or whoever owns that address) to check the inbox AND
+   the junk or quarantine folder. Landing in junk still counts as
+   progress and still gives them a working link.
+5. Give it fifteen minutes before concluding anything. District gateways
+   routinely hold mail from an unfamiliar sender for a few minutes.
+
+STEP C2 — If it still does not arrive
+-------------------------------------
+Two places tell you where it stopped.
+
+First, the roster's Delivery column. Each open invitation row now shows
+one of:
+
+    Sent      Our mail server accepted the message and Resend took it.
+              This does NOT mean it reached an inbox — it means the
+              failure, if any, happened downstream of us.
+    Failed    We could not hand the message off at all. The row shows
+              the error text (email_error) next to the badge. This is
+              our problem: a bad SMTP credential, a Resend outage, a
+              malformed address. Fix that and use the Resend button on
+              the row to try again.
+    Sending   The send is in flight right now. The row updates itself
+              within a few seconds; no action needed.
+    No record There is no delivery result for this invitation. Either it
+              was sent before delivery tracking existed (anything from
+              before 2026-08-03), or the send never ran at all. Click
+              Resend on the row to get a real result.
+
+Sent plus nothing in the student's mailbox means the district filter
+dropped it after accepting it, and no amount of resending will change
+that today. Go to PART D.
+
+Second, the Resend dashboard. Log in at https://resend.com -> Emails.
+Find the send by recipient address and timestamp, and open it. The
+status field is the authoritative record of what happened after we
+handed the message over:
+
+    Delivered   The receiving server accepted it. If the student still
+                cannot find it, it is in their junk folder or their
+                district quarantine. Have them search for
+                "stemquests" and, if they can, allowlist the sender.
+    Bounced     The receiving server refused it, and the bounce reason
+                is shown. A "user unknown" reason means the address is
+                wrong — confirm the spelling with the student. A policy
+                or reputation reason is the district blocking us.
+    Complained  Someone marked a previous message as spam.
+    Queued or Sending   Still in flight; wait and refresh.
+
+Whatever it says, do not keep resending. Use PART D, get the student in,
+and if the status was Bounced for a policy reason, ask the school's IT
+contact to allowlist noreply@stemquests.com. Having DMARC, SPF, and DKIM
+all passing is exactly the evidence that request needs.
+
+================================================================
+PART D — DAY-ONE FALLBACK SCRIPT FOR THE INSTRUCTOR
+================================================================
+
+Neither fallback depends on our email reaching anybody. Both still
+require that the student already has an open invitation for their exact
+email address — nothing here lets a stranger enroll.
+
+FALLBACK 1 — Hand the student their invite link directly
+---------------------------------------------------------
+Use this when you can reach the student some other way: in the room, a
+school messaging system, a shared document, a text.
+
+1. Student Roster page for the course.
+2. Find the student's row under open invitations.
+3. Click Copy link on that row. The button fetches the invitation's
+   personal link and copies it to your clipboard, then shows "Copied".
+   If your browser refuses clipboard access, the link is displayed in a
+   selectable box instead — select it and copy it by hand.
+4. Give the link to the student however you can reach them.
+5. They open it, set a password, and they are in.
+
+That link is personal to that one student. Treat it like a password:
+anyone holding it can claim that account. Do not post it anywhere the
+whole class can see, and do not read it aloud.
+
+FALLBACK 2 — The course join code
+----------------------------------
+Use this for a whole class at once, or when you cannot get a link to one
+particular student. Unlike the invite link, the join code is safe to say
+out loud.
+
+Set it up:
+1. Student Roster page for the course -> the join code card.
+2. Click Generate. An eight-character code appears in large type, using
+   only unambiguous characters — no letter O, no digit 0, no letter I or
+   L, no digit 1 — because students will be reading it off a whiteboard.
+3. Write it on the board or paste the instruction line from the card
+   into whatever the class already reads.
+
+Tell the students:
+1. Go to https://stemquests.com/join
+2. Enter the class code.
+3. Enter the email address the invitation was sent to.
+4. They land on their own accept page and set a password from there.
+
+Why this is safe to say out loud. The code alone enrolls nobody. It only
+works when it is paired with an email address that ALREADY has an open
+invitation on that course. A student who overhears the code but was
+never invited gets the same polite refusal as someone who typed the code
+wrong — the page deliberately gives away nothing about who is or is not
+on the roster. The code is a delivery channel, not permission.
+
+The one thing it does NOT protect against, and what to do about it. The
+code plus a CLASSMATE'S email address is enough to reach that
+classmate's accept page, and whoever gets there first sets the password.
+That matters because school addresses are usually predictable
+(firstname.lastname@district.edu). A stranger cannot do this — they need
+an address you invited — but someone sitting in the room can. So:
+  - Turn the code off as soon as the class is in. It exists for the
+    students the email did not reach, not as a permanent front door.
+  - If a student says they cannot set a password because the account
+    already exists, treat it as a possible mis-claim: check the roster,
+    revoke the invite, and re-invite them.
+  - For a single student, prefer FALLBACK 1 (the personal link).
+
+The student must type the exact address you invited. If they invented a
+variation, or used a personal address when you invited the school one,
+they will be refused. Check the spelling on the roster and re-invite the
+right address if needed.
+
+Managing the code:
+    Rotate     Generates a new code and kills the old one immediately.
+               Anyone still holding the previous code is locked out the
+               instant you click it, so only rotate once everyone who
+               needs it has joined.
+    Turn off   Removes the code entirely. https://stemquests.com/join
+               then refuses it. Do this after the first week; the
+               invite links keep working regardless.
+
+There is no expiry on the code. Off is off, and on stays on until you
+turn it off — so do turn it off once the class has enrolled.
+
+================================================================
+AFTERWARDS
+================================================================
+
+Before the first invite goes out (one-time, Render dashboard):
+    Render -> the backend service -> Environment. Add both of these and
+    save; the service restarts on its own.
+
+        THROTTLE_JOIN_CODE    10/hour
+        THROTTLE_INVITE_LINK  60/hour
+
+    These are rate limits on the two endpoints added in this phase.
+    Leaving THROTTLE_JOIN_CODE unset does not break anything, but it
+    leaves the public /join page on the general anonymous limit only,
+    which is much looser than the 10/hour this endpoint should have.
+
+Same day:
+    Confirm every student in the class has an account, by whichever of
+    the three paths worked for them.
+    Turn the class code off once everyone is in.
+
+About a week of clean sending later:
+    Cloudflare -> DNS -> edit the _dmarc record from STEP A1 and change
+    p=none to p=quarantine. Re-run the dig command in STEP B1 and send
+    yourself one more test, checking that Gmail still reports DMARC:
+    PASS.
+
+If you later turn on Email Routing (STEP A3):
+    Re-run the whole of PART B, then add rua=mailto:<your routed
+    address> to the DMARC record so you start receiving aggregate
+    reports.
+
+Rollback:
+    Deleting the two new TXT records returns the domain to its
+    2026-08-02 state. Nothing else in the app reads them and no code
+    change is tied to them. There is no reason to do this — a missing
+    DMARC record is what caused the problem — but the records are
+    additive and removing them breaks nothing.

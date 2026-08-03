@@ -12,6 +12,7 @@ import { PageLoader } from '@/components/PageLoader';
 // .then() remapping to the default export lazy() expects.
 const LoginPage = lazy(() => import('@/pages/auth/LoginPage').then((m) => ({ default: m.LoginPage })));
 const AcceptInvitePage = lazy(() => import('@/pages/auth/AcceptInvitePage').then((m) => ({ default: m.AcceptInvitePage })));
+const JoinWithCodePage = lazy(() => import('@/pages/auth/JoinWithCodePage').then((m) => ({ default: m.JoinWithCodePage })));
 const TermsPage = lazy(() => import('@/pages/legal/TermsPage').then((m) => ({ default: m.TermsPage })));
 const PrivacyPage = lazy(() => import('@/pages/legal/PrivacyPage').then((m) => ({ default: m.PrivacyPage })));
 const ForgotPasswordPage = lazy(() => import('@/pages/auth/ForgotPasswordPage').then((m) => ({ default: m.ForgotPasswordPage })));
@@ -162,6 +163,9 @@ function App() {
               log in first) and logged-in (existing account auto-accepts), so
               it deliberately has no guard. */}
           <Route path="/invite/:token" element={<AcceptInvitePage />} />
+          {/* Join-code fallback for a student whose invite email was filtered.
+              Public and unguarded for the same reason as /invite/:token. */}
+          <Route path="/join" element={<JoinWithCodePage />} />
           {/* Legal pages — public, linked from Login and AcceptInvite. */}
           <Route path="/terms" element={<TermsPage />} />
           <Route path="/privacy" element={<PrivacyPage />} />

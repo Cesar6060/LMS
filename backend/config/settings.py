@@ -313,6 +313,13 @@ REST_FRAMEWORK = {
         # endpoint (production ~10/hour). Unset = unlimited locally/in tests.
         'invite_send': config('THROTTLE_INVITE_SEND', default=None),
         'invite_accept': config('THROTTLE_INVITE_ACCEPT', default=None),
+        # Invite fallbacks (Phase 67). invite_link hands the instructor a live
+        # token, so it gets its own ceiling on top of the per-user one
+        # (production ~60/hour). join_code is the anonymous redemption
+        # endpoint — same shape and rate as invite_accept, and the tight limit
+        # is what stops someone walking a leaked code through an email list.
+        'invite_link': config('THROTTLE_INVITE_LINK', default=None),
+        'join_code': config('THROTTLE_JOIN_CODE', default=None),
         # Slide-deck import (Phase 61): one multipart upload per slide, so a
         # 100-page deck is 100 writes in quick succession — the rate must
         # allow a burst that size. Unset = unlimited locally/in tests.

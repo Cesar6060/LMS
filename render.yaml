@@ -93,6 +93,11 @@ services:
 #                  (suggested: 120/min, 30/hour, 10/hour)
 # Throttles (P61): THROTTLE_SLIDE_IMPORT (suggested: 300/hour — one upload per
 #                  slide, must clear a 100-page deck plus retries)
+# Throttles (P67): THROTTLE_INVITE_LINK (suggested: 60/hour — instructor-only
+#                  copy-link fetches, one per student they chase down),
+#                  THROTTLE_JOIN_CODE (suggested: 10/hour, matching
+#                  THROTTLE_INVITE_ACCEPT — anonymous join-code redemption,
+#                  keyed on client IP)
 # Throttles (P63): THROTTLE_CACHE_DIR — OPTIONAL, leave unset. Throttle counters
 #                  moved to their own file-backed cache so both gunicorn workers
 #                  share them (before P63 each worker held its own copy and every

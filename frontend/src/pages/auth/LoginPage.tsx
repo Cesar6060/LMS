@@ -116,7 +116,13 @@ export function LoginPage() {
                 autoComplete="current-password"
               />
             </div>
-            <div className="text-right">
+            <div className="flex items-center justify-between">
+              <Link
+                to="/join"
+                className="text-sm text-muted-foreground hover:text-primary"
+              >
+                Have a class code?
+              </Link>
               <Link
                 to="/forgot-password"
                 className="text-sm text-muted-foreground hover:text-primary"

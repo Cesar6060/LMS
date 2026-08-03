@@ -1,4 +1,6 @@
 import csv
+import re
+
 from django.conf import settings
 from rest_framework import viewsets, status, generics
 from rest_framework.decorators import (
@@ -22,14 +24,14 @@ from PIL import Image as PILImage
 from allauth.account.models import EmailAddress
 from accounts.models import User
 from accounts.serializers import UserSerializer
-from core.demo import is_demo_email, require_not_demo
+from core.demo import is_demo_email, require_not_demo, require_not_demo_course
 from core.email import send_course_invite_link_email, send_emails_async
 from core.pagination import RosterPagination
 from core.throttling import (
-    ClientIPScopedRateThrottle, ClientIPScopedWriteRateThrottle,
-    ClientIPUserRateThrottle,
+    ClientIPAnonRateThrottle, ClientIPScopedRateThrottle,
+    ClientIPScopedWriteRateThrottle, ClientIPUserRateThrottle,
 )
-from .models import Course, Unit, Lesson, Enrollment, LessonProgress, Announcement, LessonQuestion, LessonQuestionChoice, LessonQuestionAnswer, LessonQuizAttempt, LessonAttemptAnswer, LessonAttachment, LessonSection, CourseInvite
+from .models import Course, Unit, Lesson, Enrollment, LessonProgress, Announcement, LessonQuestion, LessonQuestionChoice, LessonQuestionAnswer, LessonQuizAttempt, LessonAttemptAnswer, LessonAttachment, LessonSection, CourseInvite, generate_join_code, normalize_join_code
 from .serializers import (
     CourseSerializer, CourseListSerializer, CourseCreateSerializer,
     InstructorCourseSerializer, UnitSerializer, UnitCreateSerializer,
@@ -1707,18 +1709,104 @@ def _activate_enrollment(user, course):
     return enrollment
 
 
+def invite_url_for(invite):
+    """The accept-page URL for an invite.
+
+    One helper for the email and the on-demand copy-link endpoint, so the two
+    can never drift into handing out different URLs for the same token.
+    """
+    return f'{settings.FRONTEND_URL}/invite/{invite.token}'
+
+
+def _instructor_reply_to(course):
+    """Reply-To for invites: the instructor, when that is a real address.
+
+    A student who hits Reply on an invite otherwise bounces off
+    noreply@ — and a From domain nobody can reply to scores badly at
+    district mail gateways. The demo account is excluded: it must never have
+    its address handed out, and it triggers no real mail anyway.
+    """
+    email = (getattr(course.instructor, 'email', '') or '').strip()
+    if not email or is_demo_email(email):
+        return None
+    return [email]
+
+
+# Below this length a "secret" is not a credential any real deployment uses,
+# and blind substring replacement would shred every error message that
+# happens to contain those characters — turning the one diagnostic the
+# instructor gets into unreadable noise. Legibility wins at that size.
+_SCRUBBABLE_SECRET_LENGTH = 8
+
+
+def _delivery_error_text(exc):
+    """The failure text stored on the invite and shown to the instructor.
+
+    The raw exception is the useful part — "which host refused us, and why"
+    is exactly what the roster needs to say. But it is third-party text going
+    onto a UI, so the one secret this process holds that could plausibly ride
+    along in an SMTP error is scrubbed first.
+
+    Defense in depth, not a guarantee: Django's SMTP backend does not echo the
+    password back, so this is here for the exception nobody predicted. Both
+    forms are matched because smtplib carries the server's reply as `bytes`,
+    and `str(exc)` therefore renders it through `bytes.__repr__` — a password
+    containing a backslash or quote reaches the text escaped, and a plain
+    substring check would sail straight past it.
+    """
+    text = str(exc) or 'Send failed.'
+    secret = getattr(settings, 'EMAIL_HOST_PASSWORD', '') or ''
+
+    if len(secret) >= _SCRUBBABLE_SECRET_LENGTH:
+        # repr() of the secret minus its surrounding quotes is the escaped
+        # form; identical to the plain form for ordinary passwords, so the
+        # alternation costs nothing there.
+        escaped = repr(secret)[1:-1]
+        pattern = '|'.join(
+            re.escape(form) for form in dict.fromkeys((secret, escaped)))
+        text = re.sub(pattern, '[redacted]', text, flags=re.IGNORECASE)
+
+    return text[:255]
+
+
+def _send_invite_email_and_record(invite_id, **send_kwargs):
+    """Send one invite and persist what SMTP did with it (Phase 67).
+
+    Runs on the `send_emails_async` daemon thread. Writes through a targeted
+    `filter(pk=...).update(...)` rather than `invite.save()` so it can only
+    ever touch the two delivery columns — a concurrent revoke or re-issue on
+    the same row is not clobbered by a stale in-memory instance.
+    """
+    try:
+        sent = send_course_invite_link_email(fail_silently=False, **send_kwargs)
+    except Exception as exc:
+        CourseInvite.objects.filter(pk=invite_id).update(
+            email_sent_at=None, email_error=_delivery_error_text(exc))
+        raise
+
+    if not sent:
+        # The only non-exception falsy path is the demo-account refusal.
+        CourseInvite.objects.filter(pk=invite_id).update(
+            email_sent_at=None, email_error='Email was not sent.')
+        return
+
+    CourseInvite.objects.filter(pk=invite_id).update(
+        email_sent_at=timezone.now(), email_error=None)
+
+
 def _queue_invite_email(invite, email_tasks):
     instructor_name = (
         invite.invited_by.get_full_name() or invite.invited_by.email)
     email_tasks.append((
-        send_course_invite_link_email,
-        (),
+        _send_invite_email_and_record,
+        (invite.pk,),
         {
             'recipient_email': invite.email,
             'course_title': invite.course.title,
             'instructor_name': instructor_name,
-            'invite_url': f'{settings.FRONTEND_URL}/invite/{invite.token}',
+            'invite_url': invite_url_for(invite),
             'triggered_by': invite.invited_by,
+            'reply_to': _instructor_reply_to(invite.course),
         },
     ))
 
@@ -1834,6 +1922,166 @@ def revoke_course_invite(request, course_code, invite_id):
         invite.save(update_fields=['revoked_at'])
 
     return Response({'message': f'Invite for {invite.email} revoked.'})
+
+
+# Instructor-facing wording; INVITE_DEAD_DETAILS below is what the invitee
+# sees. Handing out a link that is already dead is worse than refusing.
+INVITE_LINK_DEAD_DETAILS = {
+    'accepted': 'This invitation has already been accepted, so its link no '
+                'longer works. The student is on the roster.',
+    'revoked': 'This invitation has been revoked. Re-invite the student to '
+               'get a working link.',
+    'expired': 'This invitation has expired. Re-send it to get a fresh link.',
+}
+
+
+@api_view(['GET'])
+@perm_classes([IsAuthenticated])
+# Re-list the global per-user ceiling: @throttle_classes replaces
+# DEFAULT_THROTTLE_CLASSES wholesale, and THROTTLE_INVITE_LINK is unset
+# locally and in tests (see the note on course_invites).
+@throttle_classes([ClientIPUserRateThrottle, ClientIPScopedRateThrottle])
+def invite_link(request, course_code, invite_id):
+    """The invite URL for one pending invite, fetched on demand (Phase 67).
+
+    The instructor's out-of-band path when our mail never lands: copy the
+    link, hand it over in class or by text. Deliberately NOT part of the
+    invite list payload — a live token in a bulk response ends up in browser
+    cache, proxy logs, and screen shares.
+    """
+    course = get_object_or_404(Course, code=course_code)
+    require_course_instructor(
+        request.user, course,
+        "Only the course instructor can manage invitations."
+    )
+    # Same guard as the join-code endpoints. Handing out a live token for the
+    # shared demo course is not a real scenario today, but the two new
+    # instructor endpoints in this phase have to agree — an asymmetric demo
+    # guard is how one of them quietly becomes the way in.
+    require_not_demo_course(course)
+
+    # Scoped by course, not just by id: an invite belonging to someone else's
+    # course must 404 here even though this instructor is an instructor.
+    invite = get_object_or_404(CourseInvite, id=invite_id, course=course)
+    if not invite.is_pending:
+        return Response(
+            {'detail': INVITE_LINK_DEAD_DETAILS[invite.status],
+             'status': invite.status},
+            status=status.HTTP_400_BAD_REQUEST
+        )
+
+    return Response({'invite_url': invite_url_for(invite)})
+
+
+invite_link.cls.throttle_scope = 'invite_link'
+
+
+# ==================== Course join code (Phase 67) ====================
+
+# One string for every failure mode of /join/. Distinguishing "no such code"
+# from "that email has no invite" would turn this endpoint into an oracle for
+# "is alice@district.edu invited to this course?" — answerable by anyone
+# holding a code students are told to share freely.
+JOIN_GENERIC_ERROR = "That code and email don't match an open invitation."
+
+
+@api_view(['GET', 'POST', 'DELETE'])
+@perm_classes([IsAuthenticated])
+def course_join_code(request, course_code):
+    """Read, generate/rotate, or turn off this course's join code.
+
+    Instructor-only. POST both generates the first code and rotates an
+    existing one — the previous code stops working the instant it is
+    replaced. No expiry: off is off.
+
+    No scoped throttle here on purpose. The tight `join_code` rate belongs on
+    the public redemption endpoint where anonymous abuse lives; this one is
+    instructor-only and already covered by the global per-user ceiling.
+    """
+    course = get_object_or_404(Course, code=course_code)
+    require_course_instructor(
+        request.user, course,
+        "Only the course instructor can manage the join code."
+    )
+    # The shared public demo course must never become joinable: everyone who
+    # clicks "Try the demo" is already the same account.
+    require_not_demo_course(course)
+
+    if request.method == 'GET':
+        return Response({'join_code': course.join_code})
+
+    if request.method == 'POST':
+        course.join_code = generate_join_code()
+    else:
+        course.join_code = None
+    course.save(update_fields=['join_code'])
+
+    return Response({'join_code': course.join_code})
+
+
+@api_view(['POST'])
+@perm_classes([AllowAny])
+# BOTH global ceilings are re-listed deliberately, unlike accept_invite.
+# @throttle_classes replaces DEFAULT_THROTTLE_CLASSES wholesale, so listing
+# only the scoped class would leave this endpoint COMPLETELY unlimited
+# whenever THROTTLE_JOIN_CODE is unset — and unlike accept_invite, the caller
+# here holds no secret token: the code is meant to be read out to a class.
+# The user throttle matters as much as the anon one: AnonRateThrottle returns
+# no cache key for an authenticated request, so without it any logged-in
+# account — every enrolled student has one — could walk an email list against
+# a shared code with no ceiling at all.
+@throttle_classes([
+    ClientIPAnonRateThrottle, ClientIPUserRateThrottle,
+    ClientIPScopedRateThrottle,
+])
+def join_with_code(request):
+    """Redeem a course join code for an invite token (Phase 67).
+
+    A delivery channel, not an authorization: the code only *finds* an invite
+    that already exists for that exact address. A leaked code enrolls nobody.
+    This view creates no user, no session, and no enrollment — it hands back a
+    token and the frontend continues into the existing /invite/<token> accept
+    flow, so account creation stays in one place.
+    """
+    join_code = normalize_join_code(request.data.get('join_code'))
+    email = str(request.data.get('email') or '').strip().lower()
+
+    generic_failure = Response(
+        {'detail': JOIN_GENERIC_ERROR}, status=status.HTTP_400_BAD_REQUEST)
+
+    # An empty/absent code must never reach the lookup: courses with the
+    # fallback turned off carry NULL, and a blank must not be treated as
+    # "match whatever has no code".
+    if not join_code or not email:
+        return generic_failure
+
+    course = Course.objects.select_related('instructor').filter(
+        join_code=join_code).first()
+    if course is None:
+        return generic_failure
+    require_not_demo_course(course)
+
+    # Exact match, deliberately — do NOT "improve" this to `email__iexact`.
+    # On Postgres iexact compiles to UPPER(col) = UPPER(value), and the
+    # non-ICU UPPER() folds Turkish dotless i (U+0131) onto ASCII 'I'. An
+    # invite for `ıid@example.com` would then be handed to whoever typed the
+    # entirely different — and equally valid — address `iid@example.com`:
+    # someone else's token, to someone who asked for their own address.
+    # Case is already handled: both sides are lowercased, the input above and
+    # the stored value in `course_invites`.
+    invite = CourseInvite.objects.pending().filter(
+        course=course, email=email).first()
+    if invite is None:
+        return generic_failure
+
+    return Response({
+        'token': invite.token,
+        'course_title': course.title,
+        'course_code': course.code,
+    })
+
+
+join_with_code.cls.throttle_scope = 'join_code'
 
 
 @api_view(['GET'])

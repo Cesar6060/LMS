@@ -43,8 +43,14 @@ urlpatterns = [
     # token endpoints the emailed accept links hit (no auth required).
     path('courses/<str:course_code>/invites/', views.course_invites, name='course-invites'),
     path('courses/<str:course_code>/invites/<int:invite_id>/', views.revoke_course_invite, name='revoke-invite'),
+    path('courses/<str:course_code>/invites/<int:invite_id>/link/', views.invite_link, name='invite-link'),
     path('invites/<str:token>/', views.invite_detail, name='invite-detail'),
     path('invites/<str:token>/accept/', views.accept_invite, name='accept-invite'),
+
+    # Join code (Phase 67) — the out-of-band fallback when invite email is
+    # filtered. Instructor management, then the public redemption endpoint.
+    path('courses/<str:course_code>/join-code/', views.course_join_code, name='course-join-code'),
+    path('join/', views.join_with_code, name='join-with-code'),
 
     # Instructor Analytics (Phase 31)
     path('courses/<str:course_code>/analytics/overview/', views.analytics_overview, name='analytics-overview'),

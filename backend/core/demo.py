@@ -46,6 +46,42 @@ def is_demo_user(user) -> bool:
     )
 
 
+def is_demo_course(course) -> bool:
+    """True when this is the shared public demo course (Phase 67).
+
+    Derived, not hardcoded: the demo course is whichever course the shared
+    demo account is enrolled in — clone_course_for_demo + seed_demo_account
+    guarantee exactly one, and re-pointing the demo at a different course must
+    not require editing a literal 'DEMO101' scattered across guards. A course
+    the demo account *teaches* counts too, so the check still holds if a demo
+    instructor is ever added.
+
+    Deliberately a query rather than a cached flag: this runs on
+    instructor-only management endpoints and one throttled public endpoint,
+    never in a content hot path.
+    """
+    if course is None or not settings.DEMO_ACCOUNT_EMAIL:
+        return False
+    if is_demo_email(getattr(getattr(course, 'instructor', None), 'email', None)):
+        return True
+
+    # Deliberately NOT filtered on is_active: a soft-deleted demo enrollment
+    # does not stop this being the demo course, and filtering on it would let
+    # the guard silently switch off the moment someone unenrolled the demo
+    # account. A guard that quietly stops guarding is worse than none.
+    from courses.models import Enrollment
+    return Enrollment.objects.filter(
+        course=course,
+        user__email__iexact=settings.DEMO_ACCOUNT_EMAIL,
+    ).exists()
+
+
+def require_not_demo_course(course):
+    """Raise the standard demo 403 for a write aimed at the demo course."""
+    if is_demo_course(course):
+        raise PermissionDenied(DEMO_BLOCKED_BODY)
+
+
 def require_not_demo(user):
     """Raise the standard demo 403 when the demo account attempts a write.
 

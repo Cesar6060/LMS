@@ -656,12 +656,31 @@ export interface CourseMap {
 // Phase 51: Course invite types
 export type CourseInviteStatus = 'pending' | 'accepted' | 'expired' | 'revoked';
 
+/** Phase 67 — email delivery outcome, separate from the invite lifecycle. */
+export type CourseInviteDelivery = 'pending' | 'sent' | 'failed';
+
 export interface CourseInvite {
   id: number;
   email: string;
   status: CourseInviteStatus;
   created_at: string;
   expires_at: string;
+  /** Phase 67 — when our mail server accepted the message, not when it landed. */
+  email_sent_at: string | null;
+  email_error: string | null;
+  delivery: CourseInviteDelivery;
+}
+
+/** Phase 67 — course join code (null when the instructor has it turned off). */
+export interface JoinCodeResponse {
+  join_code: string | null;
+}
+
+/** Phase 67 — redeeming a join code resolves an existing pending invite token. */
+export interface JoinWithCodeResponse {
+  token: string;
+  course_title: string;
+  course_code: string;
 }
 
 export type InviteOutcome = 'invited' | 'resent' | 'already_enrolled' | 'invalid';
