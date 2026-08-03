@@ -52,7 +52,21 @@ Spec: `docs/specs/phase-67-email-deliverability-and-invite-fallback.md`.
    the only thing that actually proves the phase.
 4. **Decide on the join-code design consequence** (see Decisions). Closing it means
    scoping a code to a single successful redemption.
-5. Phase 68: Robotics 2 / ROB201 authoring. Delete the local ROB201 stub first.
+5. **Phase 68 — close the enrollment-code hole in invite-only** (decided 2026-08-03,
+   deferred here from phase 67). `CourseViewSet.enroll` (`backend/courses/views.py:100`)
+   checks ONLY `enrollment_code` — no invite. So the code alone is the authorization,
+   and any student who learns another course's code can self-enroll without ever being
+   invited. Harmless today (prod has 0 students, and `IsAuthenticated` means it is
+   unreachable without an account while `ALLOW_REGISTRATION=False`), but it becomes
+   live the moment the cohort has accounts. Second problem: the ENROLLMENT CODE box is
+   the most prominent code on `ManageCoursePage.tsx:513`, so it is what an instructor
+   is most likely to read to the class — and it fails for every student who has no
+   account yet, which on day one is all of them.
+   Do: require a pending `CourseInvite` in `enroll` while registration is off, and
+   hide the enrollment-code box under the same condition. Do NOT delete the
+   enrollment-code mechanism — it is the right tool again if registration is ever
+   re-enabled. Needs a permission-boundary test per `.claude/rules/backend.md`.
+6. Phase 68: Robotics 2 / ROB201 authoring. Delete the local ROB201 stub first.
    Then handoff items 3–5 from phase 66 (health-endpoint content read, branch
    protection, Neon backup branch + `protected: true`).
 
@@ -70,6 +84,15 @@ Spec: `docs/specs/phase-67-email-deliverability-and-invite-fallback.md`.
   with the reasoning in a comment so nobody re-applies it.
 - **`is_demo_course` ignores `is_active`** — a soft-deleted demo enrollment must not
   silently switch the guard off.
+- **The enrollment code and the class code are NOT redundant, and the enrollment code
+  is dead weight under invite-only** (user raised this 2026-08-03). Enrollment code:
+  `IsAuthenticated`, and the code by itself authorizes enrollment — useful only to
+  someone who already has an account, e.g. adding a second course. Class code:
+  `AllowAny`, authorizes nothing, only resolves a pending invite for that exact
+  address. With `ALLOW_REGISTRATION=False` a new student can never reach the
+  enrollment-code path at all, which is exactly why phase 67 needed a separate
+  mechanism. Tightening it was deferred to phase 68 rather than bolted onto this
+  phase — see Next steps 5.
 - `Course.join_code` omits the spec's `db_index=True`: `sqlmigrate` shows
   `unique=True` produces identical DDL.
 - `List-Unsubscribe-Post` was kept as the spec dictates even though it points at a
