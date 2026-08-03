@@ -437,3 +437,41 @@ Ops (owner actions — do these BEFORE inviting students):
   callers. Leaving it is fine; deleting it is also fine. Do not spend time on it.
 - Do not touch `join_with_code`, `accept_invite`, or `invite_link`. Phase 67
   shipped them with two adversarial passes; this phase reuses them unchanged.
+
+## Outcomes (implementation, 2026-08-03)
+
+Two deliberate deviations from the text above, both forced by the code:
+
+1. **`consume_invite_for` returns a bool, not nothing.** The spec had it
+   returning nothing. The first adversarial pass proved that leaves a real
+   TOCTOU: `require_pending_invite` is a read, and an instructor's revoke
+   landing between it and the `Enrollment` insert lost a race it should win,
+   producing an active enrollment hanging off an invite the roster shows as
+   "revoked". The bool makes the WRITE the authoritative check — both callers
+   treat False as a refusal and raise inside the `atomic()`, rolling the
+   enrollment back. Covered by `test_a_revoke_landing_mid_enroll_wins`.
+2. **A soft-deleted enrollment gets the invite-required 403 rather than
+   falling through.** `Enrollment` is `unique_together ('user','course')`, so
+   simply deleting the reactivation branch (as written) would have made a
+   removed student's retry a 500, not a refusal. The refusal reuses the
+   invite-required body verbatim, so it is indistinguishable from "no invite"
+   and never tells a student they were removed.
+
+One defect found by the same pass and fixed here, pre-existing rather than
+introduced: a concurrent double-submit (an impatient double-click was enough)
+passed the already-enrolled read twice and the loser hit the unique constraint
+raw, returning an uncaught 500 on both paths. Now a 400. Covered by
+`test_a_concurrent_double_submit_is_400_not_500`.
+
+Everything else in that pass HELD: cross-course invites, Turkish dotless-i
+folding, plus-addressing, non-string codes, the delete endpoints' permission
+boundary and IDOR scoping, the demo guard, URL shadowing, and the refusal's
+information leakage (byte-identical whoever else is invited — pinned by
+`test_the_refusal_body_is_identical_whoever_else_is_invited`).
+
+Left as-is, judged not a defect: the two paths return different SHAPES for an
+invalid code — `{'detail': ...}` from the action, DRF's field error
+`{'enrollment_code': [...]}` from the serializer. Decision 4 governs the
+invite-required 403, which IS identical on both paths; the invalid-code case
+is a validation failure, not an authorization one, and `EnrollmentModal`
+reads both.
