@@ -4906,8 +4906,8 @@ class TestLockedUnitReadEnforcement:
     """Hiding lessons in the serializer is not enough — a student who already
     knows a lesson id must be refused at every content endpoint."""
 
-    def _urls(self, lesson_id):
-        return [
+    def _urls(self, lesson_id, question_id=None):
+        urls = [
             f'/api/courses/lessons/{lesson_id}/',
             f'/api/courses/lessons/{lesson_id}/sections/',
             f'/api/courses/lessons/{lesson_id}/questions/',
@@ -4915,13 +4915,26 @@ class TestLockedUnitReadEnforcement:
             f'/api/courses/lessons/{lesson_id}/attachments/',
             f'/api/courses/lessons/{lesson_id}/progress/',
         ]
+        if question_id is not None:
+            urls.append(
+                f'/api/courses/lessons/{lesson_id}/questions/{question_id}/')
+        return urls
+
+    def _question_for(self, lesson):
+        question = LessonQuestion.objects.create(
+            lesson=lesson, text='What?', order=1)
+        LessonQuestionChoice.objects.create(
+            question=question, text='This', is_correct=True, order=1)
+        return question
 
     def test_lesson_read_in_locked_unit_403_for_student(
             self, api_client, student, locked_course):
         api_client.force_authenticate(user=student)
-        lesson_id = locked_course['locked_lessons'][0].id
+        lesson = locked_course['locked_lessons'][0]
+        lesson_id = lesson.id
+        question_id = self._question_for(lesson).id
 
-        for url in self._urls(lesson_id):
+        for url in self._urls(lesson_id, question_id):
             response = api_client.get(url)
             assert response.status_code == status.HTTP_403_FORBIDDEN, url
             assert response.data['detail'] == (
@@ -4963,10 +4976,12 @@ class TestLockedUnitReadEnforcement:
 
     def test_instructor_reads_locked_unit_content_normally(
             self, api_client, instructor, locked_course):
+        lesson = locked_course['locked_lessons'][0]
+        question_id = self._question_for(lesson).id
         api_client.force_authenticate(user=instructor)
-        lesson_id = locked_course['locked_lessons'][0].id
+        lesson_id = lesson.id
 
-        for url in self._urls(lesson_id):
+        for url in self._urls(lesson_id, question_id):
             response = api_client.get(url)
             assert response.status_code == status.HTTP_200_OK, url
 
@@ -5182,8 +5197,27 @@ class TestLockedUnitCourseMap:
             f"/api/courses/courses/{locked_course['course'].code}/map/")
 
         units = {u['title']: u for u in response.data['units']}
-        reasons = {n['lock_reason'] for n in units['Locked']['nodes']}
-        assert 'instructor' not in reasons
+        nodes = units['Locked']['nodes']
+
+        # The instructor is never instructor-locked out of their own unit. They
+        # may still be *sequence*-gated: the map reports the requesting user's
+        # own progress, and this fixture completes lessons for the student, not
+        # the instructor. Asserting the reason alone would pass even if the
+        # content were withheld, so pin the titles too.
+        assert 'instructor' not in {n['lock_reason'] for n in nodes}
+        assert [n['title'] for n in nodes] == ['Locked 1', 'Locked 2']
+
+        # With the instructor's own progress filled in, the sequence gate
+        # clears and nothing in their locked unit reads locked at all.
+        for lesson in (locked_course['open_lessons']
+                       + locked_course['locked_lessons']):
+            LessonProgress.objects.create(
+                user=instructor, lesson=lesson, completed=True)
+
+        again = api_client.get(
+            f"/api/courses/courses/{locked_course['course'].code}/map/")
+        again_nodes = {u['title']: u for u in again.data['units']}['Locked']['nodes']
+        assert {n['state'] for n in again_nodes} == {'completed'}
 
 
 @pytest.mark.django_db

@@ -44,6 +44,12 @@ export interface NextLessonInfo {
 export interface UnitProgress {
   unitId: number;
   unitTitle: string;
+  /**
+   * 1-based position among ALL units, locked ones included — so the timeline
+   * agrees with the "Unit 3: …" card headings and with `getNextLesson`.
+   * Never use the index into this array: locked units are filtered out of it.
+   */
+  unitNumber: number;
   totalLessons: number;
   completedLessons: number;
   isComplete: boolean;
@@ -103,11 +109,16 @@ export function getNextLesson(units: ProgressUnit[]): NextLessonInfo | null {
  * everything currently unlocked should read 100%.
  */
 export function getUnitProgress(units: ProgressUnit[]): UnitProgress[] {
-  return units.filter(unit => !unit.is_locked).map(unit => {
+  // Number BEFORE filtering, so a locked unit leaves a gap in the sequence
+  // rather than shifting every later unit's label down by one.
+  return units.map((unit, index) => ({ unit, unitNumber: index + 1 }))
+    .filter(({ unit }) => !unit.is_locked)
+    .map(({ unit, unitNumber }) => {
     const completedLessons = unit.lessons.filter(l => l.is_completed).length;
     return {
       unitId: unit.id,
       unitTitle: unit.title,
+      unitNumber,
       totalLessons: unit.lessons.length,
       completedLessons,
       // An empty unit is not "complete" — there is nothing to have finished.

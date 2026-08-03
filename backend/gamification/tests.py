@@ -1577,20 +1577,34 @@ class TestCourseCompleteBadgeWithLockedUnits:
         assert UserBadge.objects.filter(
             user=student, badge__key='course_done').exists()
 
-    def test_unlocking_the_last_unit_makes_the_badge_unearned_again(
+    def test_unlocking_a_unit_makes_the_badge_unearned_again(
             self, student, course, unit, lessons, enrollment):
-        """Sanity check on the denominator: with the unit unlocked, the same
-        completions are no longer a finished course."""
-        open_unit = Unit.objects.create(
-            course=course, title='Also open', order=99)
-        Lesson.objects.create(unit=open_unit, title='Reachable', order=1)
+        """The denominator must actually track the lock, not just start right.
+
+        Earn the badge with a unit locked, then unlock that same unit: the
+        identical completions are no longer a finished course. Written as a
+        transition on one unit so it cannot pass with the filters reverted.
+        """
+        locked = Unit.objects.create(
+            course=course, title='Locked', order=99, is_locked=True)
+        Lesson.objects.create(unit=locked, title='Unreachable', order=1)
 
         for lsn in lessons:
             LessonProgress.objects.create(user=student, lesson=lsn, completed=True)
 
         profile, _ = GameProfile.objects.get_or_create(user=student)
         _evaluate_badges(student, profile)
+        assert UserBadge.objects.filter(
+            user=student, badge__key='course_done').exists()
 
+        # Unlock it: the same completions no longer cover the course. The badge
+        # already granted stays (grant-only ledger) — what must change is
+        # whether a student in this state would newly earn it.
+        UserBadge.objects.filter(user=student, badge__key='course_done').delete()
+        locked.is_locked = False
+        locked.save(update_fields=['is_locked'])
+
+        _evaluate_badges(student, profile)
         assert not UserBadge.objects.filter(
             user=student, badge__key='course_done').exists()
 

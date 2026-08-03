@@ -311,7 +311,7 @@ export function CourseDetailPage() {
                         {unit.isComplete ? (
                           <CheckCircle className="h-4 w-4" />
                         ) : (
-                          idx + 1
+                          unit.unitNumber
                         )}
                       </div>
                       <span className="text-xs text-muted-foreground mt-1 max-w-16 truncate text-center hidden sm:block">

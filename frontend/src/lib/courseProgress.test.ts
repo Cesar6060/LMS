@@ -181,6 +181,7 @@ describe('getUnitProgress', () => {
       {
         unitId: 1,
         unitTitle: 'Unit One',
+        unitNumber: 1,
         totalLessons: 2,
         completedLessons: 1,
         isComplete: false,
@@ -188,6 +189,7 @@ describe('getUnitProgress', () => {
       {
         unitId: 2,
         unitTitle: 'Unit Two',
+        unitNumber: 2,
         totalLessons: 2,
         completedLessons: 2,
         isComplete: true,
@@ -228,6 +230,7 @@ describe('getUnitProgress', () => {
       {
         unitId: 1,
         unitTitle: 'Unit One',
+        unitNumber: 1,
         totalLessons: 1,
         completedLessons: 1,
         isComplete: true,
@@ -244,5 +247,48 @@ describe('getUnitProgress', () => {
 
   it('returns an empty list when every unit is locked', () => {
     expect(getUnitProgress([lockedUnit(1, 'Locked Unit', [[10, 'L1', false]])])).toEqual([]);
+  });
+});
+
+describe('getUnitProgress numbering', () => {
+  /**
+   * The timeline used to render the index into the FILTERED array, so a locked
+   * unit 2 made unit 3's dot read "2" while its card read "Unit 3" — three
+   * numbers for one unit on the same page.
+   */
+  it('numbers units by their real position, leaving a gap for a locked unit', () => {
+    const result = getUnitProgress([
+      unit(1, 'One', [[10, 'a', true]]),
+      lockedUnit(2, 'Two', [[20, 'b', false]]),
+      unit(3, 'Three', [[30, 'c', false]]),
+      unit(4, 'Four', [[40, 'd', false]]),
+    ]);
+
+    expect(result.map(u => u.unitNumber)).toEqual([1, 3, 4]);
+    expect(result.map(u => u.unitTitle)).toEqual(['One', 'Three', 'Four']);
+  });
+
+  it('agrees with getNextLesson on the unit number', () => {
+    const units = [
+      unit(1, 'One', [[10, 'a', true]]),
+      lockedUnit(2, 'Two', [[20, 'b', false]]),
+      unit(3, 'Three', [[30, 'c', false]]),
+    ];
+
+    const next = getNextLesson(units);
+    const progress = getUnitProgress(units);
+    const row = progress.find(u => u.unitId === 3);
+
+    expect(next?.unitNumber).toBe(3);
+    expect(row?.unitNumber).toBe(3);
+  });
+
+  it('numbers from 1 when the first unit is the locked one', () => {
+    const result = getUnitProgress([
+      lockedUnit(1, 'One', [[10, 'a', false]]),
+      unit(2, 'Two', [[20, 'b', false]]),
+    ]);
+
+    expect(result.map(u => u.unitNumber)).toEqual([2]);
   });
 });

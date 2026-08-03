@@ -22,6 +22,9 @@ unlocked; nothing changes for a course whose instructor never touches the featur
   after the fact (grant-only ledger stays untouched; locked-unit completions simply
   drop out of both numerator and denominator).
 - Discussions (they attach to Course, not Unit — unaffected).
+- Catch-up notifications on unlock. A lesson authored inside a locked unit is
+  never announced (the signal goes silent); unlocking does not retroactively
+  notify. Deliberate — a burst of notices for old lessons is worse than none.
 - Any change to the demo-course clone beyond confirming default-unlocked behavior.
 
 ## Design decisions (locked in with user)
@@ -210,3 +213,33 @@ found and fixed:
 - Pasting a locked lesson URL lands on the player's neutral "Select a lesson to
   begin" empty state rather than an explicit locked message. Nothing leaks;
   purely a clarity gap.
+
+### Pre-merge code review (PR #95)
+
+Verdict: **approve with minor changes**. All ~12 denominator sites were confirmed to
+filter numerator and denominator consistently; the `enhanced_dashboard` filtered
+annotation was checked against real generated SQL (single `courses_unit` alias, no
+cartesian inflation); the `course_map` chain rewrite, the instructor invariant, and
+endpoint coverage all held. Two frontend bugs found and fixed:
+
+9. **Unit timeline renumbered itself past a locked unit** (medium) —
+   `getUnitProgress` filtered locked units out and the timeline rendered the index
+   into the *filtered* array, so unit 3's dot read "2" while its card read "Unit 3".
+   `UnitProgress` now carries `unitNumber` taken before filtering.
+10. **`lessonsWithheld` misfired for the instructor on an empty locked unit**
+    (medium) — `is_locked && lessons.length === 0` is also true for an instructor
+    when the unit genuinely has no lessons, and the early return took the unit's
+    *quizzes* out of reach in the sidebar. Now `(lesson_count ?? 0) > lessons.length`,
+    i.e. "the API said there are lessons and sent none", correct for both roles.
+
+Three tests were tightened: the course-complete badge test now performs a real
+lock→unlock transition (mutation-checked — it fails when the filter is reverted),
+`lesson_question_detail`'s gate is now pinned, and the instructor course-map test
+asserts titles and post-progress states rather than only the absence of a lock reason.
+
+**Additionally deferred:** `analytics_quizzes` still lists locked units' quizzes and
+lesson checks, so the analytics page can show an assessment that has no gradebook
+column and feeds no student's quiz average. Spec-conformant (it lists only
+`_analytics_student_rows`) and defensible as historical instructor data, but it is
+the same "analytics disagrees with the gradebook" class as finding 6 and wants an
+explicit product decision — exclude, or tag those rows as locked in the payload.

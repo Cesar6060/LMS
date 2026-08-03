@@ -158,12 +158,14 @@ export function CourseSidebar({
         {units.map((unit) => {
           const isExpanded = expandedUnits.includes(unit.id);
           const { completed, total } = getUnitProgress(unit);
-          // Phase 66: a locked unit reaches a student with `lessons: []` (every
-          // endpoint under it 403s), so there is nothing to expand — show a
-          // muted, non-interactive header with the lesson count the API still
-          // sends. The instructor keeps the real lessons even while locked, so
-          // their header stays expandable and only picks up a "Locked" chip.
-          const lessonsWithheld = !!unit.is_locked && unit.lessons.length === 0;
+          // Phase 66: "withheld" means the API said this unit HAS lessons but
+          // sent none — the student view of a locked unit. Testing
+          // `lessons.length === 0` instead would also catch a locked unit that
+          // genuinely has no lessons, collapsing it for the instructor too and
+          // taking its unit-wide quizzes (rendered in the expanded body below)
+          // out of reach. Absent lesson_count degrades to expandable.
+          const lessonsWithheld =
+            !!unit.is_locked && (unit.lesson_count ?? 0) > unit.lessons.length;
           const lockedLessonCount = unit.lesson_count ?? 0;
 
           if (lessonsWithheld) {
