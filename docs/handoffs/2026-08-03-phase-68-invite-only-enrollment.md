@@ -1,8 +1,9 @@
 # Handoff: Phase 68 invite-only enrollment + launch ops
 
 ## Current state
-**Phase 68 code is COMPLETE and PR-ready; not merged.** Branch
-`feat/phase-68-invite-only-enrollment`, pushed to `lms` (the go-forward remote).
+**Phase 68 is COMPLETE; PR #97 is OPEN and not merged.**
+https://github.com/Cesar6060/LMS/pull/97 — branch
+`feat/phase-68-invite-only-enrollment` on `lms` (the go-forward remote).
 Spec: `docs/specs/phase-68-invite-only-enrollment-and-launch-ops.md` — every
 Backend/Frontend/Verification item checked off; the Prerequisites, Production
 and Ops sections are still open owner actions (see Next steps).
@@ -30,8 +31,10 @@ nobody.
   new 403 detail.
 - **No migration** — confirmed by `makemigrations --check` and the
   db-migration-checker agent.
-- Verified: pytest **1097**, tsc 0, lint 0 (+1 known warning), vitest **151**.
-  Full local click-through done (all five spec steps).
+- Verified: pytest **1106**, tsc 0, lint 0 (+1 known warning), vitest **154**.
+  Full local click-through done (all five spec steps). Two adversarial passes
+  and a code review; every BROKEN finding and every test gap fixed on the
+  branch.
 
 ## In progress / not done
 - **Nothing in the phase is half-built.** The PR is the finish line; merging is
@@ -40,12 +43,17 @@ nobody.
   `origin` repo (`dev-learning-platform`) — pushed there by reflex before the
   remote was corrected. Deleting it was blocked by a permission classifier, same
   as the phase-67 one. Harmless; delete both when convenient.
+- **Deferred, in the PR body, not dropped:** `require_pending_invite` does not
+  require a VERIFIED email. Inert while `ALLOW_REGISTRATION` is off; if
+  registration is ever enabled, signing up as an invited-but-unregistered
+  address plus knowing the code would enroll. Inherited from `accept_invite`
+  (phase 67), same exposure — fix both together or neither.
 - Carried, none launch-blocking: `THROTTLE_SLIDE_IMPORT` ceiling; phase-61
   slide-import smoke test; JAVA101 answer-rotation reseed; phase-56/64
   click-throughs; Sentry LoginPage; Dependabot #68/#86/#87/#88.
 
 ## Next steps
-1. **Merge the PR**, then verify with a REAL content read — an authenticated
+1. **Merge PR #97**, then verify with a REAL content read — an authenticated
    `DEMO101/units/` fetch — not just `/api/health/?deep=1`. Then
    `curl 'https://api.stemquests.com/api/health/?deep=1'` (must still contain the
    verbatim `"database": "ok"`) and confirm UptimeRobot monitor `803564235` is
