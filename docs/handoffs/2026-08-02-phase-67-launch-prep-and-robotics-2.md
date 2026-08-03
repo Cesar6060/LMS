@@ -1,7 +1,8 @@
-# Handoff: Phase 66 shipped; launch prep — students arrive ~2026-08-09
+# Handoff: Phase 67 launch prep + Robotics 2 — students arrive ~2026-08-09
 
 ## Current state
-No phase in flight. **Phase 66 (instructor unit locking) is MERGED and LIVE.**
+**Phase 66 (instructor unit locking) is MERGED and LIVE.** Phase 67 = launch prep and
+the Robotics 2 course; no spec written yet, so start with one.
 - PR #95 squash-merged as `5a49df3f`; deploy verified with a REAL content read
   (`DEMO101/units/` returns `is_locked: false` + populated `lesson_count`), not
   just `/api/health/?deep=1`. Prod holds 0 locked units — nothing changed for anyone.

@@ -3,7 +3,7 @@
 ## Current state
 Phase 66 is **merged and live in production** — PR #95 squash-merged as `5a49df3f`,
 deploy verified with a real content read. All 23 spec checklist items done.
-**Superseded by `2026-08-02-launch-prep-and-robotics-2.md` — read that one first.**
+**Superseded by `2026-08-02-phase-67-launch-prep-and-robotics-2.md` — read that first.**
 - Verified: pytest **947** (main: 892), tsc 0, lint 0 (+1 known), vitest **138**,
   `makemigrations --check` clean. Manual click-through done on local Docker (VGD101).
 - Migration `courses/0025_unit_is_locked` — `db_default=False`, reverse tested down/up,
@@ -23,7 +23,7 @@ deploy verified with a real content read. All 23 spec checklist items done.
 
 ## Next steps
 Done — merged and verified. Remaining work moved to
-`docs/handoffs/2026-08-02-launch-prep-and-robotics-2.md`.
+`docs/handoffs/2026-08-02-phase-67-launch-prep-and-robotics-2.md`.
 
 ## Decisions made
 - **Denominators exclude locked units unconditionally**, not per-viewer — they measure what
