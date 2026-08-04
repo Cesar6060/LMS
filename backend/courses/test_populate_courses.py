@@ -1,5 +1,6 @@
 """
-Tests for ``populate_robotics_course`` and ``populate_java_course`` (Phase 65).
+Tests for ``populate_robotics_course``, ``populate_robotics_2_course`` and
+``populate_java_course`` (Phase 65; ROB201 joined in Phase 69).
 
 Before this phase neither command had ANY test coverage, and both opened every
 run with ``course.units.all().delete()`` while their module docstrings claimed
@@ -24,6 +25,7 @@ from quizzes.models import Question, Quiz, QuizAttempt
 
 COMMANDS = [
     ('populate_robotics_course', 'ROB101', 6, 24, 6),
+    ('populate_robotics_2_course', 'ROB201', 6, 24, 6),
     ('populate_java_course', 'JAVA101', 5, 20, 5),
 ]
 
