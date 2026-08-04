@@ -4861,6 +4861,167 @@ class TestPopulateRobotics2Course:
             'a mid-rebuild crash left ROB201 partially rebuilt'
         )
 
+    # ---- Promoted from the phase-69 adversarial pass -------------------
+    # TestAdoption and TestPruneFlag in test_populate_courses.py hardcode
+    # populate_robotics_course, so registering ROB201 in COMMANDS does NOT
+    # buy their coverage. These are the ROB201 instances of those guarantees.
+
+    def test_auto_keyed_row_at_a_blueprint_position_is_adopted(self):
+        """How pre-existing content joins the key scheme, for ROB201.
+
+        This is the path prod content would take if ROB201 were ever created
+        by hand before the seed ran.
+        """
+        instructor = self._seed_instructor()
+        course = Course.objects.create(
+            code='ROB201', title='Robotics 2', instructor=instructor
+        )
+        unit = Unit.objects.create(
+            course=course, title='Advanced Systems, Safety & Teams', order=0
+        )
+        pre_existing = Lesson.objects.create(
+            unit=unit, title='From Robotics 1 to Robotics 2: Systems at Scale',
+            order=0,
+        )
+        assert pre_existing.content_key.startswith('auto:')
+        student = User.objects.create_user(
+            email='adopt-student@test.com', password='testpass123',
+        )
+        LessonProgress.objects.create(
+            user=student, lesson=pre_existing, completed=True
+        )
+
+        self._run()
+
+        pre_existing.refresh_from_db()
+        assert pre_existing.content_key == 'rob201-from-robotics-1-to-robotics-2'
+        assert LessonProgress.objects.get(user=student).lesson_id == pre_existing.pk
+        assert not Lesson.objects.filter(
+            unit__course__code='ROB201', content_key__startswith='auto:'
+        ).exists()
+
+    def test_adoption_does_not_re_award_xp_already_earned(self):
+        """The phase-65 invariant, for ROB201 specifically.
+
+        A student is paid for an ``auto:``-keyed lesson, the seed adopts and
+        re-keys that same row, and the student does it again. Must not pay twice.
+        """
+        from gamification.models import GameProfile, XPEvent
+        from gamification.services import award_lesson_completion
+
+        instructor = self._seed_instructor()
+        course = Course.objects.create(
+            code='ROB201', title='Robotics 2', instructor=instructor
+        )
+        unit = Unit.objects.create(
+            course=course, title='Advanced Systems, Safety & Teams', order=0
+        )
+        lesson = Lesson.objects.create(
+            unit=unit, title='From Robotics 1 to Robotics 2: Systems at Scale',
+            order=0,
+        )
+        student = User.objects.create_user(
+            email='xp-student@test.com', password='testpass123',
+        )
+        award_lesson_completion(student, lesson)
+        assert GameProfile.objects.get(user=student).total_xp == 50
+
+        self._run()
+
+        lesson.refresh_from_db()
+        assert lesson.content_key == 'rob201-from-robotics-1-to-robotics-2'
+        award_lesson_completion(student, lesson)
+
+        assert GameProfile.objects.get(user=student).total_xp == 50
+        assert XPEvent.objects.filter(user=student).count() == 1
+
+    def test_default_run_warns_about_stray_content_and_deletes_nothing(self, capsys):
+        self._seed_instructor()
+        self._run()
+        unit = Unit.objects.get(course__code='ROB201', order=0)
+        stray = Lesson.objects.create(
+            unit=unit, title='Extra credit: build a line follower', order=90,
+            content_key='rob201-extra-credit',
+        )
+
+        self._run()
+
+        assert Lesson.objects.filter(pk=stray.pk).exists()
+        output = capsys.readouterr().out
+        assert 'Extra credit: build a line follower' in output
+        assert '--prune' in output
+
+    def test_prune_deletes_the_stray_and_leaves_the_blueprint_whole(self):
+        """--prune is destructive on purpose; pin both halves of that.
+
+        The stray goes, and the blueprint's own 24 lessons do not.
+        """
+        from django.core.management import call_command
+
+        self._seed_instructor()
+        self._run()
+        unit = Unit.objects.get(course__code='ROB201', order=0)
+        stray = Lesson.objects.create(
+            unit=unit, title='Extra credit: build a line follower', order=90,
+            content_key='rob201-extra-credit',
+        )
+
+        call_command('populate_robotics_2_course', '--prune')
+
+        assert not Lesson.objects.filter(pk=stray.pk).exists()
+        assert Lesson.objects.filter(unit__course__code='ROB201').count() == 24
+
+    def test_a_rob201_key_held_by_another_course_blocks_the_whole_seed(self):
+        """The cross-course collision guard — the spec's named top risk.
+
+        `_assert_same_course` raises, and because the build is one atomic
+        block, no half-built ROB201 is left behind.
+        """
+        instructor = self._seed_instructor()
+        other = Course.objects.create(
+            code='OTHER1', title='Other', instructor=instructor
+        )
+        other_unit = Unit.objects.create(course=other, title='U', order=0)
+        Lesson.objects.create(
+            unit=other_unit, title='Squatter', order=0,
+            content_key='rob201-from-robotics-1-to-robotics-2',
+        )
+
+        with pytest.raises(ValueError):
+            self._run()
+
+        assert not Course.objects.filter(code='ROB201').exists(), (
+            'a cross-course key collision left a partial ROB201 behind'
+        )
+
+    def test_a_rob101_key_squatting_a_blueprint_slot_is_not_adopted(self):
+        """A row already holding a DIFFERENT authored key is never re-keyed.
+
+        Re-keying it would move a student's XP onto different content — the
+        exact thing positional keys were rejected for in phase 65.
+        """
+        instructor = self._seed_instructor()
+        course = Course.objects.create(
+            code='ROB201', title='Robotics 2', instructor=instructor
+        )
+        unit = Unit.objects.create(
+            course=course, title='Advanced Systems, Safety & Teams', order=0
+        )
+        squatter = Lesson.objects.create(
+            unit=unit, title='Squatter', order=0,
+            content_key='rob201-not-in-the-blueprint',
+        )
+
+        self._run()
+
+        squatter.refresh_from_db()
+        assert squatter.content_key == 'rob201-not-in-the-blueprint', (
+            'a row holding an authored key was re-keyed'
+        )
+        assert Lesson.objects.filter(
+            content_key='rob201-from-robotics-1-to-robotics-2'
+        ).exists()
+
 
 # ===========================================================================
 # Phase 63 — query-count and shape guards for the N+1 rewrite

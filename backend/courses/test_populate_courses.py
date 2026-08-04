@@ -415,7 +415,8 @@ class TestDuplicateKeyWithinOneSeedRun:
         return cmd
 
     @pytest.mark.parametrize(
-        'name', ['populate_robotics_course', 'populate_java_course']
+        'name', ['populate_robotics_course', 'populate_robotics_2_course',
+                 'populate_java_course']
     )
     def test_reusing_a_lesson_key_in_one_run_raises(self, seed_instructor, name):
         course = Course.objects.create(
@@ -434,7 +435,8 @@ class TestDuplicateKeyWithinOneSeedRun:
         assert Lesson.objects.get(unit=unit).title == 'Lesson One'
 
     @pytest.mark.parametrize(
-        'name', ['populate_robotics_course', 'populate_java_course']
+        'name', ['populate_robotics_course', 'populate_robotics_2_course',
+                 'populate_java_course']
     )
     def test_reusing_a_quiz_key_in_one_run_raises(self, seed_instructor, name):
         course = Course.objects.create(
@@ -450,6 +452,7 @@ class TestDuplicateKeyWithinOneSeedRun:
 
     @pytest.mark.parametrize(
         'name,code', [('populate_robotics_course', 'ROB101'),
+                      ('populate_robotics_2_course', 'ROB201'),
                       ('populate_java_course', 'JAVA101')]
     )
     def test_the_real_blueprints_hold_no_duplicate_keys(

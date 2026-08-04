@@ -294,8 +294,11 @@ self-contained block for assembly, and give each the same authoring rules:
       `backend/courses/test_populate_courses.py:25-28` as
       `('populate_robotics_2_course', 'ROB201', 6, 24, 6)`. That single line
       buys the shared seed-shape, key-prefix (`rob201-`), no-`auto:`-key,
-      key-uniqueness, `requires_quiz`-invariant, idempotency, adoption, prune
-      and instructor-guard assertions. `[P]`
+      key-uniqueness, `requires_quiz`-invariant and idempotency assertions.
+      **Correction (adversarial pass):** it does NOT buy adoption, `--prune` or
+      the instructor guard — `TestAdoption`, `TestPruneFlag` and
+      `TestInstructorGuard` hardcode `populate_robotics_course` rather than
+      reading `COMMANDS`. Those were covered separately; see Outcomes. `[P]`
 - [x] New `class TestPopulateRobotics2Course` in `backend/courses/tests.py`,
       mirroring `TestPopulateRoboticsCourse` (`tests.py:4223`):
       command runs clean; running twice is idempotent (unit/lesson/section/
@@ -513,6 +516,51 @@ NITs raised; four fixed on the branch:
 Answer-position distribution after rotation: **27/21/26/22** across lesson
 questions and **11/12/9/4** across quiz questions — the defect phase 58 caught
 only by eye, and the one JAVA101 still carries, is pinned in code here.
+
+### Adversarial pass
+
+One `adversarial-tester` pass, 20 hand-written probes: **no BROKEN findings in
+the command.** It confirmed the whole student-progress stack survives a reseed
+(`LessonProgress`, `LessonQuestionAnswer` including `selected_choice_id` and
+`is_correct`, `QuizAttempt`, `LessonQuizAttempt`, XP), that choice pks are
+updated in place so the `SET_NULL`-rewrites-an-answer-to-incorrect hazard never
+fires, that `content_key` uniqueness is enforced at the DB and not just in the
+app, that a cross-course key collision aborts with **no partial ROB201 left**,
+that `Unit.is_locked` survives, and that forced failures at both the first and
+last statement inside the transaction roll back whole.
+
+It also found a **real gap in this spec's own claim** (corrected above):
+registering in `COMMANDS` does not buy adoption, `--prune` or instructor-guard
+coverage, because those three test classes hardcode `populate_robotics_course`.
+Before the fix, none of them had ever run against ROB201. Closed by:
+
+- Adding `populate_robotics_2_course` to the three `TestDuplicateKeyWithinOneSeedRun`
+  parametrize lists (they were already course-agnostic).
+- Six new ROB201 tests promoted from the probes: `auto:`-key adoption, adoption
+  not re-awarding XP, the default run warning without deleting, `--prune`
+  deleting the stray while leaving all 24 blueprint lessons, a cross-course key
+  collision aborting the whole seed, and a row holding a *different* authored
+  key never being re-keyed.
+
+Test count after: pytest **1139**, `test_populate_courses.py` **39** (was 36).
+
+**Deferred, SUSPICIOUS, not introduced by this phase** — all inherited from the
+shared `_content_upsert.py` pattern already live for ROB101 and JAVA101:
+
+1. **A reseed silently reverts an instructor's unit reorder.** `upsert_unit`
+   matches on `(course, order)` and stamps the blueprint title onto whatever
+   unit sits there, while `upsert_lesson` drags each lesson's FK back to the
+   blueprint's unit. No data is lost — lesson pks and everything keyed off them
+   are untouched — but the reorder undoes itself with no warning. The spec
+   deliberately protects `is_locked` and `join_code` from exactly this class of
+   clobbering and says nothing about ordering. Worth a decision in a later phase.
+2. **`--prune` cascades student progress for instructor-authored content** with
+   only a stdout warning and no confirmation prompt. Documented behaviour, but a
+   live footgun. Now at least pinned by a test.
+3. **`_get_instructor` uses `.filter(...).first()` with no `order_by`**, so two
+   active instructors with the same name resolve non-deterministically, and an
+   `is_active=False` instructor can still be assigned course ownership. Same in
+   ROB101/JAVA101; low risk in a single-instructor deployment.
 
 ### Deliberately not done
 
