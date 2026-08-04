@@ -391,12 +391,21 @@ Production (owner steps, after merge — merging `main` deploys the backend):
       `DATABASE_URL=<neon direct, non-pooler> python manage.py
       populate_robotics_2_course` — **without `--prune` on the first run**. Read
       the stale-content warnings, then decide.
-- [ ] Verify with a **real content read**, not just `/api/health/?deep=1` — load
-      `/courses/ROB201` on stemquests.com as the instructor and confirm the
-      outline. Then `curl 'https://api.stemquests.com/api/health/?deep=1'` still
-      returns the verbatim `"database": "ok"` and confirm UptimeRobot monitor
-      `803564235` is still UP.
-- [ ] Confirm ROB101 and JAVA101 are intact in prod after the seed.
+- [x] **Deploy verified (2026-08-04, merge `863597c`).** The `/courses/ROB201`
+      half of this check is deferred with the seed — the course does not exist
+      in prod yet — but everything the deploy itself could break was checked:
+      an authenticated `DEMO101/units/` read returned **200 with 5 units** and
+      populated `lesson_count`/`is_locked`; `/api/health/?deep=1` returns
+      `{"status": "ok", "database": "ok", "content": "ok"}` with the verbatim
+      keyword intact; UptimeRobot monitor `803564235` **UP**, 13d 4h unbroken.
+- [x] **ROB101 and JAVA101 intact after the deploy** — DEMO101 5/20,
+      JAVA101 5/20, ROB101 6/24 units/lessons, unchanged. Re-confirm after the
+      seed as well.
+- [x] **Migrations confirmed done before merging.** 45 local migration files
+      against 45 rows in prod's `django_migrations` for our six apps
+      (accounts 3, courses 26, discussions 1, gamification 6, notifications 5,
+      quizzes 4). This PR added none, so the Render pre-deploy `migrate` was a
+      no-op.
 
 ---
 
