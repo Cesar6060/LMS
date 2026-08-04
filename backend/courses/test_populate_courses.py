@@ -1,5 +1,6 @@
 """
-Tests for ``populate_robotics_course`` and ``populate_java_course`` (Phase 65).
+Tests for ``populate_robotics_course``, ``populate_robotics_2_course`` and
+``populate_java_course`` (Phase 65; ROB201 joined in Phase 69).
 
 Before this phase neither command had ANY test coverage, and both opened every
 run with ``course.units.all().delete()`` while their module docstrings claimed
@@ -24,6 +25,7 @@ from quizzes.models import Question, Quiz, QuizAttempt
 
 COMMANDS = [
     ('populate_robotics_course', 'ROB101', 6, 24, 6),
+    ('populate_robotics_2_course', 'ROB201', 6, 24, 6),
     ('populate_java_course', 'JAVA101', 5, 20, 5),
 ]
 
@@ -413,7 +415,8 @@ class TestDuplicateKeyWithinOneSeedRun:
         return cmd
 
     @pytest.mark.parametrize(
-        'name', ['populate_robotics_course', 'populate_java_course']
+        'name', ['populate_robotics_course', 'populate_robotics_2_course',
+                 'populate_java_course']
     )
     def test_reusing_a_lesson_key_in_one_run_raises(self, seed_instructor, name):
         course = Course.objects.create(
@@ -432,7 +435,8 @@ class TestDuplicateKeyWithinOneSeedRun:
         assert Lesson.objects.get(unit=unit).title == 'Lesson One'
 
     @pytest.mark.parametrize(
-        'name', ['populate_robotics_course', 'populate_java_course']
+        'name', ['populate_robotics_course', 'populate_robotics_2_course',
+                 'populate_java_course']
     )
     def test_reusing_a_quiz_key_in_one_run_raises(self, seed_instructor, name):
         course = Course.objects.create(
@@ -448,6 +452,7 @@ class TestDuplicateKeyWithinOneSeedRun:
 
     @pytest.mark.parametrize(
         'name,code', [('populate_robotics_course', 'ROB101'),
+                      ('populate_robotics_2_course', 'ROB201'),
                       ('populate_java_course', 'JAVA101')]
     )
     def test_the_real_blueprints_hold_no_duplicate_keys(
