@@ -15,10 +15,12 @@ import { PageContainer } from '@/components/layout/PageContainer';
 import { BackLink } from '@/components/layout/BackLink';
 import { CourseToolsNav } from '@/components/instructor/CourseToolsNav';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
+import { ClassCodeCard } from '@/components/course/ClassCodeCard';
+import { copyToClipboard } from '@/lib/clipboard';
 import {
   Mail, Users, AlertCircle, Trash2,
   Search, CheckCircle, Clock, AlertTriangle, RefreshCw, XCircle, Send,
-  Link2, Copy, KeyRound, Power
+  Link2, Eraser
 } from 'lucide-react';
 
 type SortField = 'name' | 'email' | 'enrolled_at' | 'last_activity_at' | 'progress';
@@ -121,13 +123,10 @@ export function StudentRosterPage() {
   const [copiedInviteId, setCopiedInviteId] = useState<number | null>(null);
   const [revealedLink, setRevealedLink] = useState<{ id: number; url: string } | null>(null);
 
-  // Join-code card (Phase 67)
-  const [joinCode, setJoinCode] = useState<string | null>(null);
-  const [joinCodeAvailable, setJoinCodeAvailable] = useState(true);
-  const [joinCodeBusy, setJoinCodeBusy] = useState(false);
-  const [joinCodeError, setJoinCodeError] = useState('');
-  const [joinCodeCopied, setJoinCodeCopied] = useState(false);
-  const [confirmRotate, setConfirmRotate] = useState(false);
+  // Invite cleanup (Phase 68)
+  const [confirmClearClosed, setConfirmClearClosed] = useState(false);
+  const [clearingClosed, setClearingClosed] = useState(false);
+
   const refreshTimers = useRef<number[]>([]);
   // Addresses this page has just submitted a send for. Drives the
   // "Sending…" vs "No record" distinction — see deliveryDisplay above.
@@ -204,30 +203,12 @@ export function StudentRosterPage() {
     return () => timers.splice(0).forEach(window.clearTimeout);
   }, [code]);
 
-  const loadJoinCode = useCallback(async () => {
-    try {
-      setJoinCode(await courseService.getJoinCode(code!));
-    } catch (err) {
-      if (isForbidden(err)) {
-        // The demo course refuses this endpoint outright (403 demo_blocked).
-        // Hide the card rather than offer an action that can never work.
-        setJoinCodeAvailable(false);
-      } else {
-        // A blip, a 500, a 429 — keep the card and say so, rather than
-        // silently removing a feature the instructor may be looking for.
-        setJoinCodeError('Could not load the class code. Reload to try again.');
-      }
-      console.error('Failed to load the join code:', err);
-    }
-  }, [code]);
-
   useEffect(() => {
     if (code) {
       loadRoster();
       loadInvites();
-      loadJoinCode();
     }
-  }, [code, loadRoster, loadInvites, loadJoinCode]);
+  }, [code, loadRoster, loadInvites]);
 
   const handleSort = (field: SortField) => {
     if (sortField === field) {
@@ -296,33 +277,6 @@ export function StudentRosterPage() {
     }
   };
 
-  /** Write to the clipboard, reporting whether it actually landed.
-   *
-   * `navigator.clipboard` is absent on insecure origins and rejects when the
-   * browser withholds permission. Both must surface the text instead of
-   * failing silently — a copy button that quietly does nothing is worse than
-   * no button at all.
-   *
-   * The timeout is not belt-and-braces: writeText does not always settle. When
-   * the browser wants a permission decision it can leave the promise pending
-   * indefinitely (reproduced under Chrome automation), which would strand the
-   * row on "busy" with no copy and no explanation. Treat silence as failure
-   * and show the link.
-   */
-  const copyToClipboard = async (text: string): Promise<boolean> => {
-    const timeout = new Promise<false>((resolve) =>
-      window.setTimeout(() => resolve(false), 2000)
-    );
-    try {
-      return await Promise.race([
-        navigator.clipboard.writeText(text).then(() => true),
-        timeout,
-      ]);
-    } catch {
-      return false;
-    }
-  };
-
   const handleCopyInviteLink = async (invite: CourseInvite) => {
     try {
       setBusyInviteId(invite.id);
@@ -345,45 +299,41 @@ export function StudentRosterPage() {
     }
   };
 
-  const handleCopyJoinCode = async () => {
-    if (!joinCode) return;
-    setJoinCodeError('');
-    if (await copyToClipboard(joinCode)) {
-      setJoinCodeCopied(true);
-      window.setTimeout(() => setJoinCodeCopied(false), 2500);
-    } else {
-      // Same honesty rule as the per-invite copy button: never let a copy
-      // that did nothing look like one that worked. The code is on screen at
-      // 4xl and selectable, so pointing at it is enough here.
-      setJoinCodeError('Your browser blocked the copy — select the code above instead.');
+  /** Phase 68 — remove one dead invite row from the roster.
+   *
+   * Only offered on CLOSED rows; the backend refuses a pending one with a
+   * 400 telling the instructor to revoke it first, so a misclick cannot void
+   * a live invitation. Deleting a closed invite destroys no enrollment — the
+   * Enrollment row is a separate table and is the record that matters.
+   */
+  const handleDeleteInvite = async (invite: CourseInvite) => {
+    try {
+      setBusyInviteId(invite.id);
+      setInviteError('');
+      await inviteService.deleteInvite(code!, invite.id);
+      loadInvites();
+    } catch (err: unknown) {
+      const e = err as { response?: { data?: { detail?: string } } };
+      setInviteError(e.response?.data?.detail || 'Failed to delete the invitation');
+      console.error(err);
+    } finally {
+      setBusyInviteId(null);
     }
   };
 
-  const handleGenerateJoinCode = async () => {
+  const handleClearClosedInvites = async () => {
     try {
-      setJoinCodeBusy(true);
-      setJoinCodeError('');
-      setJoinCode(await courseService.rotateJoinCode(code!));
-    } catch (err) {
-      setJoinCodeError('Could not update the class code');
+      setClearingClosed(true);
+      setInviteError('');
+      await inviteService.deleteClosedInvites(code!);
+      loadInvites();
+    } catch (err: unknown) {
+      const e = err as { response?: { data?: { detail?: string } } };
+      setInviteError(e.response?.data?.detail || 'Failed to clear closed invitations');
       console.error(err);
     } finally {
-      setJoinCodeBusy(false);
-      setConfirmRotate(false);
-    }
-  };
-
-  const handleDisableJoinCode = async () => {
-    try {
-      setJoinCodeBusy(true);
-      setJoinCodeError('');
-      await courseService.disableJoinCode(code!);
-      setJoinCode(null);
-    } catch (err) {
-      setJoinCodeError('Could not turn off the class code');
-      console.error(err);
-    } finally {
-      setJoinCodeBusy(false);
+      setClearingClosed(false);
+      setConfirmClearClosed(false);
     }
   };
 
@@ -441,6 +391,9 @@ export function StudentRosterPage() {
 
   // Accepted invites already show up on the roster itself.
   const openInvites = invites.filter((i) => i.status !== 'accepted');
+  // Revoked and expired rows still render here (they are the clutter this
+  // table accumulates); "closed" is what may be deleted.
+  const closedInvites = openInvites.filter((i) => i.status !== 'pending');
 
   const formatDate = (dateStr: string | null) => {
     if (!dateStr) return 'Never';
@@ -609,7 +562,20 @@ export function StudentRosterPage() {
           {/* Pending invites */}
           {openInvites.length > 0 && (
             <div className="pt-2">
-              <h4 className="font-semibold mb-2">Open invitations</h4>
+              <div className="flex flex-wrap items-center justify-between gap-2 mb-2">
+                <h4 className="font-semibold">Open invitations</h4>
+                {closedInvites.length > 0 && (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setConfirmClearClosed(true)}
+                    disabled={clearingClosed}
+                  >
+                    <Eraser className="h-4 w-4 mr-1" />
+                    Clear all closed ({closedInvites.length})
+                  </Button>
+                )}
+              </div>
               <div className="overflow-x-auto rounded-lg border">
                 <table className="w-full text-base">
                   <thead>
@@ -675,7 +641,7 @@ export function StudentRosterPage() {
                               <RefreshCw className="h-4 w-4 mr-1" />
                               Resend
                             </Button>
-                            {invite.status === 'pending' && (
+                            {invite.status === 'pending' ? (
                               <Button
                                 variant="outline"
                                 size="sm"
@@ -685,6 +651,20 @@ export function StudentRosterPage() {
                               >
                                 <XCircle className="h-4 w-4 mr-1" />
                                 Revoke
+                              </Button>
+                            ) : (
+                              /* Closed rows only. A pending invite is revoked,
+                                 never deleted — see handleDeleteInvite. */
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                onClick={() => handleDeleteInvite(invite)}
+                                disabled={busyInviteId === invite.id}
+                                className="text-destructive hover:text-destructive"
+                                aria-label={`Delete the ${invite.status} invitation for ${invite.email}`}
+                              >
+                                <Trash2 className="h-4 w-4 mr-1" />
+                                Delete
                               </Button>
                             )}
                           </div>
@@ -721,91 +701,8 @@ export function StudentRosterPage() {
         </CardContent>
       </Card>
 
-      {/* Class code — the fallback when invite email never lands (Phase 67) */}
-      {joinCodeAvailable && (
-        <Card className="mb-6">
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2 text-xl">
-              <KeyRound className="h-5 w-5" />
-              Class code
-            </CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <p className="text-base text-muted-foreground">
-              A backup way in for students whose invitation email was blocked or
-              never arrived. The code only works together with an email address you
-              have already invited, so it is safe to read out loud in class — on its
-              own it enrols nobody.
-            </p>
-
-            {joinCodeError && (
-              <div className="bg-destructive/10 border border-destructive/20 rounded-lg p-3 flex items-center gap-2">
-                <AlertCircle className="h-4 w-4 text-destructive shrink-0" />
-                <p className="text-sm text-destructive">{joinCodeError}</p>
-              </div>
-            )}
-
-            {joinCode ? (
-              <>
-                <div className="flex flex-wrap items-center gap-4">
-                  <span className="font-mono text-4xl font-bold tracking-[0.2em] select-all">
-                    {joinCode}
-                  </span>
-                  <Button size="lg" variant="outline" onClick={handleCopyJoinCode}>
-                    {joinCodeCopied ? (
-                      <>
-                        <CheckCircle className="h-4 w-4 mr-2" />
-                        Copied
-                      </>
-                    ) : (
-                      <>
-                        <Copy className="h-4 w-4 mr-2" />
-                        Copy code
-                      </>
-                    )}
-                  </Button>
-                </div>
-
-                <div className="rounded-lg border bg-muted/30 p-4">
-                  <p className="text-sm font-semibold mb-1">Read this to your class:</p>
-                  <p className="text-base select-all">
-                    Go to {window.location.origin}/join, enter the class code{' '}
-                    <strong>{joinCode}</strong>, and the email address I invited you
-                    with.
-                  </p>
-                </div>
-
-                <div className="flex flex-wrap gap-3">
-                  <Button
-                    size="lg"
-                    variant="outline"
-                    onClick={() => setConfirmRotate(true)}
-                    disabled={joinCodeBusy}
-                  >
-                    <RefreshCw className="h-4 w-4 mr-2" />
-                    Rotate code
-                  </Button>
-                  <Button
-                    size="lg"
-                    variant="outline"
-                    onClick={handleDisableJoinCode}
-                    disabled={joinCodeBusy}
-                    className="text-destructive hover:text-destructive"
-                  >
-                    <Power className="h-4 w-4 mr-2" />
-                    Turn off
-                  </Button>
-                </div>
-              </>
-            ) : (
-              <Button size="lg" onClick={handleGenerateJoinCode} disabled={joinCodeBusy}>
-                <KeyRound className="h-4 w-4 mr-2" />
-                {joinCodeBusy ? 'Generating...' : 'Generate a class code'}
-              </Button>
-            )}
-          </CardContent>
-        </Card>
-      )}
+      {/* Class code — shared with ManageCoursePage so the two cannot drift */}
+      <ClassCodeCard courseCode={code!} className="mb-6" />
 
       {/* Search */}
       <div className="mb-4">
@@ -949,19 +846,20 @@ export function StudentRosterPage() {
         </Card>
       )}
 
-      {/* Rotate class code */}
+      {/* Clear all closed invitations (Phase 68) */}
       <ConfirmDialog
-        open={confirmRotate}
-        onOpenChange={setConfirmRotate}
-        title="Rotate the class code?"
-        confirmLabel="Rotate code"
-        loadingLabel="Rotating..."
-        onConfirm={handleGenerateJoinCode}
-        isLoading={joinCodeBusy}
+        open={confirmClearClosed}
+        onOpenChange={setConfirmClearClosed}
+        title="Clear all closed invitations?"
+        confirmLabel="Clear them"
+        loadingLabel="Clearing..."
+        onConfirm={handleClearClosedInvites}
+        isLoading={clearingClosed}
       >
-        The current code <span className="font-mono font-medium text-foreground">{joinCode}</span>{' '}
-        stops working immediately. Any student who has it but has not joined yet
-        will need the new one.
+        This removes the {closedInvites.length} revoked or expired{' '}
+        {closedInvites.length === 1 ? 'invitation' : 'invitations'} from this list,
+        along with any that were already accepted. Open invitations are left
+        alone, and no student is removed from the roster.
       </ConfirmDialog>
 
       {/* Remove Student Dialog */}

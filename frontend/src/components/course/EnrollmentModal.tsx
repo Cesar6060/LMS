@@ -39,13 +39,18 @@ export function EnrollmentModal({ open, onOpenChange, onSuccess }: EnrollmentMod
         resetForm();
       }, 1500);
     } catch (err: unknown) {
-      const error = err as { response?: { data?: { enrollment_code?: string[]; error?: string; detail?: string } } };
-      if (error.response?.data?.enrollment_code) {
-        setError(error.response.data.enrollment_code[0]);
-      } else if (error.response?.data?.error) {
-        setError(error.response.data.error);
-      } else if (error.response?.data?.detail) {
+      const error = err as {
+        response?: { data?: { enrollment_code?: string[]; detail?: string } };
+      };
+      // `detail` first (Phase 68): a correct code with no pending invitation
+      // now comes back as 403 {'detail': ...} naming the invitation
+      // requirement, and that is the one message that tells a legitimate
+      // student what to do next. Behind a generic fallback it would read as
+      // "wrong code" and send them re-typing it forever.
+      if (error.response?.data?.detail) {
         setError(error.response.data.detail);
+      } else if (error.response?.data?.enrollment_code) {
+        setError(error.response.data.enrollment_code[0]);
       } else {
         setError('Failed to enroll. Please check the code and try again.');
       }

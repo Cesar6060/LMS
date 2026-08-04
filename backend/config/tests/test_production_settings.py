@@ -32,7 +32,81 @@ def test_health_deep_ok(client):
     response = client.get('/api/health/?deep=1')
 
     assert response.status_code == 200
-    assert response.json() == {'status': 'ok', 'database': 'ok'}
+    assert response.json() == {
+        'status': 'ok', 'database': 'ok', 'content': 'ok'}
+
+
+@pytest.mark.django_db
+def test_health_deep_reports_content_ok(client):
+    """Phase 68: SELECT 1 proves the connection, not the schema. During the
+    phase-65 outage a missing column returned 200 through a total content
+    failure, so ?deep=1 now also reads named columns through the ORM."""
+    response = client.get('/api/health/?deep=1')
+    body = response.json()
+
+    assert response.status_code == 200
+    assert body['content'] == 'ok'
+    # UptimeRobot monitor 803564235 keyword-matches this EXACT text. A
+    # reshaped body is a silent monitoring outage, not an alert.
+    assert '"database": "ok"' in response.content.decode()
+
+
+@pytest.mark.django_db
+def test_health_deep_503_when_content_read_fails(client, monkeypatch):
+    from django.db.utils import ProgrammingError
+
+    import config.health as health_module
+
+    def boom():
+        raise ProgrammingError(
+            'column "content_key" does not exist on db.neon.tech user secret')
+
+    monkeypatch.setattr(health_module, '_content_probe', boom)
+
+    response = client.get('/api/health/?deep=1')
+    body = response.json()
+
+    assert response.status_code == 503
+    assert body['status'] == 'error'
+    assert body['content'] == 'unavailable'
+    # No "database": "ok" anywhere, or the keyword monitor stays green
+    # through a schema outage — the exact blindness this replaces.
+    assert '"database": "ok"' not in response.content.decode()
+    assert 'neon.tech' not in str(body)
+    assert 'secret' not in str(body)
+
+
+@pytest.mark.django_db
+def test_health_deep_ok_on_empty_database(client):
+    """Tolerating zero rows is the contract: a missing column raises
+    ProgrammingError on an empty table too, while requiring rows would fail
+    every fresh database and prove nothing extra."""
+    from courses.models import Course, Lesson
+
+    assert not Course.objects.exists()
+    assert not Lesson.objects.exists()
+
+    response = client.get('/api/health/?deep=1')
+
+    assert response.status_code == 200
+    assert response.json()['content'] == 'ok'
+
+
+def test_health_shallow_still_touches_no_db(client, monkeypatch):
+    """render.yaml uses the SHALLOW path as the deploy gate. A DB touch there
+    makes a cold Neon branch fail a deploy."""
+    import config.health as health_module
+
+    def fail(*args, **kwargs):
+        raise AssertionError('the shallow health path must not touch the DB')
+
+    monkeypatch.setattr(connection, 'cursor', fail)
+    monkeypatch.setattr(health_module, '_content_probe', fail)
+
+    response = client.get('/api/health/')
+
+    assert response.status_code == 200
+    assert response.json() == {'status': 'ok'}
 
 
 def test_health_deep_returns_503_when_db_down(client, monkeypatch):

@@ -1,14 +1,18 @@
 from django.core.validators import MaxLengthValidator
-from django.db import models
+from django.db import IntegrityError, models, transaction
 from django.db.models import Count, Prefetch
 from rest_framework import serializers
+from rest_framework.exceptions import PermissionDenied
 from .models import (
     Course, Unit, Lesson, Enrollment, LessonProgress, Announcement, CourseGradingConfig,
     LessonQuestion, LessonQuestionChoice, LessonQuestionAnswer, LessonQuizAttempt,
     LessonAttachment, LessonSection, InstructorReminder, CourseInvite
 )
 from accounts.serializers import UserSerializer
-from .permissions import require_course_instructor, is_course_instructor
+from .permissions import (
+    require_course_instructor, is_course_instructor, require_pending_invite,
+    INVITE_REQUIRED_DETAIL,
+)
 from .video import extract_youtube_video_id
 
 
@@ -593,7 +597,14 @@ class EnrollmentSerializer(serializers.ModelSerializer):
 
 
 class EnrollmentCreateSerializer(serializers.Serializer):
-    """Serializer for enrolling in a course."""
+    """Serializer for enrolling in a course with a code AND a pending invite.
+
+    This path resolves the course by enrollment code ALONE — there is no
+    course in the URL — so the invite check is the only thing scoping it to a
+    course the caller was actually asked to join. Its authorization must stay
+    identical to `CourseViewSet.enroll`'s; anything true of one and not the
+    other is the bug phase 68 exists to fix.
+    """
     enrollment_code = serializers.CharField(max_length=8)
 
     def validate_enrollment_code(self, value):
@@ -613,21 +624,46 @@ class EnrollmentCreateSerializer(serializers.Serializer):
         if course.instructor == user:
             raise serializers.ValidationError("Instructors cannot enroll in their own courses.")
 
+        # PermissionDenied, not ValidationError: a missing invitation is an
+        # authorization failure and must be a 403 {'detail': ...} per
+        # .claude/rules/backend.md, not a 400 field error.
+        require_pending_invite(user, course)
+
+        # A soft-deleted enrollment is not revived by presenting a code. Only
+        # accept_invite's _activate_enrollment brings one back, so an
+        # instructor's removal sticks until they re-invite. Same body as the
+        # no-invite refusal — a student is never told they were removed.
+        if existing:
+            raise PermissionDenied(INVITE_REQUIRED_DETAIL)
+
         self.course = course
-        self.existing_enrollment = existing  # May be None or inactive enrollment
         return value.upper()
 
     def create(self, validated_data):
-        # Re-activate existing enrollment if previously removed
-        if self.existing_enrollment:
-            self.existing_enrollment.is_active = True
-            self.existing_enrollment.save(update_fields=['is_active'])
-            return self.existing_enrollment
+        from .views import consume_invite_for
 
-        return Enrollment.objects.create(
-            user=self.context['request'].user,
-            course=self.course
-        )
+        user = self.context['request'].user
+        try:
+            with transaction.atomic():
+                enrollment = Enrollment.objects.create(
+                    user=user, course=self.course)
+                # Same contract as CourseViewSet.enroll: the invite check in
+                # validate() is a read, this write is what claims the invite,
+                # and an instructor's revoke landing in the gap must win.
+                if not consume_invite_for(user, self.course):
+                    raise PermissionDenied(INVITE_REQUIRED_DETAIL)
+        except IntegrityError:
+            # A concurrent request took the unique ('user','course') row
+            # between validate() and here. Already-enrolled, not a 500 —
+            # but confirmed by re-reading rather than inferred from the
+            # exception class, so a future constraint reachable from this
+            # block cannot be silently relabelled as a business-rule 400.
+            if not Enrollment.objects.filter(
+                    user=user, course=self.course).exists():
+                raise
+            raise serializers.ValidationError(
+                {'enrollment_code': ["You are already enrolled in this course."]})
+        return enrollment
 
 
 class LessonProgressSerializer(serializers.ModelSerializer):

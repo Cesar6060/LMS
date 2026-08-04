@@ -41,6 +41,45 @@ def require_enrollment(user, course, detail="You must be enrolled in this course
         raise PermissionDenied(detail)
 
 
+INVITE_REQUIRED_DETAIL = (
+    "This course is invite-only. Ask your instructor to send an invitation to "
+    "your email address, then use the link (or the class code) they give you."
+)
+
+
+def require_pending_invite(user, course, detail=INVITE_REQUIRED_DETAIL):
+    """Raise PermissionDenied (403, {'detail': ...}) without a pending invite.
+
+    Phase 68: an enrollment code on its own no longer authorizes joining a
+    course. The code stays as a second factor — it is still checked — but the
+    thing that says "this person was asked to join THIS course" is a pending
+    `CourseInvite` for their own address. Before this, a leaked 8-character
+    code from any course was a working key to it, and an instructor's roster
+    removal was undone by the same code they read aloud in class.
+
+    Matched EXACTLY against the lowercased invite address, never `iexact`:
+    Postgres `UPPER()` folds Turkish dotless i (U+0131) onto ASCII `i`, which
+    would hand one student another student's enrollment (phase 67 proved this
+    on `join_with_code`; do not "improve" it here either).
+
+    Deliberately unconditional — not gated on `ALLOW_REGISTRATION`, which
+    today governs three allauth URL patterns and nothing else. One rule, so it
+    cannot silently regress when an env var changes.
+
+    Applies to the two code-based join paths (`CourseViewSet.enroll` and
+    `EnrollmentCreateSerializer`). The other `Enrollment`-creating paths are
+    deliberately exempt and stay that way: `_activate_enrollment` (both
+    `accept_invite` branches) is invite-driven by construction, and
+    `seed_data.py`, `seed_demo_account.py` and `EnrollmentAdmin` are
+    management/admin surfaces that already require server or staff access.
+    """
+    email = (getattr(user, 'email', '') or '').lower()
+    if not email:
+        raise PermissionDenied(detail)
+    if not course.invites.pending().filter(email=email).exists():
+        raise PermissionDenied(detail)
+
+
 def require_unit_unlocked(user, unit, detail="This unit is locked by your instructor."):
     """Raise PermissionDenied (403) when a non-instructor reads a locked unit.
 

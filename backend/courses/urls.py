@@ -44,6 +44,11 @@ urlpatterns = [
     path('courses/<str:course_code>/invites/', views.course_invites, name='course-invites'),
     path('courses/<str:course_code>/invites/<int:invite_id>/', views.revoke_course_invite, name='revoke-invite'),
     path('courses/<str:course_code>/invites/<int:invite_id>/link/', views.invite_link, name='invite-link'),
+    # Phase 68 cleanup. `invites/closed/` cannot be shadowed by the id route
+    # above because that converter is int-typed — asserted in a test rather
+    # than trusted to inspection.
+    path('courses/<str:course_code>/invites/<int:invite_id>/delete/', views.delete_course_invite, name='delete-invite'),
+    path('courses/<str:course_code>/invites/closed/', views.delete_closed_course_invites, name='delete-closed-invites'),
     path('invites/<str:token>/', views.invite_detail, name='invite-detail'),
     path('invites/<str:token>/accept/', views.accept_invite, name='accept-invite'),
 
