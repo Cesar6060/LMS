@@ -45,6 +45,12 @@ export function QuizDetailPage() {
   const fromLesson = fromLearn ? parseLessonIdParam(searchParams.get('lesson')) : null;
   // Phase 70: the lesson the chain continues to after this unit quiz (&next).
   // Absent when the quiz is the last node in the course.
+  //
+  // Shape validation only happens here; whether the id really belongs to THIS
+  // course is settled by the player, which holds the course payload and bounces
+  // a foreign lesson back to the course's own first-incomplete one. A quiz
+  // reached under the wrong course code is rejected outright below, since that
+  // is decidable from data this page already has.
   const nextLesson = fromLearn ? parseLessonIdParam(searchParams.get('next')) : null;
   const backTo = fromLesson
     ? `/courses/${code}/learn/${fromLesson}`
@@ -151,6 +157,10 @@ export function QuizDetailPage() {
     const passed = result.passed;
     const canRetake = !passed && quiz.attempts_remaining !== 0;
     const firstTryCorrect = result.answers.filter(a => a.is_correct).length;
+    // A quiz opened under a course code that is not its own means the URL was
+    // hand-assembled; its `next` names a lesson in some other course, so there
+    // is no forward step to offer. Fall back to the back link.
+    const continueTo = quiz.course_code === code ? nextLesson : null;
     // Continue is the prominent action, except for a student who just failed
     // and still has attempts — for them the primary action is another try, and
     // Continue stays a real button one step down the hierarchy.
@@ -207,14 +217,14 @@ export function QuizDetailPage() {
                   it is submitted the student's next step is the following
                   unit's first lesson — sequential, hence `restart: true`, so
                   it opens on page 1 rather than that lesson's saved cursor. */}
-              {nextLesson !== null && (
+              {continueTo !== null && (
                 <Button
                   asChild
                   size="lg"
                   variant={continueIsPrimary ? 'default' : 'outline'}
                   className="flex-1"
                 >
-                  <Link to={`/courses/${code}/learn/${nextLesson}`} state={{ restart: true }}>
+                  <Link to={`/courses/${code}/learn/${continueTo}`} state={{ restart: true }}>
                     Continue to Next Lesson
                     <ChevronRight className="h-5 w-5 ml-2" />
                   </Link>

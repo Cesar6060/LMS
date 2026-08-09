@@ -65,11 +65,15 @@ export type ChainNode = {
  * next unit's first lesson — which is what a student expects at a unit boundary
  * and what the sidebar has always shown.
  */
-export function buildChain(units: ChainUnit[], quizzes: ChainQuiz[]): ChainNode[] {
+export function buildChain(
+  units: ChainUnit[],
+  quizzes: ChainQuiz[],
+  options: { includeLocked?: boolean } = {}
+): ChainNode[] {
   const chain: ChainNode[] = [];
 
   for (const unit of units) {
-    if (unit.is_locked) continue;
+    if (unit.is_locked && !options.includeLocked) continue;
 
     for (const lesson of unit.lessons) {
       chain.push({
@@ -105,31 +109,69 @@ function indexOfNode(chain: ChainNode[], kind: ChainNode['kind'], id: number): n
   return chain.findIndex(node => node.kind === kind && node.id === id);
 }
 
+function isVisible(chain: ChainNode[], node: ChainNode): boolean {
+  return indexOfNode(chain, node.kind, node.id) !== -1;
+}
+
+/**
+ * Walk `fullChain` from `from` in `step` direction and return the first node
+ * that is also in the visible `chain`.
+ *
+ * This is the escape hatch for a current node that is not itself navigable —
+ * in practice the course owner opening a lesson in a unit they locked. The
+ * sidebar still offers those lessons to the owner (`CourseSidebar`), and
+ * without this they would land there with Next AND Previous both dead, trapped
+ * in the unit they locked. Walking the full chain finds where the locked unit
+ * sits and steps out of it to the nearest reachable node.
+ */
+function nearestVisible(
+  chain: ChainNode[],
+  fullChain: ChainNode[],
+  from: number,
+  step: 1 | -1
+): ChainNode | null {
+  for (let i = from; i >= 0 && i < fullChain.length; i += step) {
+    if (isVisible(chain, fullChain[i])) return fullChain[i];
+  }
+  return null;
+}
+
 /**
  * The node after the given one, or null at the end of the course.
  *
- * Returns null — never the first node — when the current node is not in the
- * chain at all (a stale id, or a lesson inside a unit that has since been
- * locked). The old `findIndex` code answered `-1 + 1 = 0` there and jumped the
- * student back to lesson 1.
+ * Returns null — never the first node — when the current node cannot be placed
+ * at all (a stale or foreign id). The old `findIndex` code answered
+ * `-1 + 1 = 0` there and jumped the student back to lesson 1.
+ *
+ * `fullChain` (built with `includeLocked`) is only consulted when the current
+ * node is missing from `chain`; it defaults to `chain`, so a caller that does
+ * not care keeps the plain behaviour.
  */
 export function getNextNode(
   chain: ChainNode[],
   kind: ChainNode['kind'],
-  id: number
+  id: number,
+  fullChain: ChainNode[] = chain
 ): ChainNode | null {
   const index = indexOfNode(chain, kind, id);
-  if (index === -1) return null;
-  return chain[index + 1] ?? null;
+  if (index !== -1) return chain[index + 1] ?? null;
+
+  const fullIndex = indexOfNode(fullChain, kind, id);
+  if (fullIndex === -1) return null;
+  return nearestVisible(chain, fullChain, fullIndex + 1, 1);
 }
 
 /** The node before the given one, or null at the start of the course. */
 export function getPreviousNode(
   chain: ChainNode[],
   kind: ChainNode['kind'],
-  id: number
+  id: number,
+  fullChain: ChainNode[] = chain
 ): ChainNode | null {
   const index = indexOfNode(chain, kind, id);
-  if (index <= 0) return null;
-  return chain[index - 1];
+  if (index !== -1) return index > 0 ? chain[index - 1] : null;
+
+  const fullIndex = indexOfNode(fullChain, kind, id);
+  if (fullIndex === -1) return null;
+  return nearestVisible(chain, fullChain, fullIndex - 1, -1);
 }

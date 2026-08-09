@@ -37,21 +37,41 @@ ISSUE = 'ISSUE'
 INFO = 'INFO'
 
 
+# A run of N items can hide at most N-1 interesting holes; past that the reader
+# learns nothing from more. The cap also stops the audit materialising a
+# billion-element list: `Unit.order` is a PositiveIntegerField and
+# `UnitViewSet.partial_update` writes it through unclamped, so a single unit at
+# order 1_500_000_000 is a reachable value, not a hypothetical.
+MAX_REPORTED_GAPS = 20
+
+
 def order_problems(orders):
     """
-    Return ``(duplicates, gaps)`` for a sequence of ``order`` values.
+    Return ``(duplicates, gaps, gap_count)`` for a sequence of ``order`` values.
 
     Contiguity is measured from the sequence's own minimum, so a 0-indexed
     seeded course and a 1-indexed API-created one are both clean. Only the
-    holes between the lowest and highest value are reported.
+    holes between the lowest and highest value are reported, and only the first
+    ``MAX_REPORTED_GAPS`` of them — ``gap_count`` is the true total.
     """
     counts = Counter(orders)
     if not counts:
-        return [], []
+        return [], [], 0
+
     duplicates = sorted(value for value, n in counts.items() if n > 1)
     low, high = min(counts), max(counts)
-    gaps = [value for value in range(low, high) if value not in counts]
-    return duplicates, gaps
+    # span counts the slots between low and high; distinct values fill some.
+    gap_count = (high - low + 1) - len(counts)
+    if gap_count <= 0:
+        return duplicates, [], 0
+
+    gaps = []
+    for value in range(low, high):
+        if value not in counts:
+            gaps.append(value)
+            if len(gaps) == MAX_REPORTED_GAPS:
+                break
+    return duplicates, gaps, gap_count
 
 
 def describe(items):
@@ -129,7 +149,7 @@ class Command(BaseCommand):
         """Gap/duplicate findings for a sibling set of units or lessons."""
         head = f'{prefix}: ' if prefix else ''
         orders = [item.order for item in items]
-        duplicates, gaps = order_problems(orders)
+        duplicates, gaps, gap_count = order_problems(orders)
         findings = []
 
         for value in duplicates:
@@ -139,11 +159,14 @@ class Command(BaseCommand):
             )))
 
         if gaps:
+            shown = f'{gaps}'
+            if gap_count > len(gaps):
+                shown = f'{gaps} and {gap_count - len(gaps)} more'
             findings.append((ISSUE, (
                 f'{head}{len(items)} {label} run {min(orders)}..{max(orders)} '
-                f'with missing order(s) {gaps}. The chain reads siblings in '
-                f'`order`, so a gap is only cosmetic today — but it means the '
-                f'{noun} numbering no longer matches position.'
+                f'with {gap_count} missing order(s): {shown}. The chain reads '
+                f'siblings in `order`, so a gap is only cosmetic today — but it '
+                f'means the {noun} numbering no longer matches position.'
             )))
 
         return findings
@@ -155,7 +178,7 @@ class Command(BaseCommand):
             return []
 
         findings = []
-        duplicates, _ = order_problems([quiz.order for quiz in quizzes])
+        duplicates, _, _ = order_problems([quiz.order for quiz in quizzes])
         for value in duplicates:
             shared = [quiz for quiz in quizzes if quiz.order == value]
             findings.append((ISSUE, (

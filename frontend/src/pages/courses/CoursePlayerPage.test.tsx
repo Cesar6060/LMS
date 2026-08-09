@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { MemoryRouter, Route, Routes, useLocation } from 'react-router';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { CoursePlayerPage } from './CoursePlayerPage';
@@ -35,6 +35,13 @@ vi.mock('@/components/gamification/useGamificationFeedback', () => ({
 // The quiz page fetches its own questions; the player only needs a stand-in.
 vi.mock('@/components/lesson/LessonQuizSection', () => ({
   LessonQuizSection: () => <div data-testid="quiz-section">Comprehension quiz</div>,
+}));
+// A YouTube embed cannot run in jsdom. The stub exposes the one callback the
+// player's save path cares about, so a video-position write can be triggered.
+vi.mock('@/components/video/VideoPlayer', () => ({
+  VideoPlayer: ({ onProgress }: { onProgress?: (position: number) => void }) => (
+    <button data-testid="video-progress" onClick={() => onProgress?.(120)}>tick</button>
+  ),
 }));
 
 const user: User = {
@@ -450,15 +457,44 @@ function LocationProbe() {
   return <div data-testid="location">{location.pathname + location.search}</div>;
 }
 
+/**
+ * Exposes the history entry's `restart` flag. It rides alongside the player
+ * rather than on its own route because the thing under test is whether the
+ * player CLEARS the flag off the entry it is currently sitting on.
+ */
+function RestartProbe() {
+  const location = useLocation();
+  const state = location.state as { restart?: boolean } | null;
+  return <div data-testid="restart-state">{String(state?.restart === true)}</div>;
+}
+
 function renderAt(entry: string) {
   return render(
     <MemoryRouter initialEntries={[entry]}>
       <Routes>
-        <Route path="/courses/:code/learn/:lessonId" element={<CoursePlayerPage />} />
+        <Route
+          path="/courses/:code/learn/:lessonId"
+          element={<><CoursePlayerPage /><RestartProbe /></>}
+        />
+        <Route path="/courses/:code/learn" element={<LocationProbe />} />
         <Route path="/courses/:code/quizzes/:quizId" element={<LocationProbe />} />
       </Routes>
     </MemoryRouter>
   );
+}
+
+/** The `current_section` PATCHes only, as `[lessonId, index]` pairs. */
+function sectionWrites(): [number, number][] {
+  return (mockUpdateLessonProgress.mock.calls as unknown[][])
+    .filter(call => 'current_section' in (call[1] as Record<string, unknown>))
+    .map(call => [call[0] as number, (call[1] as { current_section: number }).current_section]);
+}
+
+/** A promise the test releases by hand, for holding a request open. */
+function gate() {
+  let release!: () => void;
+  const promise = new Promise<void>(resolve => { release = resolve; });
+  return { promise, release };
 }
 
 /** The "3/5" page counter in the nav footer. */
@@ -603,5 +639,175 @@ describe('CoursePlayerPage — lesson transitions (phase 70)', () => {
     fireEvent.keyDown(window, { key: 'ArrowRight' });
 
     expect(pageIndicator()).toHaveTextContent('3/3');
+  });
+
+  // -------------------------------------------------------------------------
+  // Defects found by the phase-70 adversarial pass. Each of these failed
+  // against the first cut of the fix.
+  // -------------------------------------------------------------------------
+
+  it('writes a coalesced page turn to the lesson it was made in', async () => {
+    // The parked turn used to be a bare index, written with the lesson id
+    // captured by whichever call was already in flight — so lesson 11's cursor
+    // landed on lesson 10, and lesson 11 was never written at all.
+    wireLessons();
+    const inFlight = gate();
+    mockUpdateLessonProgress.mockImplementation(async () => {
+      await inFlight.promise;
+      return progress;
+    });
+
+    renderAt('/courses/ROB101/learn/10');
+    await screen.findByRole('heading', { name: 'What Is a Robot?' });
+
+    fireEvent.click(nextButton());                                   // lesson 10 → page 2, PATCH held
+    fireEvent.click(screen.getByRole('button', { name: /Sensors/ })); // sidebar → lesson 11
+    await screen.findByRole('heading', { name: 'Sensors' });
+    fireEvent.keyDown(window, { key: 'ArrowRight' });                 // lesson 11 → page 2, parks
+
+    await act(async () => { inFlight.release(); });
+
+    await waitFor(() => {
+      expect(sectionWrites()).toEqual([[10, 1], [11, 1]]);
+    });
+  });
+
+  it('still writes a page turn that parked behind a video-position save', async () => {
+    // `handleVideoProgress` shares `isSavingRef` but never drained the queue,
+    // so this turn was parked and then silently forgotten — the UI advanced and
+    // the server never heard about it.
+    wireLessons();
+    mockGetLesson.mockImplementation(async (id: number) => ({
+      id,
+      title: LESSON_SHAPES[id].title,
+      content: null,
+      video_type: 'none',
+      video_id: null,
+      order: 1,
+      unit: LESSON_SHAPES[id].unit,
+      attachments: [],
+      sections: [
+        makeSection({ id: 1, title: 'Page one', video_type: 'youtube', video_id: 'abc123' }),
+        makeSection({ id: 2, title: 'Page two' }),
+      ],
+    }));
+    const inFlight = gate();
+    mockUpdateLessonProgress.mockImplementation(async () => {
+      await inFlight.promise;
+      return progress;
+    });
+
+    renderAt('/courses/ROB101/learn/11');
+    await screen.findByRole('heading', { name: 'Sensors' });
+
+    fireEvent.click(screen.getByTestId('video-progress')); // video PATCH held open
+    fireEvent.keyDown(window, { key: 'ArrowRight' });      // page turn parks behind it
+    expect(pageIndicator()).toHaveTextContent('2/3');
+
+    await act(async () => { inFlight.release(); });
+
+    await waitFor(() => {
+      expect(sectionWrites()).toEqual([[11, 1]]);
+    });
+  });
+
+  it('ignores an arrow key pressed while the next lesson is still loading', async () => {
+    // The footer buttons vanish behind the lesson spinner; this listener does
+    // not. The stray press used to run against the OUTGOING lesson and leave
+    // the student on page 2 of the lesson they were arriving at.
+    wireLessons({ 11: 2 });
+    const lessonEleven = gate();
+    const realGetLesson = mockGetLesson.getMockImplementation()!;
+    mockGetLesson.mockImplementation(async (id: number) => {
+      if (id === 11) await lessonEleven.promise;
+      return realGetLesson(id);
+    });
+
+    renderAt('/courses/ROB101/learn/10');
+    await screen.findByRole('heading', { name: 'What Is a Robot?' });
+
+    fireEvent.keyDown(window, { key: 'ArrowRight' }); // 1/2 → 2/2
+    fireEvent.keyDown(window, { key: 'ArrowRight' }); // crosses into lesson 11
+    fireEvent.keyDown(window, { key: 'ArrowRight' }); // arrives mid-load — must do nothing
+
+    await act(async () => { lessonEleven.release(); });
+
+    expect(await screen.findByRole('heading', { name: 'Sensors' })).toBeInTheDocument();
+    expect(pageIndicator()).toHaveTextContent('1/3');
+    // …and nothing was written against the lesson that was being left.
+    expect(sectionWrites().filter(([lessonId]) => lessonId === 10)).toEqual([[10, 1]]);
+  });
+
+  it('consumes the sequential-arrival flag on the first page turn', async () => {
+    // React Router keeps location state in history.state, so the flag is not
+    // one-shot: left armed, a refresh or a later Back onto this entry would
+    // snap the student to page 1 forever.
+    wireLessons({ 11: 2 });
+
+    renderAt('/courses/ROB101/learn/10');
+    await screen.findByRole('heading', { name: 'What Is a Robot?' });
+
+    fireEvent.click(nextButton());
+    fireEvent.click(nextButton());
+    await screen.findByRole('heading', { name: 'Sensors' });
+
+    // Armed on arrival: a reload before the student moves should still open at
+    // page 1, because the stored cursor is the stale one we are ignoring.
+    expect(screen.getByTestId('restart-state')).toHaveTextContent('true');
+
+    fireEvent.click(nextButton()); // first turn under the student's own steam
+
+    await waitFor(() => {
+      expect(screen.getByTestId('restart-state')).toHaveTextContent('false');
+    });
+    expect(pageIndicator()).toHaveTextContent('2/3');
+  });
+
+  it('resumes rather than restarts when stepping backwards', async () => {
+    // Previous is not in the spec's sequential list, and `restart` defaults to
+    // resume. Sending it back to page 1 made it impossible to return to where
+    // the student had been reading.
+    wireLessons({ 10: 1 });
+
+    renderAt('/courses/ROB101/learn/11');
+    await screen.findByRole('heading', { name: 'Sensors' });
+    expect(pageIndicator()).toHaveTextContent('1/3');
+
+    fireEvent.click(screen.getByRole('button', { name: /previous/i }));
+
+    expect(await screen.findByRole('heading', { name: 'What Is a Robot?' })).toBeInTheDocument();
+    expect(pageIndicator()).toHaveTextContent('2/2');
+  });
+
+  it('bounces a lesson belonging to another course back into this one', async () => {
+    // Reachable by hand-editing the quiz page's ?next=, or by a stale bookmark.
+    // For a student enrolled in both courses the API answers 200, so nothing
+    // downstream catches it and the foreign lesson renders under this course's
+    // code, sidebar and progress bar.
+    wireLessons();
+    const realGetLesson = mockGetLesson.getMockImplementation()!;
+    mockGetLesson.mockImplementation(async (id: number) => {
+      if (id !== 777) return realGetLesson(id);
+      return {
+        id: 777,
+        title: 'A Lesson From JAVA101',
+        content: null,
+        video_type: 'none',
+        video_id: null,
+        order: 1,
+        unit: 999, // not a unit of ROB101
+        attachments: [],
+        sections: [makeSection({ id: 1 })],
+      };
+    });
+    mockGetLessonProgress.mockResolvedValue({ ...progress, lesson: 777, current_section: 0 });
+    mockGetLessonQuestionsStatus.mockResolvedValue(null);
+
+    renderAt('/courses/ROB101/learn/777');
+
+    // Bounced out to bare /learn, which re-runs this course's own
+    // first-incomplete redirect.
+    expect(await screen.findByTestId('location')).toHaveTextContent('/courses/ROB101/learn');
+    expect(screen.queryByRole('heading', { name: 'A Lesson From JAVA101' })).not.toBeInTheDocument();
   });
 });

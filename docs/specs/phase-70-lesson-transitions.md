@@ -408,6 +408,101 @@ The two that passed red are the two *resume* tests (sidebar click, direct URL
 visit). That is the correct result and the point of the pair: resume was never
 broken, and the fix must not break it.
 
+**6. Manual click-through**, local stack, signed in as the **student**
+`student1@demo.com` (Emma Martinez, the only account enrolled in ROB101 — not
+the instructor, whose unmount reset hides the bug).
+
+The precondition was already in the database from earlier sessions: ROB101
+lessons 254–259 all carried `current_section = 5`, and each has 5 sections plus
+a comprehension quiz — so 6 pages, index 5 = **the quiz page**. Exactly the
+state the bug needs, unmanufactured.
+
+| # | Action | Result |
+|---|--------|--------|
+| 1 | Direct URL `/learn/254` | resumes **6/6**, the quiz page — resume intact |
+| 2 | Next off 254's last page | lesson 255 "Careers in Robotics" at **1/6** — the bug, fixed (saved cursor 5 ignored) |
+| 3 | Sidebar click on "Working on a Robotics Team" (256, cursor 5) | resumes **6/6** — resume intact via the sidebar |
+| 4 | Next off 256's last page (unit 1's last lesson) | `/courses/ROB101/quizzes/64?from=learn&lesson=256&next=257` — exact round-trip params |
+| 5 | Submitted quiz 64 → **Back to Lesson** | returns to `/learn/256` at 6/6, **not** bare `/learn` |
+| 6 | Submitted quiz 64 → **Continue to Next Lesson** | lesson 257 at **1/6** (its saved cursor was 5) |
+| 7 | Five fast `→` on 257 | 1/6 → **6/6**, all five turned, no silent drops |
+| 8 | Locked unit 2 (id 80), then Next off 256's last page | `...quizzes/64?from=learn&lesson=256&next=260` — **260** is unit 3's first lesson; locked unit 2's lesson 257 is skipped. Unit 2 unlocked again afterwards. |
+
+**7. Mid-lesson cursor (the DEMO101 shape).** Item 7 asks specifically about the
+demo student, whose seed writes `current_section = section_count // 2`. That
+account could not be driven here — signing in as it needs a password typed into
+the login form, which I do not do. **This one click-through is left for you.**
+
+The behaviour it checks was verified on an equivalent state instead: lesson
+258's cursor was set to **2** (mid-lesson, not a quiz page), then
+
+- direct URL `/learn/258` → resumes **3/6** — mid-lesson resume works;
+- Next off lesson 257's last page → 258 opens at **1/6**.
+
+Same code path, same conclusion. The cursor was restored to 5 afterwards.
+
+**8. Review pass.** Two agents ran in parallel against the full phase diff — one
+attacking the feature, one checking spec conformance. They converged
+independently on the same three real defects, all in the first cut of the fix
+and all now fixed with a regression test each.
+
+| # | Defect | Fix |
+|---|--------|-----|
+| 1 | A coalesced page turn was parked as a bare index and written with the lesson id captured by whichever PATCH was in flight — so lesson B's cursor landed on lesson A, and B was never written. `lastSavedSectionRef` was global too, so a late settle clobbered the new lesson's baseline. | `pendingSectionRef` and `lastSavedSectionRef` both carry `{lessonId, index}`. |
+| 2 | `handleVideoProgress` shares `isSavingRef` but never drained the queue: a page turn taken during a video-position save was parked and then **never written at all** — the same silent drop this phase set out to kill, moved from the UI to persistence. | `flushPendingSection()` called from both `finally` blocks. |
+| 3 | `restart` survives in `history.state`, so it was not one-shot. Refreshing (or Back-ing onto) a sequentially-entered lesson snapped the student to page 1 forever — the resume rule inverted. | The flag is consumed on the **first page turn**, not on arrival: before the student moves, the stored cursor is still the stale one, so page 1 is right on reload; after, resume is. |
+
+Four more, found by one agent each and also fixed:
+
+- **`→` held across a lesson boundary opened the next lesson on page 2.** The footer buttons hide behind the lesson spinner but the window key listener does not, so a keypress mid-load ran against the outgoing lesson. Arrows now no-op while `isLessonLoading`. This is the spec's own manual step 6 crossed with step 3.
+- **The course owner was trapped inside a unit they locked.** `buildChain` drops locked units for everyone, so opening one of its lessons (the sidebar still offers them to the owner) left Next *and* Previous dead. `buildChain` takes `{includeLocked}` and the getters take an optional full chain, walking outward to the nearest reachable node.
+- **Previous also restarted**, so `←` out of a lesson opened the previous one at page 1 and the student could not get back to where they were. The spec's sequential list is Next / `→` / auto-advance only, and `restart` defaults to resume — so Previous now resumes.
+- **A non-403 lesson-load failure left the previous lesson on screen**, highlighted and navigable, while the URL said otherwise. Removing the whole-course refetch took away the spinner that used to mask it. `currentLesson` is cleared on every failure.
+
+Two smaller ones, also fixed: the audit command materialised `range(low, high)`
+for the gap list, and `Unit.order` is a `PositiveIntegerField` the units endpoint
+writes through unclamped — a unit at order 1.5e9 is reachable, so the sample is
+capped at 20 with the true count reported; and bare `/learn` briefly painted
+"Select a lesson to begin" now that the first-incomplete redirect is its own
+post-paint effect.
+
+**Spec conformance.** One checked-off bullet was only half-implemented: "a
+hand-edited `?next=<other course's lesson>` must not navigate" had shape
+validation but no membership check. Closed **player-side** rather than on the
+quiz page, on the second reviewer's recommendation — the player holds the course
+payload, so one guard covers the hand-edited `?next=`, a hand-typed
+`/learn/<id>` and a stale bookmark alike. It compares the loaded lesson's `unit`
+against `course.units`, which includes locked units, so a locked lesson still
+falls through to its 403 and the phase-66 lock notice instead of being called
+foreign. The quiz page additionally refuses to offer Continue when the quiz's
+own `course_code` does not match the route.
+
+Neither agent found a permission hole: the backend refuses non-enrolled and
+locked-unit access independently on every new path, and no models, migrations,
+endpoints or serializers were touched. The conformance reviewer also
+mutation-tested the suite — every mutation it introduced (removing the resume
+gate, flipping the sidebar's `restart`, dropping the `is_locked` skip, dropping
+the `next` param, restoring the `isSavingRef` early return) was caught by a
+failing test.
+
+**Final verify after the fixes:** pytest **1181 passed**, tsc **0**, lint **0
+errors**, vitest **22 files / 234 passed** (197 before this round: +6 player,
++14 chain, +17 for the new `QuizDetailPage.test.tsx`).
+
+### Local-only side effects of the click-through
+
+Dev database only; none of this touches production.
+
+- **`student1@demo.com`'s password was changed to `Phase70Check!`** so the
+  session could be driven. The original is not recoverable — reset it if you
+  want a different one.
+- Two attempts on ROB101's unit 1 quiz (id 64) were consumed by Emma, both
+  passed at 100%. 1 of 3 attempts remains.
+- `seed_demo_account` was run while looking for a demo enrollment. It re-asserted
+  `jdoe@demo.com` and **removed 1 enrollment of that account outside DEMO101**.
+- Unit 80 (ROB101 unit 2) was locked and unlocked; verified `is_locked = False`
+  at the end.
+
 ---
 
 ## Notes for the implementation session

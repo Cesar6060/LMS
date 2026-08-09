@@ -13,7 +13,10 @@ from django.core.management import call_command
 from django.core.management.base import CommandError
 
 from accounts.models import User
-from courses.management.commands.audit_content_ordering import order_problems
+from courses.management.commands.audit_content_ordering import (
+    MAX_REPORTED_GAPS,
+    order_problems,
+)
 from courses.models import Course, Lesson, Unit
 from quizzes.models import Quiz
 
@@ -70,21 +73,33 @@ class TestOrderProblems:
     """The pure helper, independent of the database."""
 
     def test_zero_indexed_run_is_clean(self):
-        assert order_problems([0, 1, 2, 3]) == ([], [])
+        assert order_problems([0, 1, 2, 3]) == ([], [], 0)
 
     def test_one_indexed_run_is_clean_too(self):
         """Seeded content is 0-indexed, API-created content starts at 1. The
         base is not a finding — contiguity is measured from the minimum."""
-        assert order_problems([1, 2, 3]) == ([], [])
+        assert order_problems([1, 2, 3]) == ([], [], 0)
 
     def test_gap_is_reported(self):
-        assert order_problems([0, 1, 3, 4]) == ([], [2])
+        assert order_problems([0, 1, 3, 4]) == ([], [2], 1)
 
     def test_duplicate_is_reported(self):
-        assert order_problems([0, 1, 1, 2]) == ([1], [])
+        assert order_problems([0, 1, 1, 2]) == ([1], [], 0)
 
     def test_empty_is_clean(self):
-        assert order_problems([]) == ([], [])
+        assert order_problems([]) == ([], [], 0)
+
+    def test_a_huge_span_is_counted_but_not_materialised(self):
+        """`Unit.order` is a PositiveIntegerField and the units endpoint writes
+        it through unclamped, so two units at 0 and 1.5e9 is reachable — and
+        used to make the audit build a 1.5-billion-element gap list. The count
+        is still exact; only the printed sample is capped."""
+        duplicates, gaps, gap_count = order_problems([0, 1_500_000_000])
+
+        assert duplicates == []
+        assert gap_count == 1_499_999_999
+        assert len(gaps) == MAX_REPORTED_GAPS
+        assert gaps == list(range(1, MAX_REPORTED_GAPS + 1))
 
 
 @pytest.mark.django_db
@@ -106,7 +121,7 @@ class TestAuditContentOrdering:
         make_course(instructor, 'UNITGAP', unit_orders=(0, 1, 3))
         output = run_audit(course='UNITGAP')
         assert 'ISSUE' in output
-        assert 'units run 0..3 with missing order(s) [2]' in output
+        assert '3 units run 0..3 with 1 missing order(s): [2]' in output
 
     def test_gap_in_lesson_orders_is_reported(self, instructor):
         course = make_course(instructor, 'LESSGAP', unit_orders=(0,), lessons_per_unit=0)
@@ -117,7 +132,7 @@ class TestAuditContentOrdering:
                 content_key=f'lessgap-{order}',
             )
         output = run_audit(course='LESSGAP')
-        assert 'Unit 0 "Unit 0": 3 lessons run 0..4 with missing order(s) [2, 3]' in output
+        assert 'Unit 0 "Unit 0": 3 lessons run 0..4 with 2 missing order(s): [2, 3]' in output
 
     def test_duplicate_quiz_order_within_a_unit_is_an_issue(self, instructor):
         """Quiz has no unique_together on (unit, order), so unlike units and
