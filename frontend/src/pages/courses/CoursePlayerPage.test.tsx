@@ -540,7 +540,48 @@ describe('CoursePlayerPage — lesson transitions (phase 70)', () => {
     expect(screen.queryByTestId('quiz-section')).not.toBeInTheDocument();
   });
 
-  it('still resumes the saved page when the lesson is picked from the sidebar', async () => {
+  it('opens the next lesson at page 1 even when its saved cursor is mid-lesson', async () => {
+    // The mid-lesson variant of the test above, and the one that actually pins
+    // the sequential gate: a quiz-page cursor is now declined on EVERY arrival
+    // (see below), so only a resumable cursor can tell Next apart from a click.
+    wireLessons({ 11: 1 });
+
+    renderAt('/courses/ROB101/learn/10');
+    await screen.findByRole('heading', { name: 'What Is a Robot?' });
+
+    fireEvent.click(nextButton());
+    fireEvent.click(nextButton());
+
+    expect(await screen.findByRole('heading', { name: 'Sensors' })).toBeInTheDocument();
+    expect(pageIndicator()).toHaveTextContent('1/3');
+  });
+
+  it('still resumes a mid-lesson page when the lesson is picked from the sidebar', async () => {
+    wireLessons({ 11: 1 });
+
+    renderAt('/courses/ROB101/learn/10');
+    await screen.findByRole('heading', { name: 'What Is a Robot?' });
+
+    fireEvent.click(screen.getByRole('button', { name: /Sensors/ }));
+
+    expect(await screen.findByRole('heading', { name: 'Sensors' })).toBeInTheDocument();
+    expect(pageIndicator()).toHaveTextContent('2/3');
+  });
+
+  it('still resumes a mid-lesson page on a direct visit to the lesson URL', async () => {
+    wireLessons({ 11: 1 });
+
+    renderAt('/courses/ROB101/learn/11');
+
+    expect(await screen.findByRole('heading', { name: 'Sensors' })).toBeInTheDocument();
+    expect(pageIndicator()).toHaveTextContent('2/3');
+  });
+
+  it('declines to resume onto the comprehension quiz from the sidebar', async () => {
+    // Reported after the first cut shipped. `current_section` is pinned at
+    // whatever page the student last stopped on and is never cleared, so once a
+    // lesson has been paged to the end, EVERY later sidebar click reopened its
+    // quiz. The end of a lesson is not a resume point.
     wireLessons({ 11: 2 });
 
     renderAt('/courses/ROB101/learn/10');
@@ -549,17 +590,18 @@ describe('CoursePlayerPage — lesson transitions (phase 70)', () => {
     fireEvent.click(screen.getByRole('button', { name: /Sensors/ }));
 
     expect(await screen.findByRole('heading', { name: 'Sensors' })).toBeInTheDocument();
-    expect(pageIndicator()).toHaveTextContent('3/3');
-    expect(screen.getByTestId('quiz-section')).toBeInTheDocument();
+    expect(pageIndicator()).toHaveTextContent('1/3');
+    expect(screen.queryByTestId('quiz-section')).not.toBeInTheDocument();
   });
 
-  it('still resumes the saved page on a direct visit to the lesson URL', async () => {
+  it('declines to resume onto the comprehension quiz on a direct visit', async () => {
     wireLessons({ 11: 2 });
 
     renderAt('/courses/ROB101/learn/11');
 
     expect(await screen.findByRole('heading', { name: 'Sensors' })).toBeInTheDocument();
-    expect(pageIndicator()).toHaveTextContent('3/3');
+    expect(pageIndicator()).toHaveTextContent('1/3');
+    expect(screen.queryByTestId('quiz-section')).not.toBeInTheDocument();
   });
 
   it('lands on page 1 when Mark Complete auto-advances', async () => {

@@ -286,9 +286,18 @@ export function CoursePlayerPage() {
 
       // Resume at the saved section — but ONLY on a direct arrival. A sequential
       // arrival opens at page 1 (phase 70; see `restart` above).
+      //
+      // …and never onto the comprehension-quiz page. `current_section` is
+      // pinned wherever the student last stopped and nothing ever clears it, so
+      // once a lesson has been paged to the end its cursor is the quiz page
+      // FOREVER, and every later sidebar click reopens the quiz instead of the
+      // lesson. The end of a lesson is not a place to resume to. A genuinely
+      // half-read lesson still reopens where it was left, and the quiz stays one
+      // click away via the "Go to Quiz →" banner.
       if (!isRestart && progressData?.current_section !== undefined) {
         const savedSection = progressData.current_section;
-        if (savedSection <= maxSectionIndex) {
+        const savedIsQuizPage = hasQuizSection && savedSection === maxSectionIndex;
+        if (savedSection <= maxSectionIndex && !savedIsQuizPage) {
           setCurrentSectionIndex(savedSection);
         }
       }

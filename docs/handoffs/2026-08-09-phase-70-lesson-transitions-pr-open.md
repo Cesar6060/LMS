@@ -19,7 +19,15 @@ Modified: `CoursePlayerPage.tsx` (+ its test, 25), `QuizDetailPage.tsx`,
 `docs/specs/phase-70-lesson-transitions.md` (all 15 items checked, full evidence).
 
 Verify: pytest **1181 passed**, tsc **0**, lint **0 errors** (1 known
-`react-refresh` warning), vitest **22 files / 234 passed**. No migrations.
+`react-refresh` warning), vitest **22 files / 237 passed**. No migrations.
+
+**Amendment after the first cut** (`b0f0b2e`): the user reported that clicking a
+lesson in the sidebar still opened its comprehension check. That was the
+**resume** half working as specced, not the original bug — but `current_section`
+is pinned at the last page once reached and never cleared, so six ROB101 lessons
+had their cursor stuck on the quiz page. Resume now declines the quiz page on
+every arrival; mid-lesson resume is unchanged. See the amended resume rule in
+the spec's *Design decisions*.
 
 ## In progress / not done
 1. **PR #104 is not merged.** Merging deploys backend (Render) + frontend

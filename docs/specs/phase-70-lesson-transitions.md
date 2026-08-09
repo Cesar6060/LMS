@@ -84,6 +84,16 @@ Two amplifiers, both real:
   completion) always opens the next lesson at **page 1**. Resume still applies
   when the student lands on a lesson directly — sidebar click, pasted URL,
   dashboard / course-map entry.
+  - **AMENDED 2026-08-09, after the first cut shipped.** Resume now declines to
+    open the **comprehension-quiz page**, on every arrival including a direct
+    one. `current_section` is pinned wherever the student last stopped and is
+    never cleared, so once a lesson had been paged to the end its cursor was the
+    quiz page *forever* and every later sidebar click reopened the quiz instead
+    of the lesson — the reported symptom, and six of ROB101's lessons were in
+    that state. A genuinely half-read lesson still reopens where it was left;
+    only the terminal quiz page is declined, and the "Go to Quiz →" banner keeps
+    it one click away. Chosen over "skip any last page" and "never resume" so a
+    student who stops halfway through a long lesson keeps their place.
 - **Unit boundary:** Next from the last page of a unit's last lesson goes to that
   unit's **quiz**, then on to the next unit's first lesson. (Today the quiz is
   skipped entirely and is only reachable from the sidebar.)
@@ -488,6 +498,48 @@ failing test.
 **Final verify after the fixes:** pytest **1181 passed**, tsc **0**, lint **0
 errors**, vitest **22 files / 234 passed** (197 before this round: +6 player,
 +14 chain, +17 for the new `QuizDetailPage.test.tsx`).
+
+**9. Amendment — resume declines the quiz page (2026-08-09, post-review).**
+Reported by the user against the shipped branch: *"I click on another lesson and
+it directs me to the end of each lesson (comprehension check)."* Not the
+original bug and not a regression — it was the **resume** half working exactly
+as the spec locked it in. See the amended resume rule in *Design decisions*.
+
+Cause, from the live data — page 6 of 6 *is* the comprehension check:
+
+```
+lesson 254  What Is a Robot?               cur=5  pages=6  completed=True
+lesson 255  Careers in Robotics            cur=5  pages=6  completed=False
+lesson 256  Working on a Robotics Team     cur=5  pages=6  completed=False
+lesson 257  Shop & Electrical Safety       cur=5  pages=6  completed=False
+lesson 258  Tools & Precision Measurement  cur=5  pages=6  completed=False
+lesson 259  Managing a Robotics Project    cur=5  pages=6  completed=False
+```
+
+Verified in the real app after the change — all six lessons, read out of the
+live DOM:
+
+```
+lesson 255 → 1/6      lesson 258 → 1/6
+lesson 256 → 1/6      lesson 259 → 1/6
+lesson 257 → 1/6      lesson 254 → 1/6   (direct URL)
+sidebar click on 256 → 1/6, Overview, with the "Go to Quiz →" banner
+```
+
+Mid-lesson resume re-confirmed against the same build: lesson 259 cursor set to
+2 → opens **3/6**, not the quiz page, not page 1. Cursor restored to 5 after.
+
+The two "still resumes" regression tests were **rewritten rather than deleted**:
+they now use a mid-lesson cursor (2/3), because a quiz-page cursor is declined
+on every arrival and so can no longer tell a sidebar click apart from a Next.
+The reported-bug test gained a mid-lesson twin for the same reason — without it
+the sequential gate would have stopped being load-bearing. Player tests: 25 → 28.
+
+**Not a bug, recorded so it is not re-investigated:** during this check a
+synthetic mouse click on a sidebar row appeared to be dropped three times. It is
+a Chrome-automation artefact — a programmatic `.click()` on the same button
+navigates in **101 ms**, and a `MutationObserver` measured **0** mutations over
+2 s, ruling out a render loop.
 
 ### Local-only side effects of the click-through
 
