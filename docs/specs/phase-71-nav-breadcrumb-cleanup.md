@@ -116,6 +116,32 @@ component), so no `[P]` items except where noted:
   5. ✅ `/courses/ROB101/map` and `/courses/ROB101/learn/255` — no app
      header, no breadcrumb bar (player landed on page 1/6, phase-70 rule
      intact).
+### Review round (code-reviewer + adversarial-tester, both on the full diff)
+
+Fixed after review:
+- **`/instructor/courses/new` rendered a fabricated `NEW` course-code crumb**
+  (both agents; adversarial rated it BROKEN). Now short-circuits to
+  `Courses › New Course`. Verified in the browser.
+- **`/instructor/courses/:code/analytics` and direct lesson view
+  `/courses/:code/lessons/:id` had no leaf label**, so `aria-current`
+  landed on the course code and its link back was lost. Added `Analytics`
+  and `Lesson` cases.
+- Test hardening: real route paths (`/quizzes/5`), 3-crumb count + root/code
+  link assertions per sub-page case, first-`li`-has-no-chevron assertion,
+  and a hostile-slug regression test (no markup injection, no
+  `javascript:`/protocol-relative href). All XSS/href-injection attacks
+  HELD — React escaping + literal href templates with `[^/]+` capture.
+
+Deferred (pre-existing behavior, unchanged by this phase):
+- `Layout.tsx`'s `isLearningMode` regex substring-matches (`/learn*`,
+  `/map*`) — no current route collides; a landmine only for future routes.
+- A course slug containing a keyword (e.g. `learn-basics`) yields a phantom
+  sub-crumb — same `path.includes` chain as the old header.
+- The bar string-matches routes without validating them, so a 404 path like
+  `/manage/extra` still shows crumbs — cosmetic, page is already a 404.
+- Styling notes: the bar adds `bg-background/70 backdrop-blur-sm` (reads as
+  an extension of `.header-gaming`) and is intentionally not sticky.
+
 - Pre-existing quirk noticed (not phase-71, unchanged behavior): course
   detail fetch is case-sensitive — `/courses/rob201` shows "Course not
   found" while `/courses/ROB201` loads. The breadcrumb uppercases labels

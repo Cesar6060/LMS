@@ -10,6 +10,11 @@ interface Crumb {
 function getBreadcrumbs(path: string): Crumb[] {
   const parts: Crumb[] = [];
 
+  // The create page's static "new" segment would otherwise read as a course code
+  if (path === '/instructor/courses/new') {
+    return [{ label: 'Courses', href: '/courses' }, { label: 'New Course' }];
+  }
+
   // Course-related routes
   const courseMatch = path.match(/\/courses\/([^/]+)/);
   if (courseMatch) {
@@ -36,6 +41,10 @@ function getBreadcrumbs(path: string): Crumb[] {
       parts.push({ label: 'Discussions' });
     } else if (path.includes('/lessons') && path.endsWith('/edit')) {
       parts.push({ label: 'Edit Lesson' });
+    } else if (path.includes('/lessons')) {
+      parts.push({ label: 'Lesson' });
+    } else if (path.includes('/analytics')) {
+      parts.push({ label: 'Analytics' });
     } else if (path.includes('/manage')) {
       parts.push({ label: 'Manage' });
     } else if (path.includes('/students')) {

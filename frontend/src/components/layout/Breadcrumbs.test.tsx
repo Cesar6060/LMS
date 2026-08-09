@@ -51,6 +51,16 @@ describe('Breadcrumbs', () => {
     expect(code.closest('a')).toBeNull();
     // Separators only between crumbs — 2 crumbs, 1 chevron, none leading
     expect(container.querySelectorAll('ol svg')).toHaveLength(1);
+    expect(container.querySelector('li')?.querySelector('svg')).toBeNull();
+  });
+
+  it('labels the course-creation page instead of faking a NEW course code', () => {
+    renderAt('/instructor/courses/new');
+
+    const current = screen.getByText('New Course');
+    expect(current).toHaveAttribute('aria-current', 'page');
+    expect(current.closest('a')).toBeNull();
+    expect(screen.queryByText('NEW')).not.toBeInTheDocument();
   });
 
   it('links the course crumb to the manage page on instructor routes', () => {
@@ -68,15 +78,32 @@ describe('Breadcrumbs', () => {
 
   it.each([
     ['/courses/rob201/grades', 'Grades'],
-    ['/courses/rob201/quizzes', 'Quizzes'],
+    ['/courses/rob201/quizzes/5', 'Quizzes'],
+    // /learn never renders in the app (Layout hides the bar in learning
+    // mode) — kept as a dead-branch guard on the label chain
     ['/courses/rob201/learn', 'Learning'],
     ['/courses/rob201/announcements', 'Announcements'],
     ['/courses/rob201/discussions', 'Discussions'],
+    ['/courses/rob201/lessons/12', 'Lesson'],
     ['/instructor/courses/rob201/lessons/5/edit', 'Edit Lesson'],
+    ['/instructor/courses/rob201/analytics', 'Analytics'],
     ['/instructor/courses/rob201/students', 'Roster'],
     ['/instructor/courses/rob201/gradebook', 'Gradebook'],
   ])('labels %s as %s', (path, label) => {
-    renderAt(path);
+    const { container } = renderAt(path);
     expect(screen.getByText(label)).toHaveAttribute('aria-current', 'page');
+    // Full chain is Courses ▸ <code> ▸ <label>
+    expect(container.querySelectorAll('li')).toHaveLength(3);
+    expect(screen.getByRole('link', { name: 'Courses' })).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'ROB201' })).toBeInTheDocument();
+  });
+
+  it('renders hostile slugs inert — no markup injection, no scriptable href', () => {
+    const slug = '"><img src=x onerror=alert(1)>';
+    const { container } = renderAt(`/courses/${slug}/grades`);
+
+    expect(container.querySelector('img')).toBeNull();
+    const codeLink = screen.getByRole('link', { name: slug.toUpperCase() });
+    expect(codeLink.getAttribute('href')).not.toMatch(/^(javascript:|\/\/)/i);
   });
 });
