@@ -83,51 +83,6 @@ export function Header() {
     }
   };
 
-  // Get breadcrumb info based on current path
-  const getBreadcrumbInfo = () => {
-    const path = location.pathname;
-    const parts: { label: string; href?: string }[] = [];
-
-    // Course-related routes
-    const courseMatch = path.match(/\/courses\/([^/]+)/);
-    if (courseMatch) {
-      const isInstructorRoute = path.startsWith('/instructor');
-      const courseCode = courseMatch[1].toUpperCase();
-      parts.push({
-        label: courseCode,
-        href: isInstructorRoute
-          ? `/instructor/courses/${courseMatch[1]}/manage`
-          : `/courses/${courseMatch[1]}`,
-      });
-
-      // Add sub-page if we're deeper
-      if (path.includes('/grades')) {
-        parts.push({ label: 'Grades' });
-      } else if (path.includes('/quizzes')) {
-        parts.push({ label: 'Quizzes' });
-      } else if (path.includes('/learn')) {
-        parts.push({ label: 'Learning' });
-      } else if (path.includes('/announcements')) {
-        parts.push({ label: 'Announcements' });
-      } else if (path.includes('/discussions')) {
-        parts.push({ label: 'Discussions' });
-      } else if (path.includes('/lessons') && path.endsWith('/edit')) {
-        parts.push({ label: 'Edit Lesson' });
-      } else if (path.includes('/manage')) {
-        parts.push({ label: 'Manage' });
-      } else if (path.includes('/students')) {
-        parts.push({ label: 'Roster' });
-      } else if (path.includes('/gradebook')) {
-        parts.push({ label: 'Gradebook' });
-      }
-      return parts;
-    }
-
-    return parts.length > 0 ? parts : null;
-  };
-
-  const breadcrumbs = getBreadcrumbInfo();
-
   const isDashboardActive = location.pathname === '/dashboard';
   const isCoursesActive =
     location.pathname === '/courses' || location.pathname.startsWith('/courses/');
@@ -152,26 +107,6 @@ export function Header() {
             <Link to="/courses" className={navLinkClass(isCoursesActive)}>
               Courses
             </Link>
-            {/* Contextual breadcrumbs */}
-            {breadcrumbs && breadcrumbs.length > 0 && (
-              <nav className="hidden md:flex items-center ml-2 text-sm text-muted-foreground">
-                {breadcrumbs.map((crumb, index) => (
-                  <span key={index} className="flex items-center">
-                    <ChevronRight className="h-4 w-4 mx-1" />
-                    {crumb.href ? (
-                      <Link
-                        to={crumb.href}
-                        className="hover:text-foreground transition-colors"
-                      >
-                        {crumb.label}
-                      </Link>
-                    ) : (
-                      <span className="text-foreground">{crumb.label}</span>
-                    )}
-                  </span>
-                ))}
-              </nav>
-            )}
           </nav>
         )}
 
