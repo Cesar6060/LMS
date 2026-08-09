@@ -390,6 +390,66 @@ class TestLessonProgress:
 
 
 @pytest.mark.django_db
+class TestLessonProgressCurrentSection:
+    """Phase 70: completing a lesson must NOT move its saved page cursor.
+
+    The player's "always open the next lesson at page 1" fix lives entirely in
+    the frontend (sequential arrival ignores the saved `current_section`;
+    resume still honours it). That only holds while the backend keeps
+    `current_section` as a pure record of the last page viewed. Resetting it
+    server-side on completion would look helpful and would silently break
+    resume — a student who finished a lesson would lose their place on a
+    deliberate sidebar click. These tests pin the contract so such a change has
+    to fail here first and become a visible decision.
+    """
+
+    def test_completion_patch_leaves_current_section_unchanged(
+        self, api_client, student, lesson, enrollment
+    ):
+        api_client.force_authenticate(user=student)
+        url = f'/api/courses/lessons/{lesson.id}/progress/'
+
+        # Student reads to the last page (e.g. the comprehension-quiz page).
+        api_client.patch(url, {'current_section': 4})
+
+        response = api_client.patch(url, {'completed': True})
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.data['completed'] is True
+        assert response.data['current_section'] == 4
+        progress = LessonProgress.objects.get(user=student, lesson=lesson)
+        assert progress.current_section == 4
+
+    def test_completion_patch_may_still_set_current_section_explicitly(
+        self, api_client, student, lesson, enrollment
+    ):
+        """Only an explicit value in the payload moves the cursor."""
+        api_client.force_authenticate(user=student)
+        url = f'/api/courses/lessons/{lesson.id}/progress/'
+        api_client.patch(url, {'current_section': 3})
+
+        response = api_client.patch(url, {'completed': True, 'current_section': 0})
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.data['current_section'] == 0
+
+    def test_repeat_completion_patch_leaves_current_section_unchanged(
+        self, api_client, student, lesson, enrollment
+    ):
+        """Re-completing an already-complete lesson must not reset it either —
+        the auto-advance path can PATCH `completed: true` more than once."""
+        api_client.force_authenticate(user=student)
+        url = f'/api/courses/lessons/{lesson.id}/progress/'
+        api_client.patch(url, {'current_section': 2})
+        api_client.patch(url, {'completed': True})
+
+        response = api_client.patch(url, {'completed': True})
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.data['current_section'] == 2
+
+
+@pytest.mark.django_db
 class TestInstructorCourses:
     def test_instructor_courses_list(self, api_client, instructor, course):
         api_client.force_authenticate(user=instructor)

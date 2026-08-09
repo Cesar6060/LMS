@@ -15,8 +15,22 @@ import { Skeleton } from '@/components/ui/Skeleton';
 import { BackLink } from '@/components/layout/BackLink';
 import {
   CheckCircle, XCircle, Trophy, RotateCcw,
-  ChevronLeft, FileQuestion, Target, Clock, LogOut, PlayCircle
+  ChevronLeft, ChevronRight, FileQuestion, Target, Clock, LogOut, PlayCircle
 } from 'lucide-react';
+
+/**
+ * A query param that must be a positive integer id, or nothing.
+ *
+ * Phase 70: `?lesson=` and `?next=` come off the URL bar, so they are hostile
+ * input — `parseInt` alone would happily turn "12abc" into 12 and "-1" into a
+ * navigation. Anything that is not a clean positive integer falls back to null,
+ * and the caller degrades to the plain back link.
+ */
+function parseLessonIdParam(raw: string | null): number | null {
+  if (!raw || !/^\d+$/.test(raw)) return null;
+  const parsed = Number(raw);
+  return Number.isSafeInteger(parsed) && parsed > 0 ? parsed : null;
+}
 
 export function QuizDetailPage() {
   const { code, quizId } = useParams<{ code: string; quizId: string }>();
@@ -28,7 +42,16 @@ export function QuizDetailPage() {
   // learning mode instead of course detail — to the originating lesson if one
   // was given (&lesson={id}), otherwise to the player itself (unit quizzes).
   const fromLearn = searchParams.get('from') === 'learn';
-  const fromLesson = fromLearn ? searchParams.get('lesson') : null;
+  const fromLesson = fromLearn ? parseLessonIdParam(searchParams.get('lesson')) : null;
+  // Phase 70: the lesson the chain continues to after this unit quiz (&next).
+  // Absent when the quiz is the last node in the course.
+  //
+  // Shape validation only happens here; whether the id really belongs to THIS
+  // course is settled by the player, which holds the course payload and bounces
+  // a foreign lesson back to the course's own first-incomplete one. A quiz
+  // reached under the wrong course code is rejected outright below, since that
+  // is decidable from data this page already has.
+  const nextLesson = fromLearn ? parseLessonIdParam(searchParams.get('next')) : null;
   const backTo = fromLesson
     ? `/courses/${code}/learn/${fromLesson}`
     : fromLearn
@@ -134,6 +157,14 @@ export function QuizDetailPage() {
     const passed = result.passed;
     const canRetake = !passed && quiz.attempts_remaining !== 0;
     const firstTryCorrect = result.answers.filter(a => a.is_correct).length;
+    // A quiz opened under a course code that is not its own means the URL was
+    // hand-assembled; its `next` names a lesson in some other course, so there
+    // is no forward step to offer. Fall back to the back link.
+    const continueTo = quiz.course_code === code ? nextLesson : null;
+    // Continue is the prominent action, except for a student who just failed
+    // and still has attempts — for them the primary action is another try, and
+    // Continue stays a real button one step down the hierarchy.
+    const continueIsPrimary = !canRetake;
     return (
       <PageContainer maxWidth="max-w-4xl">
         {gamificationModals}
@@ -181,8 +212,26 @@ export function QuizDetailPage() {
             )}
 
             <div className="flex flex-col sm:flex-row gap-3">
+              {/* Phase 70: the main forward path at a unit boundary. A unit
+                  quiz sits between two units in the player's chain, so once
+                  it is submitted the student's next step is the following
+                  unit's first lesson — sequential, hence `restart: true`, so
+                  it opens on page 1 rather than that lesson's saved cursor. */}
+              {continueTo !== null && (
+                <Button
+                  asChild
+                  size="lg"
+                  variant={continueIsPrimary ? 'default' : 'outline'}
+                  className="flex-1"
+                >
+                  <Link to={`/courses/${code}/learn/${continueTo}`} state={{ restart: true }}>
+                    Continue to Next Lesson
+                    <ChevronRight className="h-5 w-5 ml-2" />
+                  </Link>
+                </Button>
+              )}
               {fromLearn && (
-                <Button asChild className="flex-1">
+                <Button asChild variant="outline" className="flex-1">
                   <Link to={backTo}>
                     <ChevronLeft className="h-4 w-4 mr-2" />
                     {fromLesson ? 'Back to Lesson' : 'Back to Learning'}
@@ -190,7 +239,7 @@ export function QuizDetailPage() {
                 </Button>
               )}
               {canRetake && (
-                <Button onClick={handleRetake} className="flex-1">
+                <Button onClick={handleRetake} size="lg" className="flex-1">
                   <RotateCcw className="h-4 w-4 mr-2" />
                   Retake Quiz
                 </Button>

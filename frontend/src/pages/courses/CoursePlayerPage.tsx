@@ -1,5 +1,5 @@
-import { useState, useEffect, useCallback, useRef } from 'react';
-import { useParams, useNavigate, Link } from 'react-router';
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
+import { useParams, useNavigate, useLocation, Link } from 'react-router';
 import { Button } from '@/components/ui/Button';
 import { Card, CardContent } from '@/components/ui/Card';
 import { CourseSidebar } from '@/components/course/CourseSidebar';
@@ -12,6 +12,7 @@ import { PresentButton } from '@/components/lesson/PresentButton';
 import { courseService } from '@/services/courses';
 import { quizzesService } from '@/services/quizzes';
 import { useAuth } from '@/contexts/useAuth';
+import { buildChain, getNextNode, getPreviousNode } from '@/lib/playerNavigation';
 import { useGamificationFeedback } from '@/components/gamification/useGamificationFeedback';
 import type { LessonProgress, LessonQuestionsStatus, LessonAttachment, LessonSection, Quiz } from '@/types';
 import {
@@ -80,7 +81,27 @@ interface CourseWithProgress {
 export function CoursePlayerPage() {
   const { code, lessonId } = useParams<{ code: string; lessonId?: string }>();
   const navigate = useNavigate();
+  const location = useLocation();
   const { user } = useAuth();
+
+  // Phase 70: how the student got here decides whether we resume.
+  //
+  // A SEQUENTIAL arrival — Next, `→`, auto-advance after completion, "Continue
+  // to next lesson" off a unit quiz — always opens the lesson at page 1. A
+  // DIRECT arrival — sidebar click, pasted URL, dashboard or course-map entry —
+  // still resumes at the saved page. Without this split, finishing a lesson on
+  // its comprehension-quiz page pins that lesson's cursor to the quiz forever,
+  // so walking into it from the previous lesson opened the quiz.
+  //
+  // History-entry state rather than a ref: a ref is consumed twice under
+  // StrictMode's double-invoked effects and would silently resume in dev only.
+  const restart = (location.state as { restart?: boolean } | null)?.restart === true;
+  // Read through a ref so the lesson-load effect does not depend on it: the
+  // flag is CONSUMED on the first page turn (see `handleSectionChange`), and a
+  // dep would turn that consumption into a reload that resumed the very cursor
+  // the restart was there to ignore.
+  const restartRef = useRef(restart);
+  restartRef.current = restart;
   const { celebrate, gamificationModals } = useGamificationFeedback();
 
   const [course, setCourse] = useState<CourseWithProgress | null>(null);
@@ -135,13 +156,44 @@ export function CoursePlayerPage() {
 
   // Track last saved position to avoid unnecessary API calls
   const lastSavedPositionRef = useRef<number>(0);
-  const lastSavedSectionRef = useRef<number>(0);
+  // Phase 70: the cursor baseline is per LESSON. A bare index was wrong — a
+  // write settling after a lesson change rewrote the baseline the new lesson
+  // had just seeded, and the new lesson's own cursor was then swallowed as a
+  // no-op.
+  const lastSavedSectionRef = useRef<{ lessonId: number; index: number } | null>(null);
   const isSavingRef = useRef(false);
+  // Phase 70: the newest page turn still owed to the server while a save is in
+  // flight. Page turns coalesce onto it instead of being dropped. It carries
+  // its lesson id: parking a bare index wrote lesson B's cursor onto lesson A.
+  const pendingSectionRef = useRef<{ lessonId: number; index: number } | null>(null);
 
   // Persist sidebar state
   useEffect(() => {
     localStorage.setItem('coursePlayerSidebarCollapsed', isSidebarCollapsed.toString());
   }, [isSidebarCollapsed]);
+
+  // Phase 70: one explicit node chain — lessons and unit quizzes interleaved,
+  // locked units dropped — drives Previous/Next, the arrow keys and every
+  // auto-advance. See lib/playerNavigation.ts for why it is not a flat lesson
+  // list any more.
+  const chain = useMemo(
+    () => buildChain(course?.units ?? [], quizzes),
+    [course, quizzes]
+  );
+  // The same chain WITH locked units, used only to place a current lesson that
+  // is not navigable itself. The sidebar still offers a locked unit's lessons
+  // to the course owner, and landing on one used to kill Next and Previous
+  // both — trapping the owner inside the unit they had just locked.
+  const fullChain = useMemo(
+    () => buildChain(course?.units ?? [], quizzes, { includeLocked: true }),
+    [course, quizzes]
+  );
+  const previousNode = currentLesson
+    ? getPreviousNode(chain, 'lesson', currentLesson.id, fullChain)
+    : null;
+  const nextNode = currentLesson
+    ? getNextNode(chain, 'lesson', currentLesson.id, fullChain)
+    : null;
 
   // Phase 66: never resume into a locked unit. A student's locked unit arrives
   // with `lessons: []` so it drops out anyway, but the instructor still gets its
@@ -159,6 +211,11 @@ export function CoursePlayerPage() {
     return null;
   }, []);
 
+  // Phase 70: depends on `code` ONLY. It used to take `lessonId` as well (for
+  // the first-incomplete redirect below), which meant every lesson change
+  // refetched the whole course, flipped `isLoading`, and dropped the player
+  // into the full-page spinner — the visible flash between lessons, and the
+  // reason the child components got away with never resetting their own state.
   const loadCourse = useCallback(async () => {
     if (!code) return;
 
@@ -170,21 +227,6 @@ export function CoursePlayerPage() {
       ]);
       setCourse(courseData);
       setQuizzes(quizData);
-
-      // If no lessonId in URL, navigate to first incomplete lesson or first lesson
-      if (!lessonId && courseData.units.length > 0) {
-        const firstIncompleteLesson = findFirstIncompleteLesson(courseData);
-        // Fallback (everything complete): first lesson of the first *unlocked*
-        // unit — unit 1 being locked must not strand the player on a 403.
-        const firstLesson = courseData.units.find(
-          unit => !unit.is_locked && unit.lessons.length > 0
-        )?.lessons[0];
-        const targetLesson = firstIncompleteLesson || firstLesson;
-
-        if (targetLesson) {
-          navigate(`/courses/${code}/learn/${targetLesson.id}`, { replace: true });
-        }
-      }
     } catch (err: unknown) {
       const error = err as { response?: { status?: number } };
       if (error.response?.status === 403) {
@@ -196,9 +238,18 @@ export function CoursePlayerPage() {
     } finally {
       setIsLoading(false);
     }
-  }, [code, lessonId, navigate, findFirstIncompleteLesson]);
+  }, [code]);
 
-  const loadLesson = useCallback(async (id: number) => {
+  // Phase 70: incremented on every lesson request; a response whose token is no
+  // longer current is dropped. Two quick lesson changes used to race, and the
+  // LATER-resolving response won — committing one lesson's sections and section
+  // cursor while the URL pointed at the other.
+  const lessonRequestRef = useRef(0);
+
+  const loadLesson = useCallback(async (id: number, isRestart: boolean) => {
+    const requestId = ++lessonRequestRef.current;
+    const isStale = () => lessonRequestRef.current !== requestId;
+
     try {
       setIsLessonLoading(true);
       setLockedNotice('');
@@ -210,11 +261,19 @@ export function CoursePlayerPage() {
         courseService.getLessonProgress(id),
         courseService.getLessonQuestionsStatus(id).catch(() => null) // May not exist
       ]);
+      if (isStale()) return;
       setCurrentLesson(lessonData);
       setProgress(progressData);
       setQuestionsStatus(quizStatusData);
       lastSavedPositionRef.current = progressData?.video_position || 0;
-      lastSavedSectionRef.current = progressData?.current_section || 0;
+      // Seeded from the SERVER value even on a restart, so restarting at page 1
+      // and then turning a page still writes `current_section` rather than
+      // being swallowed by the equality guard in `saveSectionProgress`.
+      lastSavedSectionRef.current = { lessonId: id, index: progressData?.current_section || 0 };
+      // Anything still parked belongs to the lesson we just left, and is
+      // deliberately NOT discarded: the entry names its own lesson, so the
+      // in-flight request's drain still writes it to the right row. Clearing
+      // it here would silently lose that student's last page turn.
 
       // Calculate total pages for resume logic (phase 53: sections are content).
       // Phase 54: the comprehension quiz is its own page whenever the lesson has
@@ -225,10 +284,22 @@ export function CoursePlayerPage() {
         lessonData.sections?.length || 0, hasQuizSection);
       const maxSectionIndex = contentPageCount + (hasQuizSection ? 1 : 0) - 1;
 
-      // Resume at saved section
-      if (progressData?.current_section !== undefined) {
+      // Resume at the saved section — but ONLY on a direct arrival. A sequential
+      // arrival opens at page 1 (phase 70; see `restart` above).
+      //
+      // Phase 70 amendment (2026-08-09, spec §9): …and never onto the
+      // comprehension-quiz page. `current_section` is pinned wherever the
+      // student last stopped and nothing ever clears it, so once a lesson has
+      // been paged to the end its cursor is the quiz page FOREVER, and every
+      // later sidebar click reopened the quiz instead of the lesson. The end of
+      // a lesson is not a place to resume to. A genuinely half-read lesson
+      // still reopens where it was left; the quiz stays reachable through the
+      // amber quiz dot in the footer (always rendered when a quiz exists) and,
+      // on gated lessons, the banner's jump link.
+      if (!isRestart && progressData?.current_section !== undefined) {
         const savedSection = progressData.current_section;
-        if (savedSection <= maxSectionIndex) {
+        const savedIsQuizPage = hasQuizSection && savedSection === maxSectionIndex;
+        if (savedSection <= maxSectionIndex && !savedIsQuizPage) {
           setCurrentSectionIndex(savedSection);
         }
       }
@@ -238,16 +309,22 @@ export function CoursePlayerPage() {
         courseService.updateCourseActivity(code).catch(() => {});
       }
     } catch (err) {
+      if (isStale()) return;
       const error = err as { response?: { status?: number; data?: { detail?: string } } };
+      // Phase 70: clear on EVERY failure, not just 403. The whole-course refetch
+      // used to unmount this subtree behind the full-page spinner; now that it
+      // doesn't, a failed load left the PREVIOUS lesson rendered and highlighted
+      // while the URL said otherwise, with Next/Previous still walking from it.
+      setCurrentLesson(null);
       if (error.response?.status === 403) {
-        setCurrentLesson(null);
         setLockedNotice(
           error.response.data?.detail || 'This unit is locked by your instructor.'
         );
       }
       console.error('Failed to load lesson:', err);
     } finally {
-      setIsLessonLoading(false);
+      // A superseded request must not clear the newer request's spinner.
+      if (!isStale()) setIsLessonLoading(false);
     }
   }, [code]);
 
@@ -258,28 +335,178 @@ export function CoursePlayerPage() {
     }
   }, [code, loadCourse]);
 
+  // No lessonId in the URL → land on the first incomplete lesson (phase 70:
+  // split out of `loadCourse` so that function no longer depends on lessonId).
+  // A bare /learn entry is a DIRECT arrival, so it resumes — no `restart`.
+  useEffect(() => {
+    if (lessonId || !course || course.units.length === 0) return;
+
+    const firstIncompleteLesson = findFirstIncompleteLesson(course);
+    // Fallback (everything complete): first lesson of the first *unlocked*
+    // unit — unit 1 being locked must not strand the player on a 403.
+    const firstLesson = course.units.find(
+      unit => !unit.is_locked && unit.lessons.length > 0
+    )?.lessons[0];
+    const targetLesson = firstIncompleteLesson || firstLesson;
+
+    if (targetLesson) {
+      navigate(`/courses/${code}/learn/${targetLesson.id}`, { replace: true });
+    }
+  }, [lessonId, course, code, navigate, findFirstIncompleteLesson]);
+
+  // Phase 70: a lesson that belongs to a DIFFERENT course must not render under
+  // this course's code, sidebar and progress bar. Reachable by hand-editing the
+  // quiz page's `?next=`, by a stale bookmark, or by typing a lesson id — and
+  // for a student enrolled in both courses the API answers 200, so nothing
+  // downstream catches it. Checked against `course.units`, which lists every
+  // unit including locked ones, so a locked unit's lesson still falls through
+  // to its 403 and the phase-66 lock notice rather than being called foreign.
+  useEffect(() => {
+    if (!course || !currentLesson) return;
+    if (course.units.some(unit => unit.id === currentLesson.unit)) return;
+
+    navigate(`/courses/${code}/learn`, { replace: true });
+  }, [course, currentLesson, code, navigate]);
+
   // Load specific lesson when lessonId changes. Depends on the primitive
   // courseId (not the course object) so lesson reloads only when the course
   // actually changes, not on every course-object refresh.
   const courseId = course?.id;
   useEffect(() => {
     if (lessonId && courseId !== undefined) {
-      loadLesson(parseInt(lessonId));
+      loadLesson(parseInt(lessonId), restartRef.current);
     }
   }, [lessonId, courseId, loadLesson]);
 
-  const handleLessonSelect = useCallback((id: number) => {
-    navigate(`/courses/${code}/learn/${id}`);
+  /**
+   * Go to a lesson. `restart` is explicit at every call site rather than
+   * inferred: sequential moves pass `true` (open at page 1), direct picks pass
+   * `false` (resume the saved page). It deliberately does NOT default to true —
+   * a new call site should resume, which is the pre-phase-70 behaviour.
+   */
+  const goToLesson = useCallback((id: number, options: { restart: boolean }) => {
+    navigate(`/courses/${code}/learn/${id}`, { state: { restart: options.restart } });
   }, [navigate, code]);
+
+  const handleLessonSelect = useCallback((id: number) => {
+    // The sidebar is a direct pick — resume where the student left off.
+    goToLesson(id, { restart: false });
+  }, [goToLesson]);
 
   const handleQuizSelect = useCallback((quizId: number) => {
     // Unit quizzes are taken on the quiz page; ?from=learn returns here after.
-    navigate(`/courses/${code}/quizzes/${quizId}?from=learn`);
-  }, [navigate, code]);
+    // Phase 70: `lesson` is where the back link goes (bare /learn re-ran the
+    // first-incomplete redirect and dropped the student somewhere else), and
+    // `next` powers the "Continue to next lesson" button on the results screen.
+    const params = new URLSearchParams({ from: 'learn' });
+    if (currentLesson) params.set('lesson', String(currentLesson.id));
+    const afterQuiz = getNextNode(chain, 'quiz', quizId, fullChain);
+    // Only a lesson is offered as "next": a quiz followed by another quiz has
+    // no forward lesson to continue to, and neither does the last node.
+    if (afterQuiz?.kind === 'lesson') params.set('next', String(afterQuiz.id));
+    navigate(`/courses/${code}/quizzes/${quizId}?${params.toString()}`);
+  }, [navigate, code, currentLesson, chain, fullChain]);
+
+  /**
+   * Move to the next node in the chain — the shared forward step used by the
+   * Next button, `→`, and both auto-advance paths. Routes on node kind: a
+   * lesson opens at page 1, a unit quiz opens its quiz page.
+   */
+  const goToNextNode = useCallback(() => {
+    if (!nextNode) return;
+    if (nextNode.kind === 'quiz') {
+      handleQuizSelect(nextNode.id);
+    } else {
+      goToLesson(nextNode.id, { restart: true });
+    }
+  }, [nextNode, handleQuizSelect, goToLesson]);
+
+  /**
+   * Step back one node. Deliberately NOT a restart: the spec's sequential list
+   * is Next / `→` / auto-advance only, and `restart` defaults to resume. Going
+   * backwards to page 1 of a lesson the student has already read would make it
+   * impossible to get back to where they were.
+   */
+  const goToPreviousNode = useCallback(() => {
+    if (!previousNode) return;
+    if (previousNode.kind === 'quiz') {
+      handleQuizSelect(previousNode.id);
+    } else {
+      goToLesson(previousNode.id, { restart: false });
+    }
+  }, [previousNode, handleQuizSelect, goToLesson]);
+
+  /**
+   * Persist the page cursor, coalescing writes.
+   *
+   * Phase 70: this used to live inside `handleSectionChange` behind an
+   * `if (isSavingRef.current) return` at the very top of that function — so a
+   * second `→` while the previous PATCH was in flight was silently dropped and
+   * the page did not turn at all. The cursor now moves first (see
+   * `handleSectionChange`) and only the *save* waits: the newest turn parks in
+   * `pendingSectionRef` and is flushed when the in-flight request settles.
+   *
+   * The parked entry carries its lesson id, and the drain always re-reads it,
+   * because a turn can be parked in one lesson and flushed after the student
+   * has already moved to another.
+   */
+  const saveSectionProgress = useCallback(async (lessonIdToSave: number, index: number) => {
+    if (isSavingRef.current) {
+      // Something is already writing — this, or a video-position save, which
+      // shares `isSavingRef`. Park it; whichever request is in flight drains
+      // the queue when it settles (both `finally` blocks call `flushPending`).
+      pendingSectionRef.current = { lessonId: lessonIdToSave, index };
+      return;
+    }
+
+    let target: { lessonId: number; index: number } | null = { lessonId: lessonIdToSave, index };
+    while (target !== null) {
+      const saved = lastSavedSectionRef.current;
+      if (saved && saved.lessonId === target.lessonId && saved.index === target.index) {
+        // Already stored — nothing to write, but a newer turn may have queued.
+        target = pendingSectionRef.current;
+        pendingSectionRef.current = null;
+        continue;
+      }
+
+      isSavingRef.current = true;
+      const writing = target;
+      try {
+        await courseService.updateLessonProgress(writing.lessonId, {
+          current_section: writing.index
+        });
+        lastSavedSectionRef.current = writing;
+      } catch (err) {
+        console.error('Failed to save section progress:', err);
+      } finally {
+        isSavingRef.current = false;
+      }
+
+      // A failed write does not retry: `target` moves on either way, so this
+      // loop always drains rather than spinning on a dead endpoint.
+      target = pendingSectionRef.current;
+      pendingSectionRef.current = null;
+    }
+  }, []);
+
+  /**
+   * Drain a page turn that parked behind an in-flight request.
+   *
+   * `handleVideoProgress` shares `isSavingRef`, so without this a turn taken
+   * during a video-position save was parked and then never written at all —
+   * the same silent drop this phase set out to kill, just moved from the UI to
+   * persistence.
+   */
+  const flushPendingSection = useCallback(() => {
+    const pending = pendingSectionRef.current;
+    if (!pending || isSavingRef.current) return;
+    pendingSectionRef.current = null;
+    void saveSectionProgress(pending.lessonId, pending.index);
+  }, [saveSectionProgress]);
 
   // Handle section navigation
-  const handleSectionChange = useCallback(async (newIndex: number) => {
-    if (!currentLesson || isSavingRef.current) return;
+  const handleSectionChange = useCallback((newIndex: number) => {
+    if (!currentLesson) return;
 
     // Calculate total pages (phase 53: sections are content, + quiz if present)
     const hasQuizSection = !!(questionsStatus && questionsStatus.total_questions > 0);
@@ -289,24 +516,23 @@ export function CoursePlayerPage() {
 
     if (newIndex < 0 || newIndex > maxIndex) return;
 
+    // The UI always advances — never gated on the network (phase 70).
     setNavDirection(newIndex >= currentSectionIndex ? 'forward' : 'backward');
     setCurrentSectionIndex(newIndex);
 
-    // Save section progress (debounced to avoid too many API calls)
-    if (newIndex !== lastSavedSectionRef.current) {
-      isSavingRef.current = true;
-      try {
-        await courseService.updateLessonProgress(currentLesson.id, {
-          current_section: newIndex
-        });
-        lastSavedSectionRef.current = newIndex;
-      } catch (err) {
-        console.error('Failed to save section progress:', err);
-      } finally {
-        isSavingRef.current = false;
-      }
+    // Consume the sequential-arrival flag. React Router keeps location state in
+    // `history.state`, so it is NOT one-shot: without this, refreshing (or
+    // Back-ing onto) a lesson entered via Next would snap the student back to
+    // page 1 forever, which is the resume rule inverted. It stays armed until
+    // the first turn, though — before that the server cursor is still the stale
+    // one this phase exists to ignore, so page 1 is the right answer on reload.
+    if (restartRef.current) {
+      restartRef.current = false;
+      navigate(`/courses/${code}/learn/${currentLesson.id}`, { replace: true, state: null });
     }
-  }, [currentLesson, questionsStatus, currentSectionIndex]);
+
+    void saveSectionProgress(currentLesson.id, newIndex);
+  }, [currentLesson, questionsStatus, currentSectionIndex, saveSectionProgress, navigate, code]);
 
   // Phase 60: fullscreen present mode targets the player content area (header
   // and sidebar live outside it, so they disappear while presenting; the
@@ -364,12 +590,10 @@ export function CoursePlayerPage() {
         celebrate(updated.gamification);
       }
 
-      // Auto-advance if marking complete
+      // Auto-advance if marking complete. Sequential, so the next lesson opens
+      // at page 1 (phase 70) — and a unit's last lesson advances to its quiz.
       if (updated.completed) {
-        const nextLesson = getNextLesson();
-        if (nextLesson) {
-          setTimeout(() => handleLessonSelect(nextLesson.id), 500);
-        }
+        setTimeout(goToNextNode, 500);
       }
     } catch (err) {
       console.error('Failed to update progress:', err);
@@ -394,8 +618,10 @@ export function CoursePlayerPage() {
       console.error('Failed to save video progress:', err);
     } finally {
       isSavingRef.current = false;
+      // A page turn taken while this was in flight parked instead of writing.
+      flushPendingSection();
     }
-  }, [currentLesson]);
+  }, [currentLesson, flushPendingSection]);
 
   const handleVideoEnded = useCallback(async () => {
     if (!currentLesson || progress?.completed) return;
@@ -438,38 +664,16 @@ export function CoursePlayerPage() {
         });
       }
 
-      // Auto-advance to next lesson
+      // Auto-advance to the next node. Phase 70: this used to re-derive its own
+      // flat lesson list here — ignoring locked units and unit quizzes, and
+      // diverging from the Next button. It calls the shared helper now.
       if (updated.completed) {
-        const allLessons = course?.units.flatMap(u => u.lessons) || [];
-        const currentIndex = allLessons.findIndex(l => l.id === currentLesson.id);
-        const nextLesson = currentIndex < allLessons.length - 1 ? allLessons[currentIndex + 1] : null;
-        if (nextLesson) {
-          setTimeout(() => navigate(`/courses/${code}/learn/${nextLesson.id}`), 500);
-        }
+        setTimeout(goToNextNode, 500);
       }
     } catch (err) {
       console.error('Failed to mark lesson complete:', err);
     }
-  }, [currentLesson, progress?.completed, course, code, navigate, currentSectionIndex, handleSectionChange, questionsStatus, celebrate]);
-
-  const getPreviousLesson = () => {
-    if (!course || !currentLesson) return null;
-
-    const allLessons = course.units.flatMap(u => u.lessons);
-    const currentIndex = allLessons.findIndex(l => l.id === currentLesson.id);
-    return currentIndex > 0 ? allLessons[currentIndex - 1] : null;
-  };
-
-  const getNextLesson = () => {
-    if (!course || !currentLesson) return null;
-
-    const allLessons = course.units.flatMap(u => u.lessons);
-    const currentIndex = allLessons.findIndex(l => l.id === currentLesson.id);
-    return currentIndex < allLessons.length - 1 ? allLessons[currentIndex + 1] : null;
-  };
-
-  const previousLesson = getPreviousLesson();
-  const nextLesson = getNextLesson();
+  }, [currentLesson, progress?.completed, course, currentSectionIndex, handleSectionChange, questionsStatus, celebrate, goToNextNode]);
 
   // Get current section data
   const contentSections = currentLesson?.sections || [];
@@ -523,19 +727,27 @@ export function CoursePlayerPage() {
         return;
       }
 
+      // Phase 70: the footer buttons disappear behind the lesson spinner but
+      // this listener does not. An arrow arriving mid-load ran against the
+      // OUTGOING lesson — turning its page, writing its cursor, and landing the
+      // student on page 2 of the lesson they were arriving at.
+      if (isLessonLoading && (e.key === 'ArrowLeft' || e.key === 'ArrowRight')) {
+        return;
+      }
+
       if (e.key === 'ArrowLeft') {
         // If we have sections and not at first section, go to previous section
         if (hasSections && currentSectionIndex > 0) {
           handleSectionChange(currentSectionIndex - 1);
-        } else if (previousLesson) {
-          handleLessonSelect(previousLesson.id);
+        } else {
+          goToPreviousNode();
         }
       } else if (e.key === 'ArrowRight') {
         // If we have sections and not at last section, go to next section
         if (hasSections && currentSectionIndex < totalSections - 1) {
           handleSectionChange(currentSectionIndex + 1);
-        } else if (nextLesson) {
-          handleLessonSelect(nextLesson.id);
+        } else {
+          goToNextNode();
         }
       } else if (e.key === 'f' || e.key === 'F') {
         // Phase 62: present from any lesson page except the quiz (projecting it
@@ -553,9 +765,14 @@ export function CoursePlayerPage() {
 
     window.addEventListener('keydown', handleKeyPress);
     return () => window.removeEventListener('keydown', handleKeyPress);
-  }, [previousLesson, nextLesson, handleLessonSelect, hasSections, currentSectionIndex, totalSections, handleSectionChange, isOnQuizSection, isPresenting, isLessonLoading, togglePresent]);
+  }, [goToPreviousNode, goToNextNode, hasSections, currentSectionIndex, totalSections, handleSectionChange, isOnQuizSection, isPresenting, isLessonLoading, togglePresent]);
 
-  if (isLoading) {
+  // Phase 70: the second clause covers the frame between "course loaded" and
+  // the first-incomplete redirect landing. That redirect used to run inside
+  // `loadCourse`, so it batched with `setIsLoading(false)`; now that it is its
+  // own post-paint effect, a bare /learn would flash "Select a lesson to begin"
+  // for one frame without this.
+  if (isLoading || (!lessonId && course && course.units.length > 0)) {
     return (
       <div className="h-screen flex items-center justify-center">
         <Loader2 className="h-8 w-8 animate-spin text-primary" />
@@ -812,6 +1029,17 @@ export function CoursePlayerPage() {
                           <>
                             <CheckCircle className="h-4 w-4" />
                             <span className="text-sm font-medium">Quiz passed - Ready to mark complete</span>
+                            {/* Phase 70 amendment: the Mark Lesson Complete
+                                button lives on the quiz page, and resume no
+                                longer lands there — without this jump the
+                                passed-but-uncompleted state was a dead end
+                                announcing an action it offered no way to take. */}
+                            <button
+                              onClick={() => handleSectionChange(totalSections - 1)}
+                              className="text-sm underline hover:no-underline ml-1"
+                            >
+                              Mark Complete →
+                            </button>
                           </>
                         ) : (
                           <>
@@ -889,11 +1117,11 @@ export function CoursePlayerPage() {
                   onClick={() => {
                     if (hasSections && currentSectionIndex > 0) {
                       handleSectionChange(currentSectionIndex - 1);
-                    } else if (previousLesson) {
-                      handleLessonSelect(previousLesson.id);
+                    } else {
+                      goToPreviousNode();
                     }
                   }}
-                  disabled={!previousLesson && currentSectionIndex === 0}
+                  disabled={!previousNode && currentSectionIndex === 0}
                   className="gap-1"
                 >
                   <ChevronLeft className="h-4 w-4" />
@@ -935,7 +1163,12 @@ export function CoursePlayerPage() {
                           />
                         )}
                       </div>
-                      <span className="text-sm text-muted-foreground">
+                      {/* Tagged because the header carries a lessons-complete
+                          counter in the same "n/m" shape (phase 70 tests). */}
+                      <span
+                        data-testid="page-indicator"
+                        className="text-sm text-muted-foreground"
+                      >
                         {currentSectionIndex + 1}/{totalSections}
                       </span>
                     </>
@@ -951,11 +1184,11 @@ export function CoursePlayerPage() {
                   onClick={() => {
                     if (hasSections && currentSectionIndex < totalSections - 1) {
                       handleSectionChange(currentSectionIndex + 1);
-                    } else if (nextLesson) {
-                      handleLessonSelect(nextLesson.id);
+                    } else {
+                      goToNextNode();
                     }
                   }}
-                  disabled={!nextLesson && isLastSection}
+                  disabled={!nextNode && isLastSection}
                   className="gap-1"
                 >
                   <span className="hidden sm:inline">Next</span>
