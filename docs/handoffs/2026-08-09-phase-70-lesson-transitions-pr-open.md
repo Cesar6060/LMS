@@ -4,14 +4,16 @@
 **Phase 70 is code-complete, reviewed, CI-green. PR #104 is open and NOT merged.**
 https://github.com/Cesar6060/LMS/pull/104 — branch `phase-70-lesson-transitions`,
 commits: `2800152` (feature), `ccd145b` (review fixes), `b851a99` (resume
-amendment), `842f3f1` (CI fix: nanoid bump).
+amendment), `842f3f1` (CI fix: nanoid bump), `1cdde5f` (round-2 review fixes:
+banner Mark Complete jump + clamp/banner tests + doc corrections).
 
 **CI failed twice, then fixed:** the frontend job's audit gate tripped on a
 newly published high advisory against transitive `nanoid`
 (GHSA-2v37-7h3g-55p8) — unrelated to the phase's code; tsc/lint/build never
-ran. Bumped nanoid 3.3.16 → 3.3.18 (lockfile-only diff). Both CI jobs now
-PASS (run 31331775724). The react-router advisory in the same audit is the
-accepted GHSA-qwww-vcr4-c8h2, deferred to phase 56b.
+ran. Bumped nanoid 3.3.16 → 3.3.18 (lockfile-only diff). Both CI jobs PASS on
+the final commit (run 31332849638: backend 13m53s, frontend 56s) and PR #104
+is `mergeState=CLEAN` — merge-ready, awaiting the user. The react-router
+advisory in the same audit is the accepted GHSA-qwww-vcr4-c8h2 (phase 56b).
 
 Advancing to the next lesson now lands on page 1; direct arrival still resumes.
 Next/Previous walk one chain (`frontend/src/lib/playerNavigation.ts`) that
@@ -27,7 +29,8 @@ Modified: `CoursePlayerPage.tsx` (+ its test, 31), `QuizDetailPage.tsx`,
 `docs/specs/phase-70-lesson-transitions.md` (all 15 items checked, full evidence).
 
 Verify: pytest **1181 passed**, tsc **0**, lint **0 errors** (1 known
-`react-refresh` warning), vitest **22 files / 237 passed**. No migrations.
+`react-refresh` warning), vitest **22 files / 240 passed**, prod build ✓. No migrations
+(0 in diff; `makemigrations --check` → "No changes detected").
 
 **Amendment after the first cut** (`b851a99`): the user reported that clicking a
 lesson in the sidebar still opened its comprehension check. That was the
