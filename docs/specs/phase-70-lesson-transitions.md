@@ -91,8 +91,9 @@ Two amplifiers, both real:
     quiz page *forever* and every later sidebar click reopened the quiz instead
     of the lesson — the reported symptom, and six of ROB101's lessons were in
     that state. A genuinely half-read lesson still reopens where it was left;
-    only the terminal quiz page is declined, and the "Go to Quiz →" banner keeps
-    it one click away. Chosen over "skip any last page" and "never resume" so a
+    only the terminal quiz page is declined, and the quiz stays one click away —
+    the amber quiz dot in the footer always, plus the banner's jump link on
+    gated lessons. Chosen over "skip any last page" and "never resume" so a
     student who stops halfway through a long lesson keeps their place.
 - **Unit boundary:** Next from the last page of a unit's last lesson goes to that
   unit's **quiz**, then on to the next unit's first lesson. (Today the quiz is
@@ -264,7 +265,9 @@ read-only command.
       - Next from the last page of lesson N opens lesson N+1 at page **1/…**, even
         when lesson N+1's progress returns `current_section` = its quiz index.
         *This is the reported bug — it must fail before the fix and pass after.*
-      - Sidebar click on lesson N+1 still **resumes** at the saved page.
+      - Sidebar click on lesson N+1 still **resumes** at the saved page
+        *(amended: at a saved mid-lesson page — a quiz-page cursor is declined,
+        see §9)*.
       - A direct visit to `/courses/CODE/learn/<N+1>` still resumes.
       - Auto-advance after Mark Complete lands on page 1.
       - `→` from the last page of a unit's last lesson navigates to
@@ -298,8 +301,9 @@ Everything below must be shown as evidence, not asserted.
 6. **Manual click-through** on the local stack, as a **student** (not the
    instructor — the instructor's unmount reset hides the bug):
    1. Open ROB101, complete unit 1 lesson 1 through its comprehension quiz.
-   2. Go back to lesson 1 from the sidebar → it **resumes on the quiz page**
-      (resume still works).
+   2. Go back to lesson 1 from the sidebar → it opens at **page 1** (amended,
+      see §9 — a quiz-page cursor is declined; a mid-lesson cursor still
+      resumes). The quiz stays reachable via the amber dot / banner jump.
    3. From lesson 1, press Next / `→` to the end → lands on lesson 2 at page
       **1/N**, not its quiz. Repeat across the whole of unit 1.
    4. At the last page of unit 1's last lesson, Next → **unit 1's quiz page**.
@@ -429,9 +433,9 @@ state the bug needs, unmanufactured.
 
 | # | Action | Result |
 |---|--------|--------|
-| 1 | Direct URL `/learn/254` | resumes **6/6**, the quiz page — resume intact |
+| 1 | Direct URL `/learn/254` | resumes **6/6**, the quiz page — *pre-amendment; §9 re-ran this: now 1/6* |
 | 2 | Next off 254's last page | lesson 255 "Careers in Robotics" at **1/6** — the bug, fixed (saved cursor 5 ignored) |
-| 3 | Sidebar click on "Working on a Robotics Team" (256, cursor 5) | resumes **6/6** — resume intact via the sidebar |
+| 3 | Sidebar click on "Working on a Robotics Team" (256, cursor 5) | resumes **6/6** — *pre-amendment; §9 re-ran this: now 1/6* |
 | 4 | Next off 256's last page (unit 1's last lesson) | `/courses/ROB101/quizzes/64?from=learn&lesson=256&next=257` — exact round-trip params |
 | 5 | Submitted quiz 64 → **Back to Lesson** | returns to `/learn/256` at 6/6, **not** bare `/learn` |
 | 6 | Submitted quiz 64 → **Continue to Next Lesson** | lesson 257 at **1/6** (its saved cursor was 5) |
@@ -495,7 +499,7 @@ gate, flipping the sidebar's `restart`, dropping the `is_locked` skip, dropping
 the `next` param, restoring the `isSavingRef` early return) was caught by a
 failing test.
 
-**Final verify after the fixes:** pytest **1181 passed**, tsc **0**, lint **0
+**Verify after the review fixes (pre-amendment):** pytest **1181 passed**, tsc **0**, lint **0
 errors**, vitest **22 files / 234 passed** (197 before this round: +6 player,
 +14 chain, +17 for the new `QuizDetailPage.test.tsx`).
 
@@ -534,6 +538,34 @@ they now use a mid-lesson cursor (2/3), because a quiz-page cursor is declined
 on every arrival and so can no longer tell a sidebar click apart from a Next.
 The reported-bug test gained a mid-lesson twin for the same reason — without it
 the sequential gate would have stopped being load-bearing. Player tests: 25 → 28.
+
+**Second review round (post-amendment).** Two agents re-reviewed only the
+amendment delta. The decline itself survived everything: correct on all
+degenerate shapes (a quiz-only lesson's page 0 *is* the quiz — declining is a
+no-op, never a trap), no lost write-backs, no `restart` interaction, and all
+three mutations of the clause were caught by failing tests. Two things were
+fixed on the back of it:
+
+- **The "Ready to mark complete" banner was a dead end.** The Mark Lesson
+  Complete button for a gated lesson lives on the quiz page, which resume no
+  longer lands on — so a passed-but-uncompleted lesson announced an action it
+  offered no way to take. The banner's green branch now carries a
+  "Mark Complete →" jump (the amber branch already had "Go to Quiz →"), and
+  three new player tests cover the gated states plus the previously untested
+  beyond-max cursor clamp. Player tests 28 → 31.
+- **Doc drift**: manual step 6.2 and two evidence rows still described the
+  pre-amendment resume; the handoff cited a nonexistent commit hash. Corrected.
+
+**Deferred to phase 71** (pre-existing, exposed more often by the amendment):
+`video_position` is written from any page's video but replayed only on page 0
+(`initialPosition`, CoursePlayerPage.tsx ~:828), so a declined arrival on a
+lesson with a page-1 video seeks it to a position recorded elsewhere. Fix is a
+page-scoped position (`video_position` + section), which touches the write
+contract this phase explicitly kept out of scope.
+
+**Final verify (post-amendment, post-banner-fix):** pytest **1181 passed**, tsc
+**0**, lint **0 errors**, vitest **22 files / 240 passed**, production build ✓,
+CI run 31331775724 both jobs PASS.
 
 **Not a bug, recorded so it is not re-investigated:** during this check a
 synthetic mouse click on a sidebar row appeared to be dropped three times. It is

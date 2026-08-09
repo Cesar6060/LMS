@@ -418,7 +418,10 @@ const unitOneQuiz = makeQuiz(100, 2, 'Unit 1 Quiz');
  * lesson's `current_section` — the cursor the old player restored on EVERY
  * arrival, sequential ones included.
  */
-function wireLessons(savedSections: Record<number, number> = {}) {
+function wireLessons(
+  savedSections: Record<number, number> = {},
+  quizStatus: Partial<LessonQuestionsStatus> = {}
+) {
   mockGetLesson.mockImplementation(async (id: number) => ({
     id,
     title: LESSON_SHAPES[id].title,
@@ -446,6 +449,7 @@ function wireLessons(savedSections: Record<number, number> = {}) {
           all_correct: false,
           requires_quiz: false,
           can_complete_lesson: true,
+          ...quizStatus,
         }
       : null
   );
@@ -602,6 +606,50 @@ describe('CoursePlayerPage — lesson transitions (phase 70)', () => {
     expect(await screen.findByRole('heading', { name: 'Sensors' })).toBeInTheDocument();
     expect(pageIndicator()).toHaveTextContent('1/3');
     expect(screen.queryByTestId('quiz-section')).not.toBeInTheDocument();
+  });
+
+  it('clamps a saved cursor that is beyond the last page', async () => {
+    // A lesson that shrank after the cursor was written (a removed section, a
+    // deleted quiz). The clamp predates the amendment but the amendment made it
+    // the sole guard for this case, and nothing else covered it.
+    wireLessons({ 11: 7 });
+
+    renderAt('/courses/ROB101/learn/11');
+
+    expect(await screen.findByRole('heading', { name: 'Sensors' })).toBeInTheDocument();
+    expect(pageIndicator()).toHaveTextContent('1/3');
+  });
+
+  it('keeps the quiz one click away on a gated lesson after declining its cursor', async () => {
+    // The declined landing must not orphan the quiz. Gated, not yet passed:
+    // the amber banner's "Go to Quiz →" is the route.
+    wireLessons({ 11: 2 }, { requires_quiz: true, can_complete_lesson: false });
+
+    renderAt('/courses/ROB101/learn/11');
+    await screen.findByRole('heading', { name: 'Sensors' });
+    expect(pageIndicator()).toHaveTextContent('1/3');
+
+    fireEvent.click(screen.getByRole('button', { name: 'Go to Quiz →' }));
+
+    expect(await screen.findByTestId('quiz-section')).toBeInTheDocument();
+    expect(pageIndicator()).toHaveTextContent('3/3');
+  });
+
+  it('offers a route to Mark Complete when the check is passed but the lesson is not', async () => {
+    // Passed-but-uncompleted was a dead end after the amendment: the banner
+    // announced "Ready to mark complete" but the Mark Lesson Complete button
+    // lives on the quiz page resume no longer lands on. The banner now jumps.
+    wireLessons({ 11: 2 }, { requires_quiz: true, can_complete_lesson: true, all_correct: true });
+
+    renderAt('/courses/ROB101/learn/11');
+    await screen.findByRole('heading', { name: 'Sensors' });
+    expect(pageIndicator()).toHaveTextContent('1/3');
+    expect(screen.getByText('Quiz passed - Ready to mark complete')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Mark Complete →' }));
+
+    expect(await screen.findByTestId('quiz-section')).toBeInTheDocument();
+    expect(pageIndicator()).toHaveTextContent('3/3');
   });
 
   it('lands on page 1 when Mark Complete auto-advances', async () => {

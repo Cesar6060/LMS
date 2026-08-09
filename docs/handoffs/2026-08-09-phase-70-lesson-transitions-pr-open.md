@@ -1,9 +1,17 @@
 # Handoff: Phase 70 — lesson transitions, PR open, not merged
 
 ## Current state
-**Phase 70 is code-complete and reviewed. PR #104 is open and NOT merged.**
+**Phase 70 is code-complete, reviewed, CI-green. PR #104 is open and NOT merged.**
 https://github.com/Cesar6060/LMS/pull/104 — branch `phase-70-lesson-transitions`,
-two commits: `2800152` (feature) and `ccd145b` (review fixes).
+commits: `2800152` (feature), `ccd145b` (review fixes), `b851a99` (resume
+amendment), `842f3f1` (CI fix: nanoid bump).
+
+**CI failed twice, then fixed:** the frontend job's audit gate tripped on a
+newly published high advisory against transitive `nanoid`
+(GHSA-2v37-7h3g-55p8) — unrelated to the phase's code; tsc/lint/build never
+ran. Bumped nanoid 3.3.16 → 3.3.18 (lockfile-only diff). Both CI jobs now
+PASS (run 31331775724). The react-router advisory in the same audit is the
+accepted GHSA-qwww-vcr4-c8h2, deferred to phase 56b.
 
 Advancing to the next lesson now lands on page 1; direct arrival still resumes.
 Next/Previous walk one chain (`frontend/src/lib/playerNavigation.ts`) that
@@ -14,14 +22,14 @@ Created: `frontend/src/lib/playerNavigation.ts` (+ `.test.ts`, 48 tests),
 `backend/courses/test_lesson_sequencing.py` (16),
 `backend/courses/test_audit_content_ordering.py` (20),
 `backend/courses/management/commands/audit_content_ordering.py`.
-Modified: `CoursePlayerPage.tsx` (+ its test, 25), `QuizDetailPage.tsx`,
+Modified: `CoursePlayerPage.tsx` (+ its test, 31), `QuizDetailPage.tsx`,
 `LessonQuizSection.tsx` (+ new test), `backend/courses/tests.py`,
 `docs/specs/phase-70-lesson-transitions.md` (all 15 items checked, full evidence).
 
 Verify: pytest **1181 passed**, tsc **0**, lint **0 errors** (1 known
 `react-refresh` warning), vitest **22 files / 237 passed**. No migrations.
 
-**Amendment after the first cut** (`b0f0b2e`): the user reported that clicking a
+**Amendment after the first cut** (`b851a99`): the user reported that clicking a
 lesson in the sidebar still opened its comprehension check. That was the
 **resume** half working as specced, not the original bug — but `current_section`
 is pinned at the last page once reached and never cleared, so six ROB101 lessons
@@ -48,7 +56,12 @@ answer rotation; the three `_content_upsert` findings (phase 71).
    `/api/health/?deep=1` cannot see this (it is frontend-only behaviour, so the
    real check is a browser click-through of Next in ROB101).
 2. **Phase 71 is still content-upsert hardening** — the three deferred findings
-   from the phase-69 adversarial pass. Phase 70 displaced it, nothing else changed.
+   from the phase-69 adversarial pass, **plus one new deferral from phase 70's
+   second review round**: `video_position` is written from any page's video but
+   replayed only on page 0 (`initialPosition`, CoursePlayerPage.tsx ~:828), so
+   a resume-declined arrival on a lesson with a page-1 video seeks it to a
+   position recorded elsewhere. Needs a page-scoped position, i.e. a write-
+   contract change phase 70 kept out of scope.
 3. The four phase-69 owner-dashboard actions above (Neon protection, Render
    throttles, Cloudflare DNS, invite test).
 4. Consider adding **CS101** and **VGD101** to
@@ -90,6 +103,15 @@ answer rotation; the three `_content_upsert` findings (phase 71).
 - **A review agent's isolated vitest file hung for 3 minutes** rendering bare
   `/learn`; the same path works fine in the real app and in the full suite. Test-
   harness artefact, not a product loop — verified in the browser.
+- **`~/.npmrc` contained `os=linux`**, so npm installed LINUX rollup binaries on
+  this Mac — `npm run build` crashed with "Cannot find module
+  @rollup/rollup-darwin-arm64" even after a clean `npm ci`. The frontend
+  container mounts an anonymous volume over `/app/node_modules`, so nothing on
+  the host ever needed linux binaries. The line is removed (backup:
+  `~/.npmrc.bak-phase70`). If host npm ever installs the wrong platform again,
+  check `npm config get os` first.
+- A stale zero-byte `.git/index.lock` (likely the IDE) blocked committing;
+  removed after confirming no git process was running.
 
 ## Files to read first
 1. `docs/specs/phase-70-lesson-transitions.md` — Evidence section has the

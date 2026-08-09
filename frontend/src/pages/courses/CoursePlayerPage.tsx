@@ -287,13 +287,15 @@ export function CoursePlayerPage() {
       // Resume at the saved section — but ONLY on a direct arrival. A sequential
       // arrival opens at page 1 (phase 70; see `restart` above).
       //
-      // …and never onto the comprehension-quiz page. `current_section` is
-      // pinned wherever the student last stopped and nothing ever clears it, so
-      // once a lesson has been paged to the end its cursor is the quiz page
-      // FOREVER, and every later sidebar click reopens the quiz instead of the
-      // lesson. The end of a lesson is not a place to resume to. A genuinely
-      // half-read lesson still reopens where it was left, and the quiz stays one
-      // click away via the "Go to Quiz →" banner.
+      // Phase 70 amendment (2026-08-09, spec §9): …and never onto the
+      // comprehension-quiz page. `current_section` is pinned wherever the
+      // student last stopped and nothing ever clears it, so once a lesson has
+      // been paged to the end its cursor is the quiz page FOREVER, and every
+      // later sidebar click reopened the quiz instead of the lesson. The end of
+      // a lesson is not a place to resume to. A genuinely half-read lesson
+      // still reopens where it was left; the quiz stays reachable through the
+      // amber quiz dot in the footer (always rendered when a quiz exists) and,
+      // on gated lessons, the banner's jump link.
       if (!isRestart && progressData?.current_section !== undefined) {
         const savedSection = progressData.current_section;
         const savedIsQuizPage = hasQuizSection && savedSection === maxSectionIndex;
@@ -1027,6 +1029,17 @@ export function CoursePlayerPage() {
                           <>
                             <CheckCircle className="h-4 w-4" />
                             <span className="text-sm font-medium">Quiz passed - Ready to mark complete</span>
+                            {/* Phase 70 amendment: the Mark Lesson Complete
+                                button lives on the quiz page, and resume no
+                                longer lands there — without this jump the
+                                passed-but-uncompleted state was a dead end
+                                announcing an action it offered no way to take. */}
+                            <button
+                              onClick={() => handleSectionChange(totalSections - 1)}
+                              className="text-sm underline hover:no-underline ml-1"
+                            >
+                              Mark Complete →
+                            </button>
                           </>
                         ) : (
                           <>
