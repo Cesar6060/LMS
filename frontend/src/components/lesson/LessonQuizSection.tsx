@@ -24,26 +24,42 @@ export function LessonQuizSection({ lessonId, onStatusChange, onComplete, isLess
   const { celebrate, gamificationModals } = useGamificationFeedback();
 
   useEffect(() => {
+    // Phase 70: the player no longer unmounts this subtree between lessons, so
+    // the session UI has to clear itself when the lesson changes.
+    setShowQuiz(false);
+    setSessionResult(null);
+    setIsLoading(true);
+
+    // `ignore` drops a response that resolves after the lesson moved on — the
+    // parent has already been told about the new lesson by then.
+    let ignore = false;
+
+    const loadData = async () => {
+      try {
+        const [questionsData, statusData] = await Promise.all([
+          courseService.getLessonQuestions(lessonId),
+          courseService.getLessonQuestionsStatus(lessonId)
+        ]);
+        if (ignore) return;
+        setQuestions(questionsData);
+        setStatus(statusData);
+        onStatusChange?.(statusData);
+      } catch (err) {
+        if (ignore) return;
+        console.error('Failed to load questions:', err);
+      } finally {
+        if (!ignore) setIsLoading(false);
+      }
+    };
+
     loadData();
+
+    return () => {
+      ignore = true;
+    };
+    // onStatusChange is an unstable parent callback; keying on lessonId only.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [lessonId]);
-
-  const loadData = async () => {
-    setIsLoading(true);
-    try {
-      const [questionsData, statusData] = await Promise.all([
-        courseService.getLessonQuestions(lessonId),
-        courseService.getLessonQuestionsStatus(lessonId)
-      ]);
-      setQuestions(questionsData);
-      setStatus(statusData);
-      onStatusChange?.(statusData);
-    } catch (err) {
-      console.error('Failed to load questions:', err);
-    } finally {
-      setIsLoading(false);
-    }
-  };
 
   const handleSessionComplete = async (result: LessonSessionResult) => {
     setSessionResult(result);
