@@ -2,6 +2,7 @@ import { type ReactNode } from 'react';
 import { useLocation } from 'react-router';
 import { useAuth } from '@/contexts/useAuth';
 import { Header } from '@/components/layout/Header';
+import { Breadcrumbs } from '@/components/layout/Breadcrumbs';
 import { DemoBanner } from '@/components/layout/DemoBanner';
 import { AnimatedBackground } from '@/components/ui/AnimatedBackground';
 
@@ -27,7 +28,12 @@ export function Layout({ children }: LayoutProps) {
 
   return (
     <div className="min-h-screen bg-background">
-      {!isLearningMode && <Header />}
+      {!isLearningMode && (
+        <>
+          <Header />
+          <Breadcrumbs />
+        </>
+      )}
       {/* Demo banner stays visible even in learning mode — it must be on
           every authenticated page (renders null for non-demo users). */}
       <DemoBanner />
