@@ -3725,6 +3725,7 @@ class TestPhase51Throttles:
     alias is file-backed, history survives whole pytest sessions if not cleared.
     """
 
+    @pytest.mark.throttled
     def test_invite_send_scoped_throttle_skips_reads(
             self, api_client, instructor, course, monkeypatch):
         from django.core.cache import caches
@@ -3750,6 +3751,7 @@ class TestPhase51Throttles:
         finally:
             caches['throttle'].clear()
 
+    @pytest.mark.throttled
     def test_invite_accept_scoped_throttle(self, api_client, monkeypatch):
         from django.core.cache import caches
         from rest_framework.throttling import ScopedRateThrottle
@@ -3769,17 +3771,49 @@ class TestPhase51Throttles:
         finally:
             caches['throttle'].clear()
 
-    def test_user_throttle_off_by_default(self, api_client, student, enrollment):
-        """THROTTLE_USER unset => rate None => authenticated traffic is
-        unlimited (the class is installed but inert)."""
+    def test_no_scope_defaults_to_unlimited(self):
+        """Phase 73: an unset env var must not disable a rate limit.
+
+        This inverts what this test asserted through phase 72, and that
+        inversion is the point. Every scope used to default to None, so a rate
+        limit existed in production only if someone had remembered to set the
+        matching variable in the Render dashboard — and for join_code and
+        invite_link nobody had. A None here is not a weaker limit, it is no
+        limit at all, on endpoints that are reachable anonymously.
+
+        Asserted against api_settings rather than the throttle classes because
+        conftest.py deliberately blanks the class attribute for the suite; this
+        reads the configured deployment values.
+        """
         from rest_framework.settings import api_settings
 
-        assert api_settings.DEFAULT_THROTTLE_RATES['user'] is None
-        api_client.force_authenticate(user=student)
-        for _ in range(30):
-            response = api_client.get('/api/courses/courses/')
-            assert response.status_code == status.HTTP_200_OK
+        unlimited = sorted(
+            scope for scope, rate in api_settings.DEFAULT_THROTTLE_RATES.items()
+            if rate is None
+        )
 
+        assert unlimited == [], (
+            f'these throttle scopes default to unlimited: {unlimited}'
+        )
+
+    def test_every_scope_parses_as_a_rate(self):
+        """A typo'd rate string is an ImproperlyConfigured at first request.
+
+        parse_rate is what turns '30/min' into (30, 60); it raises on anything
+        it cannot read. Running it here means a bad default is a failing test
+        rather than a 500 on the first anonymous hit in production.
+        """
+        from rest_framework.settings import api_settings
+        from rest_framework.throttling import SimpleRateThrottle
+
+        # Called unbound: SimpleRateThrottle() raises without a scope, and
+        # parse_rate never touches self.
+        for scope, rate in api_settings.DEFAULT_THROTTLE_RATES.items():
+            num_requests, duration = SimpleRateThrottle.parse_rate(None, rate)
+            assert num_requests and num_requests > 0, scope
+            assert duration and duration > 0, scope
+
+    @pytest.mark.throttled
     def test_user_throttle_enforced_when_rate_set(
             self, api_client, student, enrollment, monkeypatch):
         from django.core.cache import caches
@@ -6796,11 +6830,19 @@ class TestPhase67Throttles:
         finally:
             caches['throttle'].clear()
 
-    def test_phase_67_throttles_are_off_by_default(self):
+    def test_phase_67_throttles_are_on_by_default(self):
+        """Phase 73 inverted this: these two are why the default changed.
+
+        THROTTLE_INVITE_LINK and THROTTLE_JOIN_CODE were never set in the
+        Render dashboard, so through phase 72 both endpoints ran in production
+        with no ceiling — join_code being the anonymous one whose secret is a
+        code read aloud to a classroom. Defaulting to None made that failure
+        silent; there was nothing to notice.
+        """
         from rest_framework.settings import api_settings
 
-        assert api_settings.DEFAULT_THROTTLE_RATES['invite_link'] is None
-        assert api_settings.DEFAULT_THROTTLE_RATES['join_code'] is None
+        assert api_settings.DEFAULT_THROTTLE_RATES['invite_link'] is not None
+        assert api_settings.DEFAULT_THROTTLE_RATES['join_code'] is not None
 
 
 @pytest.mark.django_db

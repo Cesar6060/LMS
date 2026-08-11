@@ -296,34 +296,50 @@ REST_FRAMEWORK = {
         # unset = unlimited, production ~120/min).
         'core.throttling.ClientIPUserRateThrottle',
     ],
+    # Phase 73: every rate below used to default to None, and DRF reads None as
+    # "unlimited". A scope whose env var was never set in the Render dashboard
+    # was therefore silently unthrottled in production — which is how
+    # THROTTLE_JOIN_CODE and THROTTLE_INVITE_LINK came to be live with no
+    # ceiling at all. The defaults now carry the values the dashboard was meant
+    # to hold, so a missing env var fails safe (protected) instead of open.
+    # Env vars still override; tests neutralise these via conftest.py.
     'DEFAULT_THROTTLE_RATES': {
-        'anon': config('THROTTLE_ANON', default=None),
-        'user': config('THROTTLE_USER', default=None),
-        # One-click demo login (accounts.views.demo_login). Same env-gated
-        # pattern: unset = unlimited locally/in tests; production sets
-        # THROTTLE_DEMO_LOGIN (render.yaml uses 10/min).
-        'demo_login': config('THROTTLE_DEMO_LOGIN', default=None),
+        'anon': config('THROTTLE_ANON', default='30/min'),
+        'user': config('THROTTLE_USER', default='120/min'),
+        # One-click demo login (accounts.views.demo_login).
+        'demo_login': config('THROTTLE_DEMO_LOGIN', default='10/min'),
         # Anonymous password reset (accounts.views.ThrottledPasswordResetView)
         # sends real email in production (Phase 47), so it gets its own tight
-        # rate on top of the general anon throttle. Same env-gated pattern:
-        # unset = unlimited locally/in tests; render.yaml uses 5/hour.
-        'password_reset': config('THROTTLE_PASSWORD_RESET', default=None),
-        # Course invites (Phase 51). Sending is instructor-triggered email
-        # (production ~30/hour); accepting is an anonymous account-creation
-        # endpoint (production ~10/hour). Unset = unlimited locally/in tests.
-        'invite_send': config('THROTTLE_INVITE_SEND', default=None),
-        'invite_accept': config('THROTTLE_INVITE_ACCEPT', default=None),
+        # rate on top of the general anon throttle.
+        'password_reset': config('THROTTLE_PASSWORD_RESET', default='5/hour'),
+        # Phase 73: the *confirm* half accepts the emailed reset token. Leaving
+        # it on the general anon rate made the token itself brute-forceable, so
+        # it gets the same tight ceiling as requesting a reset.
+        'password_reset_confirm': config(
+            'THROTTLE_PASSWORD_RESET_CONFIRM', default='5/hour'),
+        # Phase 73: password guessing against dj-rest-auth's LoginView. Backed
+        # by allauth's own ACCOUNT_RATE_LIMITS (see below) as defence in depth.
+        'login': config('THROTTLE_LOGIN', default='10/min'),
+        # Course invites (Phase 51). Sending is instructor-triggered email;
+        # accepting is an anonymous account-creation endpoint, so it is tighter.
+        'invite_send': config('THROTTLE_INVITE_SEND', default='30/hour'),
+        'invite_accept': config('THROTTLE_INVITE_ACCEPT', default='10/hour'),
         # Invite fallbacks (Phase 67). invite_link hands the instructor a live
-        # token, so it gets its own ceiling on top of the per-user one
-        # (production ~60/hour). join_code is the anonymous redemption
-        # endpoint — same shape and rate as invite_accept, and the tight limit
-        # is what stops someone walking a leaked code through an email list.
-        'invite_link': config('THROTTLE_INVITE_LINK', default=None),
-        'join_code': config('THROTTLE_JOIN_CODE', default=None),
+        # token, so it gets its own ceiling on top of the per-user one.
+        # join_code is the anonymous redemption endpoint — same shape and rate
+        # as invite_accept, and the tight limit is what stops someone walking a
+        # leaked code through an email list.
+        'invite_link': config('THROTTLE_INVITE_LINK', default='60/hour'),
+        'join_code': config('THROTTLE_JOIN_CODE', default='10/hour'),
         # Slide-deck import (Phase 61): one multipart upload per slide, so a
         # 100-page deck is 100 writes in quick succession — the rate must
-        # allow a burst that size. Unset = unlimited locally/in tests.
-        'slide_import': config('THROTTLE_SLIDE_IMPORT', default=None),
+        # allow a burst that size.
+        'slide_import': config('THROTTLE_SLIDE_IMPORT', default='300/hour'),
+        # Phase 73: lesson attachments. Instructor-only and capped at 10 per
+        # lesson, so this is a ceiling on sustained upload volume, not a
+        # per-lesson limit.
+        'attachment_upload': config(
+            'THROTTLE_ATTACHMENT_UPLOAD', default='60/hour'),
     },
 }
 
@@ -437,6 +453,16 @@ ACCOUNT_EMAIL_VERIFICATION = config('ACCOUNT_EMAIL_VERIFICATION', default='optio
 ACCOUNT_USER_MODEL_USERNAME_FIELD = None
 ACCOUNT_UNIQUE_EMAIL = True
 ACCOUNT_LOGIN_ON_EMAIL_CONFIRMATION = True
+
+# Phase 73: allauth's own failure limiter, keyed on the submitted email rather
+# than the client IP. The DRF 'login' throttle above stops one address hammering
+# the endpoint; this stops a distributed attempt from grinding a single account
+# without tripping any per-IP ceiling. Both must be defeated to brute-force one
+# password, and neither alone is sufficient.
+ACCOUNT_RATE_LIMITS = {
+    'login_failed': config('ACCOUNT_RATE_LIMIT_LOGIN_FAILED',
+                           default='5/5m/key'),
+}
 
 # Email Backend
 EMAIL_BACKEND = config(

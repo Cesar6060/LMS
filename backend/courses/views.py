@@ -2245,9 +2245,17 @@ INVITE_DEAD_DETAILS = {
 }
 
 
+# Phase 73: this listed only the scoped class, which replaces
+# DEFAULT_THROTTLE_CLASSES outright — so an anonymous account-creation endpoint
+# had exactly one ceiling, and that ceiling defaulted to unlimited. Re-list the
+# globals, matching join_with_code above. The caller does hold a secret token
+# here, but "holds a token" is not a rate limit.
 @api_view(['POST'])
 @perm_classes([AllowAny])
-@throttle_classes([ClientIPScopedRateThrottle])
+@throttle_classes([
+    ClientIPAnonRateThrottle, ClientIPUserRateThrottle,
+    ClientIPScopedRateThrottle,
+])
 def accept_invite(request, token):
     """Accept an invite: create-account path or existing-account path.
 

@@ -758,3 +758,148 @@ class TestPasswordResetEmail:
             assert other.status_code == status.HTTP_200_OK
         finally:
             caches['throttle'].clear()
+
+
+# ---------------------------------------------------------------------------
+# Phase 73: brute-force ceilings on login and password-reset-confirm
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.django_db
+class TestPhase73AuthThrottles:
+    """Login and reset-confirm had no scoped throttle before phase 73.
+
+    Both are mounted as re_path shadows with an optional trailing slash. That
+    detail is the whole test: dj-rest-auth registers its own views as
+    r'login/?$', so a path() shadow captures only 'login/' and a caller who
+    drops the slash reaches the original, unthrottled view. Each throttle is
+    therefore asserted on both spellings — the no-slash case is the one that
+    silently regresses.
+    """
+
+    LOGIN_SLASH = '/api/auth/login/'
+    LOGIN_BARE = '/api/auth/login'
+    CONFIRM_SLASH = '/api/auth/password/reset/confirm/'
+    CONFIRM_BARE = '/api/auth/password/reset/confirm'
+
+    def _set_rate(self, monkeypatch, scope, rate):
+        from rest_framework.throttling import ScopedRateThrottle
+
+        monkeypatch.setattr(
+            ScopedRateThrottle, 'THROTTLE_RATES', {scope: rate})
+
+    def test_login_shadow_is_mounted_on_both_spellings(self):
+        from django.urls import resolve
+
+        from .views import ThrottledLoginView
+
+        for url in (self.LOGIN_SLASH, self.LOGIN_BARE):
+            assert resolve(url).func.view_class is ThrottledLoginView, url
+
+    def test_reset_confirm_shadow_is_mounted_on_both_spellings(self):
+        from django.urls import resolve
+
+        from .views import ThrottledPasswordResetConfirmView
+
+        for url in (self.CONFIRM_SLASH, self.CONFIRM_BARE):
+            assert resolve(url).func.view_class is (
+                ThrottledPasswordResetConfirmView), url
+
+    @pytest.mark.parametrize('url_attr', ['LOGIN_SLASH', 'LOGIN_BARE'])
+    @pytest.mark.throttled
+    def test_failed_logins_are_throttled(
+            self, api_client, user, monkeypatch, url_attr):
+        from django.core.cache import caches
+
+        self._set_rate(monkeypatch, 'login', '3/min')
+        caches['throttle'].clear()
+        url = getattr(self, url_attr)
+        try:
+            for _ in range(3):
+                denied = api_client.post(
+                    url, {'email': user.email, 'password': 'wrong-password'},
+                    format='json')
+                assert denied.status_code == status.HTTP_400_BAD_REQUEST
+
+            throttled = api_client.post(
+                url, {'email': user.email, 'password': 'wrong-password'},
+                format='json')
+            assert throttled.status_code == status.HTTP_429_TOO_MANY_REQUESTS
+        finally:
+            caches['throttle'].clear()
+
+    @pytest.mark.throttled
+    def test_login_throttle_also_stops_correct_credentials(
+            self, api_client, user, monkeypatch):
+        """The bucket counts attempts, not failures.
+
+        A limiter that only counted failures would let an attacker who guesses
+        right on attempt 500 through, having been rate limited for none of it.
+        """
+        from django.core.cache import caches
+
+        self._set_rate(monkeypatch, 'login', '2/min')
+        caches['throttle'].clear()
+        try:
+            for _ in range(2):
+                api_client.post(
+                    self.LOGIN_SLASH,
+                    {'email': user.email, 'password': 'wrong-password'},
+                    format='json')
+
+            correct = api_client.post(
+                self.LOGIN_SLASH,
+                {'email': user.email, 'password': 'testpass123'},
+                format='json')
+            assert correct.status_code == status.HTTP_429_TOO_MANY_REQUESTS
+        finally:
+            caches['throttle'].clear()
+
+    @pytest.mark.parametrize('url_attr', ['CONFIRM_SLASH', 'CONFIRM_BARE'])
+    @pytest.mark.throttled
+    def test_reset_confirm_token_guessing_is_throttled(
+            self, api_client, monkeypatch, url_attr):
+        from django.core.cache import caches
+
+        self._set_rate(monkeypatch, 'password_reset_confirm', '3/hour')
+        caches['throttle'].clear()
+        url = getattr(self, url_attr)
+        body = {
+            'uid': 'bogus-uid',
+            'token': 'bogus-token',
+            'new_password1': 'Str0ng-Passphrase-9182',
+            'new_password2': 'Str0ng-Passphrase-9182',
+        }
+        try:
+            for _ in range(3):
+                rejected = api_client.post(url, body, format='json')
+                assert rejected.status_code == status.HTTP_400_BAD_REQUEST
+
+            throttled = api_client.post(url, body, format='json')
+            assert throttled.status_code == status.HTTP_429_TOO_MANY_REQUESTS
+        finally:
+            caches['throttle'].clear()
+
+    def test_scoped_views_keep_the_global_ceilings(self):
+        """A scoped throttle listed alone replaces DEFAULT_THROTTLE_CLASSES.
+
+        Every view here must name the globals too, or the scoped rate becomes
+        the only limit on the endpoint.
+        """
+        from core.throttling import (
+            ClientIPAnonRateThrottle, ClientIPUserRateThrottle,
+        )
+
+        from .views import (
+            ThrottledLoginView, ThrottledPasswordResetConfirmView,
+            ThrottledPasswordResetView, demo_login,
+        )
+
+        scoped_views = [
+            ThrottledLoginView, ThrottledPasswordResetView,
+            ThrottledPasswordResetConfirmView, demo_login.cls,
+        ]
+        for view in scoped_views:
+            classes = view.throttle_classes
+            assert ClientIPAnonRateThrottle in classes, view.__name__
+            assert ClientIPUserRateThrottle in classes, view.__name__

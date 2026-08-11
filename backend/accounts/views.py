@@ -1,5 +1,7 @@
 from django.conf import settings
-from dj_rest_auth.views import PasswordResetView, UserDetailsView
+from dj_rest_auth.views import (
+    LoginView, PasswordResetConfirmView, PasswordResetView, UserDetailsView,
+)
 from PIL import Image
 from rest_framework import status
 from rest_framework.decorators import (
@@ -11,7 +13,7 @@ from rest_framework.response import Response
 from rest_framework_simplejwt.tokens import RefreshToken
 from core.demo import require_not_demo
 from core.permissions import NotDemoAccountForWrites
-from core.throttling import ClientIPScopedRateThrottle
+from core.throttling import GLOBAL_THROTTLES, ClientIPScopedRateThrottle
 from .models import User, UserPreferences
 from .serializers import UserSerializer, UserPreferencesSerializer
 
@@ -34,7 +36,7 @@ def registration_disabled(request):
 
 @api_view(['POST'])
 @permission_classes([AllowAny])
-@throttle_classes([ClientIPScopedRateThrottle])
+@throttle_classes([ClientIPScopedRateThrottle, *GLOBAL_THROTTLES])
 def demo_login(request):
     """One-click login as the shared demo student.
 
@@ -62,8 +64,8 @@ def demo_login(request):
 
 
 # @api_view exposes the generated view class as `.cls`; ScopedRateThrottle
-# reads its scope from there. Rate comes from THROTTLE_DEMO_LOGIN (unset =
-# unlimited, same env-gated pattern as THROTTLE_ANON).
+# reads its scope from there. Rate comes from THROTTLE_DEMO_LOGIN, which since
+# phase 73 defaults to a real value rather than to unlimited.
 demo_login.cls.throttle_scope = 'demo_login'
 
 
@@ -83,12 +85,38 @@ class ThrottledPasswordResetView(PasswordResetView):
 
     The endpoint is anonymous and (since Phase 47) sends real email in
     production, so it gets a tight per-IP rate on top of the general anon
-    throttle. Rate comes from THROTTLE_PASSWORD_RESET (unset = unlimited,
-    same env-gated pattern as THROTTLE_DEMO_LOGIN). Mounted in accounts.urls
+    throttle. Rate comes from THROTTLE_PASSWORD_RESET. Mounted in accounts.urls
     ahead of the dj_rest_auth include so it shadows the stock view.
     """
-    throttle_classes = [ClientIPScopedRateThrottle]
+    throttle_classes = [ClientIPScopedRateThrottle, *GLOBAL_THROTTLES]
     throttle_scope = 'password_reset'
+
+
+class ThrottledPasswordResetConfirmView(PasswordResetConfirmView):
+    """dj-rest-auth's reset *confirm* with its own scoped rate limit.
+
+    Phase 73. Requesting a reset was throttled from phase 47; submitting the
+    emailed token was not, so the token was open to brute force at whatever the
+    general anon rate happened to be — and that rate defaulted to unlimited
+    until this phase. A guessed token is a full account takeover, so it gets the
+    same tight ceiling as requesting one.
+    """
+    throttle_classes = [ClientIPScopedRateThrottle, *GLOBAL_THROTTLES]
+    throttle_scope = 'password_reset_confirm'
+
+
+class ThrottledLoginView(LoginView):
+    """dj-rest-auth's login with a per-IP rate limit.
+
+    Phase 73. Nothing capped password guessing here before: there was no scoped
+    throttle, allauth's own limiter was unconfigured, and the global anon rate
+    it fell back to defaulted to unlimited. Paired with ACCOUNT_RATE_LIMITS
+    ('login_failed', keyed on the submitted email) so that neither a single
+    noisy IP nor a distributed run at one account gets an unbounded number of
+    attempts.
+    """
+    throttle_classes = [ClientIPScopedRateThrottle, *GLOBAL_THROTTLES]
+    throttle_scope = 'login'
 
 
 @api_view(['GET', 'PUT', 'PATCH'])

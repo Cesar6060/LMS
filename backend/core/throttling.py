@@ -90,6 +90,14 @@ class ClientIPScopedRateThrottle(ClientIPIdentMixin, ScopedRateThrottle):
     pass
 
 
+# Phase 73: naming any throttle on a view *replaces* DEFAULT_THROTTLE_CLASSES
+# rather than adding to it, so a view that lists only its scoped throttle
+# silently drops the global anon/user ceiling — the scoped rate becomes the only
+# limit, and any request shape the scope does not cover is unlimited. Spread
+# this alongside the scoped class instead of listing it alone.
+GLOBAL_THROTTLES = (ClientIPAnonRateThrottle, ClientIPUserRateThrottle)
+
+
 class ClientIPScopedWriteRateThrottle(ClientIPScopedRateThrottle):
     """Scoped throttle that exempts safe methods.
 
