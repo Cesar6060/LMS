@@ -2803,6 +2803,35 @@ class TestSlideImport:
     def url(self, lesson):
         return f'/api/courses/lessons/{lesson.id}/sections/import-slide/'
 
+    # ---- Rate limit ----
+
+    @pytest.mark.throttled
+    def test_slide_import_is_throttled(
+            self, api_client, instructor, lesson, monkeypatch):
+        """Phase 73: slide_import was the one scope with a configured rate and
+        no test proving the view was wired to it — a scoped throttle with no
+        throttle_scope on the view is silently inert."""
+        from django.core.cache import caches
+        from rest_framework.throttling import ScopedRateThrottle
+
+        monkeypatch.setattr(
+            ScopedRateThrottle, 'THROTTLE_RATES', {'slide_import': '2/hour'})
+        caches['throttle'].clear()
+        api_client.force_authenticate(user=instructor)
+        try:
+            for _ in range(2):
+                ok = api_client.post(
+                    self.url(lesson), {'image': make_slide_image_file()},
+                    format='multipart')
+                assert ok.status_code == status.HTTP_201_CREATED
+
+            throttled = api_client.post(
+                self.url(lesson), {'image': make_slide_image_file()},
+                format='multipart')
+            assert throttled.status_code == status.HTTP_429_TOO_MANY_REQUESTS
+        finally:
+            caches['throttle'].clear()
+
     # ---- Happy path ----
 
     def test_import_into_empty_lesson_201_with_defaults(
@@ -3725,6 +3754,7 @@ class TestPhase51Throttles:
     alias is file-backed, history survives whole pytest sessions if not cleared.
     """
 
+    @pytest.mark.throttled
     def test_invite_send_scoped_throttle_skips_reads(
             self, api_client, instructor, course, monkeypatch):
         from django.core.cache import caches
@@ -3750,6 +3780,7 @@ class TestPhase51Throttles:
         finally:
             caches['throttle'].clear()
 
+    @pytest.mark.throttled
     def test_invite_accept_scoped_throttle(self, api_client, monkeypatch):
         from django.core.cache import caches
         from rest_framework.throttling import ScopedRateThrottle
@@ -3769,17 +3800,49 @@ class TestPhase51Throttles:
         finally:
             caches['throttle'].clear()
 
-    def test_user_throttle_off_by_default(self, api_client, student, enrollment):
-        """THROTTLE_USER unset => rate None => authenticated traffic is
-        unlimited (the class is installed but inert)."""
+    def test_no_scope_defaults_to_unlimited(self):
+        """Phase 73: an unset env var must not disable a rate limit.
+
+        This inverts what this test asserted through phase 72, and that
+        inversion is the point. Every scope used to default to None, so a rate
+        limit existed in production only if someone had remembered to set the
+        matching variable in the Render dashboard — and for join_code and
+        invite_link nobody had. A None here is not a weaker limit, it is no
+        limit at all, on endpoints that are reachable anonymously.
+
+        Asserted against api_settings rather than the throttle classes because
+        conftest.py deliberately blanks the class attribute for the suite; this
+        reads the configured deployment values.
+        """
         from rest_framework.settings import api_settings
 
-        assert api_settings.DEFAULT_THROTTLE_RATES['user'] is None
-        api_client.force_authenticate(user=student)
-        for _ in range(30):
-            response = api_client.get('/api/courses/courses/')
-            assert response.status_code == status.HTTP_200_OK
+        unlimited = sorted(
+            scope for scope, rate in api_settings.DEFAULT_THROTTLE_RATES.items()
+            if rate is None
+        )
 
+        assert unlimited == [], (
+            f'these throttle scopes default to unlimited: {unlimited}'
+        )
+
+    def test_every_scope_parses_as_a_rate(self):
+        """A typo'd rate string is an ImproperlyConfigured at first request.
+
+        parse_rate is what turns '30/min' into (30, 60); it raises on anything
+        it cannot read. Running it here means a bad default is a failing test
+        rather than a 500 on the first anonymous hit in production.
+        """
+        from rest_framework.settings import api_settings
+        from rest_framework.throttling import SimpleRateThrottle
+
+        # Called unbound: SimpleRateThrottle() raises without a scope, and
+        # parse_rate never touches self.
+        for scope, rate in api_settings.DEFAULT_THROTTLE_RATES.items():
+            num_requests, duration = SimpleRateThrottle.parse_rate(None, rate)
+            assert num_requests and num_requests > 0, scope
+            assert duration and duration > 0, scope
+
+    @pytest.mark.throttled
     def test_user_throttle_enforced_when_rate_set(
             self, api_client, student, enrollment, monkeypatch):
         from django.core.cache import caches
@@ -6796,11 +6859,19 @@ class TestPhase67Throttles:
         finally:
             caches['throttle'].clear()
 
-    def test_phase_67_throttles_are_off_by_default(self):
+    def test_phase_67_throttles_are_on_by_default(self):
+        """Phase 73 inverted this: these two are why the default changed.
+
+        THROTTLE_INVITE_LINK and THROTTLE_JOIN_CODE were never set in the
+        Render dashboard, so through phase 72 both endpoints ran in production
+        with no ceiling — join_code being the anonymous one whose secret is a
+        code read aloud to a classroom. Defaulting to None made that failure
+        silent; there was nothing to notice.
+        """
         from rest_framework.settings import api_settings
 
-        assert api_settings.DEFAULT_THROTTLE_RATES['invite_link'] is None
-        assert api_settings.DEFAULT_THROTTLE_RATES['join_code'] is None
+        assert api_settings.DEFAULT_THROTTLE_RATES['invite_link'] is not None
+        assert api_settings.DEFAULT_THROTTLE_RATES['join_code'] is not None
 
 
 @pytest.mark.django_db
@@ -7792,3 +7863,343 @@ class TestPhase68AdversarialPass:
 
         assert consume_invite_for(student, course) is True
         assert consume_invite_for(student, course) is False
+
+
+# ---------------------------------------------------------------------------
+# Phase 73: course content is not readable by unrelated instructors
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture
+def other_instructor():
+    """An instructor with no relationship to the `course` fixture."""
+    return User.objects.create_user(
+        email='outsider@test.com',
+        password='testpass123',
+        first_name='Other',
+        last_name='Instructor',
+        is_instructor=True,
+    )
+
+
+@pytest.mark.django_db
+class TestPhase73CourseContentScoping:
+    """CourseViewSet hands every is_instructor user the whole Course queryset.
+
+    That is deliberate — instructors browse the catalogue — but CourseSerializer
+    nests units -> lessons -> content, so it also handed them the full text of
+    every course on the platform. Course codes are chosen by hand and
+    enumerable, so nothing had to be guessed.
+    """
+
+    def detail_url(self, course):
+        return f'/api/courses/courses/{course.code}/'
+
+    def test_unrelated_instructor_sees_no_lesson_content(
+            self, api_client, course, lesson, other_instructor):
+        api_client.force_authenticate(user=other_instructor)
+
+        response = api_client.get(self.detail_url(course))
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.data['units'] == []
+        assert lesson.content not in str(response.data)
+
+    def test_unrelated_instructor_still_sees_the_catalogue_entry(
+            self, api_client, course, lesson, other_instructor):
+        """Browsing is the reason the queryset is unfiltered; keep it working."""
+        api_client.force_authenticate(user=other_instructor)
+
+        response = api_client.get(self.detail_url(course))
+
+        assert response.data['code'] == course.code
+        assert response.data['title'] == course.title
+        assert 'enrollment_code' not in response.data
+
+    def test_owning_instructor_sees_full_content(
+            self, api_client, course, lesson, instructor):
+        api_client.force_authenticate(user=instructor)
+
+        response = api_client.get(self.detail_url(course))
+
+        assert response.status_code == status.HTTP_200_OK
+        assert len(response.data['units']) == 1
+        assert response.data['units'][0]['lessons'][0]['id'] == lesson.id
+
+    def test_enrolled_student_sees_full_content(
+            self, api_client, course, lesson, student, enrollment):
+        api_client.force_authenticate(user=student)
+
+        response = api_client.get(self.detail_url(course))
+
+        assert response.status_code == status.HTTP_200_OK
+        assert len(response.data['units']) == 1
+
+    def test_unenrolled_student_cannot_reach_the_course_at_all(
+            self, api_client, course, lesson, student):
+        """Students are queryset-filtered, so this is a 404 rather than a
+        stripped 200 — asserted so the two paths cannot silently converge."""
+        api_client.force_authenticate(user=student)
+
+        response = api_client.get(self.detail_url(course))
+
+        assert response.status_code == status.HTTP_404_NOT_FOUND
+
+    def test_anonymous_is_rejected(self, api_client, course):
+        response = api_client.get(self.detail_url(course))
+
+        assert response.status_code in (
+            status.HTTP_401_UNAUTHORIZED, status.HTTP_403_FORBIDDEN)
+
+    def test_lesson_endpoint_agrees_with_the_course_endpoint(
+            self, api_client, course, lesson, other_instructor):
+        """The two routes to the same lesson must give the same answer.
+
+        /api/lessons/<id>/ already 403'd for this caller; the course detail
+        route did not. That disagreement was the bug.
+        """
+        api_client.force_authenticate(user=other_instructor)
+
+        response = api_client.get(f'/api/courses/lessons/{lesson.id}/')
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+
+
+@pytest.mark.django_db
+class TestPhase73AnnouncementCreateIsClosed:
+    """The router's create route never resolved a course, so it never checked
+    ownership — and died on a database constraint instead of a permission
+    error, which read as a crash rather than as a missing check."""
+
+    URL = '/api/courses/announcements/'
+
+    def test_student_cannot_create_through_the_viewset(
+            self, api_client, student, enrollment):
+        api_client.force_authenticate(user=student)
+
+        response = api_client.post(
+            self.URL, {'title': 'x', 'content': 'y'}, format='json')
+
+        assert response.status_code == status.HTTP_405_METHOD_NOT_ALLOWED
+        assert response.status_code != status.HTTP_500_INTERNAL_SERVER_ERROR
+
+    def test_instructor_cannot_create_through_the_viewset_either(
+            self, api_client, instructor, course):
+        api_client.force_authenticate(user=instructor)
+
+        response = api_client.post(
+            self.URL, {'title': 'x', 'content': 'y'}, format='json')
+
+        assert response.status_code == status.HTTP_405_METHOD_NOT_ALLOWED
+
+    def test_no_announcement_is_persisted(self, api_client, student, enrollment):
+        api_client.force_authenticate(user=student)
+
+        api_client.post(self.URL, {'title': 'x', 'content': 'y'}, format='json')
+
+        assert Announcement.objects.count() == 0
+
+    def test_course_scoped_route_still_works_for_the_instructor(
+            self, api_client, instructor, course):
+        api_client.force_authenticate(user=instructor)
+
+        response = api_client.post(
+            f'/api/courses/courses/{course.code}/announcements/',
+            {'title': 'Real announcement', 'content': 'Body'}, format='json')
+
+        assert response.status_code == status.HTTP_201_CREATED
+        assert Announcement.objects.count() == 1
+
+    def test_pin_action_still_accepts_post(
+            self, api_client, instructor, course):
+        announcement = Announcement.objects.create(
+            course=course, author=instructor, title='t', content='c')
+        api_client.force_authenticate(user=instructor)
+
+        response = api_client.post(f'{self.URL}{announcement.id}/pin/')
+
+        assert response.status_code == status.HTTP_200_OK
+
+
+# ---------------------------------------------------------------------------
+# Phase 73: attachment uploads verify content, block demo, and cap the request
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.django_db
+class TestPhase73AttachmentHardening:
+    """Attachments were the one upload path checking only the extension.
+
+    Avatars and slide imports already confirmed the bytes matched the claimed
+    type; this endpoint took the client's word for it, had no demo guard, and
+    had no scoped rate limit. Code and archive types stay allowed on purpose —
+    .py and .zip are ordinary material on a platform that teaches Python.
+    """
+
+    def url(self, lesson):
+        return f'/api/courses/lessons/{lesson.id}/attachments/'
+
+    def upload(self, api_client, lesson, *files):
+        return api_client.post(
+            self.url(lesson), {'files': list(files)}, format='multipart')
+
+    def test_real_python_file_is_accepted(
+            self, api_client, instructor, lesson):
+        """Guard against over-correcting: this is course material."""
+        api_client.force_authenticate(user=instructor)
+
+        response = self.upload(api_client, lesson, SimpleUploadedFile(
+            'starter.py',
+            b'#!/usr/bin/env python3\nimport pygame\n\n\ndef main():\n    pass\n',
+            content_type='text/x-python'))
+
+        assert response.status_code == status.HTTP_201_CREATED
+        assert lesson.attachments.count() == 1
+
+    def test_real_zip_file_is_accepted(self, api_client, instructor, lesson):
+        import io
+        import zipfile
+
+        buf = io.BytesIO()
+        with zipfile.ZipFile(buf, 'w') as archive:
+            archive.writestr('project/main.py', 'print("hi")')
+        api_client.force_authenticate(user=instructor)
+
+        response = self.upload(api_client, lesson, SimpleUploadedFile(
+            'project.zip', buf.getvalue(), content_type='application/zip'))
+
+        assert response.status_code == status.HTTP_201_CREATED
+
+    def test_executable_renamed_as_pdf_is_rejected(
+            self, api_client, instructor, lesson):
+        """The filename is all a student sees before opening it."""
+        api_client.force_authenticate(user=instructor)
+
+        response = self.upload(api_client, lesson, SimpleUploadedFile(
+            'homework.pdf', b'MZ\x90\x00' + b'\x00' * 200,
+            content_type='application/pdf'))
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert lesson.attachments.count() == 0
+
+    def test_elf_binary_renamed_as_py_is_rejected(
+            self, api_client, instructor, lesson):
+        api_client.force_authenticate(user=instructor)
+
+        response = self.upload(api_client, lesson, SimpleUploadedFile(
+            'solution.py', b'\x7fELF\x02\x01\x01' + b'\x00' * 200,
+            content_type='text/x-python'))
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+
+    def test_html_renamed_as_txt_is_rejected(
+            self, api_client, instructor, lesson):
+        """An HTML page is a stored-XSS vector wherever media is same-origin."""
+        api_client.force_authenticate(user=instructor)
+
+        response = self.upload(api_client, lesson, SimpleUploadedFile(
+            'notes.txt', b'<html><script>alert(1)</script></html>',
+            content_type='text/plain'))
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+
+    def test_non_image_renamed_as_png_is_rejected(
+            self, api_client, instructor, lesson):
+        api_client.force_authenticate(user=instructor)
+
+        response = self.upload(api_client, lesson, SimpleUploadedFile(
+            'diagram.png', b'not an image at all', content_type='image/png'))
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+
+    def test_total_request_size_is_capped(
+            self, api_client, instructor, lesson, settings):
+        """The per-file limit alone allowed 10x that much in one request."""
+        settings.ATTACHMENT_MAX_REQUEST_BYTES = 2048
+        api_client.force_authenticate(user=instructor)
+
+        response = self.upload(
+            api_client, lesson,
+            make_attachment_file('a.txt', b'a' * 1500),
+            make_attachment_file('b.txt', b'b' * 1500))
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert 'total' in response.data['error'].lower()
+        assert lesson.attachments.count() == 0
+
+    def test_demo_account_cannot_upload(
+            self, api_client, lesson, course, settings):
+        settings.DEMO_ACCOUNT_EMAIL = 'demo-instructor@demo.com'
+        demo = User.objects.create_user(
+            email='demo-instructor@demo.com', password='testpass123',
+            first_name='Demo', last_name='Instructor', is_instructor=True)
+        course.instructor = demo
+        course.save(update_fields=['instructor'])
+        api_client.force_authenticate(user=demo)
+
+        response = self.upload(
+            api_client, lesson, make_attachment_file('notes.txt'))
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+        assert response.data['code'] == 'demo_blocked'
+        assert lesson.attachments.count() == 0
+
+    @pytest.mark.throttled
+    def test_upload_is_throttled_but_listing_is_not(
+            self, api_client, instructor, lesson, monkeypatch):
+        from django.core.cache import caches
+        from rest_framework.throttling import ScopedRateThrottle
+
+        monkeypatch.setattr(
+            ScopedRateThrottle, 'THROTTLE_RATES',
+            {'attachment_upload': '2/hour'})
+        caches['throttle'].clear()
+        api_client.force_authenticate(user=instructor)
+        try:
+            for i in range(2):
+                ok = self.upload(
+                    api_client, lesson, make_attachment_file(f'n{i}.txt'))
+                assert ok.status_code == status.HTTP_201_CREATED
+
+            throttled = self.upload(
+                api_client, lesson, make_attachment_file('n3.txt'))
+            assert throttled.status_code == status.HTTP_429_TOO_MANY_REQUESTS
+
+            # Students read this endpoint on every lesson view; it must not
+            # share the upload bucket.
+            listed = api_client.get(self.url(lesson))
+            assert listed.status_code == status.HTTP_200_OK
+        finally:
+            caches['throttle'].clear()
+
+    def test_attachment_url_carries_a_download_disposition(
+            self, api_client, instructor, lesson):
+        api_client.force_authenticate(user=instructor)
+        self.upload(api_client, lesson, make_attachment_file('notes.txt'))
+
+        response = api_client.get(self.url(lesson))
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.data[0]['url']
+
+    @pytest.mark.parametrize('payload', [
+        b'<iframe src="javascript:alert(document.cookie)"></iframe>',
+        b'<body onload="alert(1)">',
+        b'<meta http-equiv="refresh" content="0;url=http://evil.example">',
+        b'\xef\xbb\xbf<html><script>alert(1)</script></html>',
+    ])
+    def test_sniffable_html_attachment_is_rejected(
+            self, api_client, instructor, lesson, payload):
+        """Regression from the phase 73 adversarial pass.
+
+        The first implementation matched four tag names, so `<iframe>` uploaded
+        as a .txt was stored with a 201. The marker list an attacker has to
+        avoid is the browser's, not ours.
+        """
+        api_client.force_authenticate(user=instructor)
+
+        response = self.upload(api_client, lesson, SimpleUploadedFile(
+            'notes.txt', payload, content_type='text/plain'))
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert lesson.attachments.count() == 0

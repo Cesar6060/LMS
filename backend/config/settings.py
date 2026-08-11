@@ -189,6 +189,13 @@ AUTH_PASSWORD_VALIDATORS = [
     {'NAME': 'django.contrib.auth.password_validation.MinimumLengthValidator'},
     {'NAME': 'django.contrib.auth.password_validation.CommonPasswordValidator'},
     {'NAME': 'django.contrib.auth.password_validation.NumericPasswordValidator'},
+    # Phase 73 (E3): the four stock validators above catch structural weakness
+    # but not reuse of a password already in a public breach dump, which is what
+    # credential stuffing runs on. The minimum length stays at 8 by decision —
+    # breach screening is the stronger signal and raising the floor would only
+    # lock out existing accounts. Fails open on any HIBP error; see
+    # core/password_validation.py for why.
+    {'NAME': 'core.password_validation.PwnedPasswordValidator'},
 ]
 
 # Internationalization
@@ -296,34 +303,71 @@ REST_FRAMEWORK = {
         # unset = unlimited, production ~120/min).
         'core.throttling.ClientIPUserRateThrottle',
     ],
+    # Phase 73: every rate below used to default to None, and DRF reads None as
+    # "unlimited". A scope whose env var was never set in the Render dashboard
+    # was therefore silently unthrottled in production — which is how
+    # THROTTLE_JOIN_CODE and THROTTLE_INVITE_LINK came to be live with no
+    # ceiling at all. The defaults now carry the values the dashboard was meant
+    # to hold, so a missing env var fails safe (protected) instead of open.
+    # Env vars still override; tests neutralise these via conftest.py.
     'DEFAULT_THROTTLE_RATES': {
-        'anon': config('THROTTLE_ANON', default=None),
-        'user': config('THROTTLE_USER', default=None),
-        # One-click demo login (accounts.views.demo_login). Same env-gated
-        # pattern: unset = unlimited locally/in tests; production sets
-        # THROTTLE_DEMO_LOGIN (render.yaml uses 10/min).
-        'demo_login': config('THROTTLE_DEMO_LOGIN', default=None),
+        'anon': config('THROTTLE_ANON', default='30/min'),
+        'user': config('THROTTLE_USER', default='120/min'),
+        # One-click demo login (accounts.views.demo_login).
+        'demo_login': config('THROTTLE_DEMO_LOGIN', default='10/min'),
         # Anonymous password reset (accounts.views.ThrottledPasswordResetView)
         # sends real email in production (Phase 47), so it gets its own tight
-        # rate on top of the general anon throttle. Same env-gated pattern:
-        # unset = unlimited locally/in tests; render.yaml uses 5/hour.
-        'password_reset': config('THROTTLE_PASSWORD_RESET', default=None),
-        # Course invites (Phase 51). Sending is instructor-triggered email
-        # (production ~30/hour); accepting is an anonymous account-creation
-        # endpoint (production ~10/hour). Unset = unlimited locally/in tests.
-        'invite_send': config('THROTTLE_INVITE_SEND', default=None),
-        'invite_accept': config('THROTTLE_INVITE_ACCEPT', default=None),
+        # rate on top of the general anon throttle.
+        'password_reset': config('THROTTLE_PASSWORD_RESET', default='5/hour'),
+        # Phase 73: the *confirm* half accepts the emailed reset token. Leaving
+        # it on the general anon rate made the token itself brute-forceable, so
+        # it gets the same tight ceiling as requesting a reset.
+        'password_reset_confirm': config(
+            'THROTTLE_PASSWORD_RESET_CONFIRM', default='5/hour'),
+        # Phase 73: password guessing against dj-rest-auth's LoginView, keyed
+        # on the client address.
+        #
+        # 30/min rather than the 10/min first written here: throttle idents are
+        # the client IP, and a school NAT puts a whole classroom behind one
+        # address. At 10/min the eleventh student to log in at the start of a
+        # period gets a 429 — an outage indistinguishable from the site being
+        # down. 30/min is still a hard ceiling on guessing from one source, and
+        # the per-account 'login_email' scope below is what actually bounds an
+        # attack on a specific victim.
+        'login': config('THROTTLE_LOGIN', default='30/min'),
+        # Phase 73: the per-account half, keyed on the submitted email rather
+        # than the address, so a run distributed across many IPs is still
+        # capped. Generous enough that a student re-entering a forgotten
+        # password never notices it.
+        'login_email': config('THROTTLE_LOGIN_EMAIL', default='20/hour'),
+        # Course invites (Phase 51). Sending is instructor-triggered email;
+        # accepting is an anonymous account-creation endpoint, so it is tighter.
+        'invite_send': config('THROTTLE_INVITE_SEND', default='30/hour'),
+        'invite_accept': config('THROTTLE_INVITE_ACCEPT', default='10/hour'),
         # Invite fallbacks (Phase 67). invite_link hands the instructor a live
-        # token, so it gets its own ceiling on top of the per-user one
-        # (production ~60/hour). join_code is the anonymous redemption
-        # endpoint — same shape and rate as invite_accept, and the tight limit
-        # is what stops someone walking a leaked code through an email list.
-        'invite_link': config('THROTTLE_INVITE_LINK', default=None),
-        'join_code': config('THROTTLE_JOIN_CODE', default=None),
+        # token, so it gets its own ceiling on top of the per-user one.
+        # join_code is the anonymous redemption endpoint — same shape and rate
+        # as invite_accept, and the tight limit is what stops someone walking a
+        # leaked code through an email list.
+        'invite_link': config('THROTTLE_INVITE_LINK', default='60/hour'),
+        # 60/hour, not the 10/hour the old comments suggested. join_code is
+        # keyed on the client address and redeemed by a whole class at once
+        # from behind one school NAT — at 10/hour the eleventh student cannot
+        # join until the next hour. That value was only ever a suggestion in
+        # render.yaml and was never actually set in production, which is why
+        # nobody had discovered it breaks the flow it governs. Enumeration is
+        # bounded primarily by the single generic error string (no oracle) and
+        # the required code+email match, not by this number.
+        'join_code': config('THROTTLE_JOIN_CODE', default='60/hour'),
         # Slide-deck import (Phase 61): one multipart upload per slide, so a
         # 100-page deck is 100 writes in quick succession — the rate must
-        # allow a burst that size. Unset = unlimited locally/in tests.
-        'slide_import': config('THROTTLE_SLIDE_IMPORT', default=None),
+        # allow a burst that size.
+        'slide_import': config('THROTTLE_SLIDE_IMPORT', default='300/hour'),
+        # Phase 73: lesson attachments. Instructor-only and capped at 10 per
+        # lesson, so this is a ceiling on sustained upload volume, not a
+        # per-lesson limit.
+        'attachment_upload': config(
+            'THROTTLE_ATTACHMENT_UPLOAD', default='60/hour'),
     },
 }
 
@@ -338,6 +382,22 @@ CORS_ALLOW_CREDENTIALS = True
 # HTTPS hardening — opt-in via USE_HTTPS, deliberately NOT keyed off `not DEBUG`
 # so the test suite (and CI) can run under DEBUG=False without HTTPS redirects.
 USE_HTTPS = config('USE_HTTPS', default=False, cast=bool)
+
+# Phase 73: that opt-in had no guard, so eight settings — SSL redirect, HSTS,
+# secure session and CSRF cookies, the proxy header — all hung off one variable
+# that nothing verified was set. SECRET_KEY and ALLOWED_HOSTS already fail fast
+# when DEBUG is off; this closes the same gap for transport security, where the
+# failure is silent rather than loud: the site keeps serving, just over plain
+# HTTP with cookies that are not marked Secure.
+#
+# CI genuinely runs DEBUG=False without HTTPS, so it needs a way through that is
+# explicit rather than implied by a missing variable.
+ALLOW_INSECURE_NON_DEBUG = config(
+    'ALLOW_INSECURE_NON_DEBUG', default=False, cast=bool)
+if not DEBUG and not USE_HTTPS and not ALLOW_INSECURE_NON_DEBUG:
+    raise ImproperlyConfigured(
+        'USE_HTTPS must be set when DEBUG is False. Set '
+        'ALLOW_INSECURE_NON_DEBUG=True only for CI or a non-public host.')
 
 # Read unconditionally: /admin/ needs trusted origins even before redirects are
 # on, and CORS_ALLOW_CREDENTIALS above makes CSRF origin checks matter.
@@ -417,6 +477,12 @@ AVATAR_MAX_UPLOAD_BYTES = 5 * 1024 * 1024
 # courses.views.lesson_attachments — same view-level pattern as avatars).
 ATTACHMENT_MAX_UPLOAD_BYTES = 25 * 1024 * 1024
 
+# Phase 73: ceiling on one multipart request. The per-file limit above bounded
+# a single file but not a request carrying ten of them, so the real ceiling was
+# 250MB. Set above a full lesson's worth of ordinary material and below
+# anything worth using as a memory-pressure lever.
+ATTACHMENT_MAX_REQUEST_BYTES = 60 * 1024 * 1024
+
 # Largest slide image the client-side PDF rasterizer may upload, per slide
 # (enforced in courses.views.lesson_section_import_slide — same view-level
 # pattern as avatars). 1920px-wide WebP pages come in well under this.
@@ -437,6 +503,20 @@ ACCOUNT_EMAIL_VERIFICATION = config('ACCOUNT_EMAIL_VERIFICATION', default='optio
 ACCOUNT_USER_MODEL_USERNAME_FIELD = None
 ACCOUNT_UNIQUE_EMAIL = True
 ACCOUNT_LOGIN_ON_EMAIL_CONFIRMATION = True
+
+# Phase 73: there is deliberately no ACCOUNT_RATE_LIMITS here.
+#
+# It was configured with 'login_failed' and removed once it was shown to be
+# dead config on this stack. allauth consumes that limit inside
+# DefaultAccountAdapter.pre_authenticate(), which is reached only through
+# adapter.authenticate() — and dj-rest-auth's LoginSerializer calls
+# django.contrib.auth.authenticate() directly, never touching the adapter. Nine
+# failed attempts against one account followed by a successful login proved it
+# never fired. None of allauth's own views are mounted either.
+#
+# The per-account ceiling it was supposed to provide is real and now lives in
+# core.throttling.LoginEmailRateThrottle, on the 'login_email' scope, where it
+# runs in DRF's throttle pipeline and is actually exercised by a test.
 
 # Email Backend
 EMAIL_BACKEND = config(

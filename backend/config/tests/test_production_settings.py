@@ -10,6 +10,7 @@ deploy gate can reach it.
 import dj_database_url
 import pytest
 from django.conf import settings
+from django.core.exceptions import ImproperlyConfigured
 from django.test import override_settings
 from django.db import connection
 from django.urls import reverse
@@ -148,7 +149,9 @@ def test_sentry_debug_404_when_flag_unset(client):
 
 
 def test_sentry_debug_raises_when_flag_set(client, monkeypatch):
-    monkeypatch.setenv('SENTRY_DEBUG_ENDPOINT', 'true')
+    # Phase 73: the flag is read at import, so setting the env var here would
+    # no longer reach the view — patch the resolved constant instead.
+    monkeypatch.setattr('config.health.SENTRY_DEBUG_ENDPOINT_ENABLED', True)
 
     with pytest.raises(ZeroDivisionError):
         client.get('/api/sentry-debug/')
@@ -157,10 +160,25 @@ def test_sentry_debug_raises_when_flag_set(client, monkeypatch):
 def test_sentry_debug_requires_no_auth(monkeypatch):
     # Plain Django view like health: an anonymous curl must reach the crash
     # (not a DRF 401/403), since the prod smoke test is an unauthenticated curl.
-    monkeypatch.setenv('SENTRY_DEBUG_ENDPOINT', 'true')
+    monkeypatch.setattr('config.health.SENTRY_DEBUG_ENDPOINT_ENABLED', True)
 
     with pytest.raises(ZeroDivisionError):
         APIClient().get('/api/sentry-debug/')
+
+
+def test_sentry_debug_flag_cannot_be_flipped_without_a_restart(monkeypatch):
+    """Phase 73: enabling the crash route must leave a trace.
+
+    Read per-request, SENTRY_DEBUG_ENDPOINT could be switched on from the
+    Render dashboard with no deploy and no diff — an unauthenticated route
+    whose whole job is to raise, turned on invisibly. Setting the environment
+    variable now does nothing until the process restarts.
+    """
+    monkeypatch.setenv('SENTRY_DEBUG_ENDPOINT', 'true')
+
+    response = APIClient().get('/api/sentry-debug/')
+
+    assert response.status_code == 404
 
 
 def test_sentry_debug_url_name_resolves():
@@ -228,6 +246,52 @@ def test_use_https_enables_hsts_preload(monkeypatch):
 def test_hsts_preload_absent_by_default():
     # "Inert unless its env var is set" — no preload flag without USE_HTTPS.
     assert not getattr(settings, 'SECURE_HSTS_PRELOAD', False)
+
+
+def test_debug_off_without_https_refuses_to_boot(monkeypatch):
+    """Phase 73: transport security must not hang off an unverified variable.
+
+    SSL redirect, HSTS, the proxy header and both Secure cookie flags all sit
+    behind USE_HTTPS, and nothing asserted it was set. Unlike a missing
+    SECRET_KEY, the failure was silent — the site kept serving, over plain HTTP
+    with cookies not marked Secure.
+    """
+    import importlib
+
+    import config.settings as settings_module
+
+    monkeypatch.setenv('DEBUG', 'false')
+    monkeypatch.setenv('SECRET_KEY', 'a-real-secret-for-this-test')
+    monkeypatch.setenv('ALLOWED_HOSTS', 'example.com')
+    monkeypatch.delenv('USE_HTTPS', raising=False)
+    monkeypatch.delenv('ALLOW_INSECURE_NON_DEBUG', raising=False)
+    try:
+        with pytest.raises(ImproperlyConfigured, match='USE_HTTPS'):
+            importlib.reload(settings_module)
+    finally:
+        monkeypatch.undo()
+        importlib.reload(settings_module)
+
+
+def test_ci_escape_hatch_allows_debug_off_without_https(monkeypatch):
+    """CI genuinely runs DEBUG=False without TLS; that must stay possible, but
+    only when asked for explicitly rather than by omission."""
+    import importlib
+
+    import config.settings as settings_module
+
+    monkeypatch.setenv('DEBUG', 'false')
+    monkeypatch.setenv('SECRET_KEY', 'a-real-secret-for-this-test')
+    monkeypatch.setenv('ALLOWED_HOSTS', 'example.com')
+    monkeypatch.delenv('USE_HTTPS', raising=False)
+    monkeypatch.setenv('ALLOW_INSECURE_NON_DEBUG', 'true')
+    try:
+        module = importlib.reload(settings_module)
+        assert module.DEBUG is False
+        assert module.USE_HTTPS is False
+    finally:
+        monkeypatch.undo()
+        importlib.reload(settings_module)
 
 
 def test_whitenoise_middleware_follows_security_middleware():

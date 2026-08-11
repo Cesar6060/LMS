@@ -1,6 +1,7 @@
 from django.conf import settings
-from dj_rest_auth.views import PasswordResetView, UserDetailsView
-from PIL import Image
+from dj_rest_auth.views import (
+    LoginView, PasswordResetConfirmView, PasswordResetView, UserDetailsView,
+)
 from rest_framework import status
 from rest_framework.decorators import (
     api_view, permission_classes, parser_classes, throttle_classes,
@@ -11,7 +12,10 @@ from rest_framework.response import Response
 from rest_framework_simplejwt.tokens import RefreshToken
 from core.demo import require_not_demo
 from core.permissions import NotDemoAccountForWrites
-from core.throttling import ClientIPScopedRateThrottle
+from core.throttling import (
+    GLOBAL_THROTTLES, ClientIPScopedRateThrottle, LoginEmailRateThrottle,
+)
+from core.uploads import verify_image
 from .models import User, UserPreferences
 from .serializers import UserSerializer, UserPreferencesSerializer
 
@@ -34,7 +38,7 @@ def registration_disabled(request):
 
 @api_view(['POST'])
 @permission_classes([AllowAny])
-@throttle_classes([ClientIPScopedRateThrottle])
+@throttle_classes([ClientIPScopedRateThrottle, *GLOBAL_THROTTLES])
 def demo_login(request):
     """One-click login as the shared demo student.
 
@@ -62,8 +66,8 @@ def demo_login(request):
 
 
 # @api_view exposes the generated view class as `.cls`; ScopedRateThrottle
-# reads its scope from there. Rate comes from THROTTLE_DEMO_LOGIN (unset =
-# unlimited, same env-gated pattern as THROTTLE_ANON).
+# reads its scope from there. Rate comes from THROTTLE_DEMO_LOGIN, which since
+# phase 73 defaults to a real value rather than to unlimited.
 demo_login.cls.throttle_scope = 'demo_login'
 
 
@@ -83,12 +87,42 @@ class ThrottledPasswordResetView(PasswordResetView):
 
     The endpoint is anonymous and (since Phase 47) sends real email in
     production, so it gets a tight per-IP rate on top of the general anon
-    throttle. Rate comes from THROTTLE_PASSWORD_RESET (unset = unlimited,
-    same env-gated pattern as THROTTLE_DEMO_LOGIN). Mounted in accounts.urls
+    throttle. Rate comes from THROTTLE_PASSWORD_RESET. Mounted in accounts.urls
     ahead of the dj_rest_auth include so it shadows the stock view.
     """
-    throttle_classes = [ClientIPScopedRateThrottle]
+    throttle_classes = [ClientIPScopedRateThrottle, *GLOBAL_THROTTLES]
     throttle_scope = 'password_reset'
+
+
+class ThrottledPasswordResetConfirmView(PasswordResetConfirmView):
+    """dj-rest-auth's reset *confirm* with its own scoped rate limit.
+
+    Phase 73. Requesting a reset was throttled from phase 47; submitting the
+    emailed token was not, so the token was open to brute force at whatever the
+    general anon rate happened to be — and that rate defaulted to unlimited
+    until this phase. A guessed token is a full account takeover, so it gets the
+    same tight ceiling as requesting one.
+    """
+    throttle_classes = [ClientIPScopedRateThrottle, *GLOBAL_THROTTLES]
+    throttle_scope = 'password_reset_confirm'
+
+
+class ThrottledLoginView(LoginView):
+    """dj-rest-auth's login, capped per source address AND per account.
+
+    Phase 73. Nothing capped password guessing here before: there was no scoped
+    throttle, and the global anon rate it fell back to defaulted to unlimited.
+
+    Two ceilings, because each is blind to the other's attack. The 'login'
+    scope is keyed on the client address and bounds how fast one source can
+    guess. LoginEmailRateThrottle is keyed on the submitted account and bounds
+    how many guesses one victim receives no matter how many addresses they come
+    from — the distributed case, which no per-IP rate can see.
+    """
+    throttle_classes = [
+        ClientIPScopedRateThrottle, LoginEmailRateThrottle, *GLOBAL_THROTTLES,
+    ]
+    throttle_scope = 'login'
 
 
 @api_view(['GET', 'PUT', 'PATCH'])
@@ -197,44 +231,17 @@ def upload_avatar(request):
         )
 
     # Extension and content type are both client-supplied, so confirm the bytes
-    # really are an image. Pillow's verify() raises a broad, undocumented set of
-    # exceptions on malformed input (OSError, SyntaxError, DecompressionBomb,
-    # struct errors from plugins), so catch Exception rather than guess.
-    #
-    # verify() alone is NOT enough: it accepts anything Pillow can decode, so
-    # TIFF/BMP/PPM bytes named ".png" with content_type "image/png" sail
-    # through and the allowlist above buys nothing. That matters because the
-    # allowlist's real job is bounding which Pillow *decoders* untrusted bytes
-    # can reach — the less-common codecs are where most of the ~20 CVEs behind
-    # this phase's Pillow bump live. So pin the detected format too.
-    #
-    # `.format` must be read BEFORE verify(), which leaves the Image unusable.
-    EXTENSION_FORMATS = {
-        'png': {'PNG'},
-        'jpg': {'JPEG'},
-        'jpeg': {'JPEG'},
-        'gif': {'GIF'},
-        'webp': {'WEBP'},
-    }
-    try:
-        image = Image.open(avatar_file)
-        detected_format = image.format
-        image.verify()
-    except Exception:
+    # really are an image, and that they are the format the extension claims —
+    # "is decodable by Pillow" alone would let TIFF/BMP/PPM bytes named ".png"
+    # through, and the allowlist's real job is bounding which Pillow *decoders*
+    # untrusted bytes can reach. Phase 73 moved the check into core.uploads so
+    # avatars, slide imports and lesson attachments share one implementation.
+    content_error = verify_image(avatar_file, file_ext)
+    if content_error:
         return Response(
-            {'error': 'Avatar is not a valid image file.'},
+            {'error': content_error},
             status=status.HTTP_400_BAD_REQUEST
         )
-
-    if detected_format not in EXTENSION_FORMATS[file_ext]:
-        return Response(
-            {'error': f'Avatar contents are {detected_format or "an unknown format"}, '
-                      f'which does not match its ".{file_ext}" extension.'},
-            status=status.HTTP_400_BAD_REQUEST
-        )
-
-    # verify() consumes the file and leaves it unusable — rewind before saving.
-    avatar_file.seek(0)
 
     # Delete old avatar if exists
     if preferences.avatar:

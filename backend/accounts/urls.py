@@ -36,6 +36,20 @@ urlpatterns = [
     re_path(r'^password/reset/?$', views.ThrottledPasswordResetView.as_view(),
             name='rest_password_reset'),
 
+    # Phase 73: the confirm half takes the emailed token, so an unthrottled
+    # spelling of this URL is a brute-forceable account takeover. Order against
+    # the reset/ shadow above does not matter (both regexes are $-anchored);
+    # what matters is that both sit ahead of the dj_rest_auth include.
+    re_path(r'^password/reset/confirm/?$',
+            views.ThrottledPasswordResetConfirmView.as_view(),
+            name='rest_password_reset_confirm'),
+
+    # Phase 73: throttled login. Same optional-slash shadow as above — with a
+    # path() the bare /api/auth/login would fall through to dj-rest-auth's own
+    # unthrottled view and the rate limit would be trivially sidestepped.
+    re_path(r'^login/?$', views.ThrottledLoginView.as_view(),
+            name='rest_login'),
+
     # /api/auth/user/ with demo writes blocked — shadows dj-rest-auth's
     # UserDetailsView, which shares UserSerializer with profile/ below.
     # Defence-in-depth: UserSerializer.update() also refuses the demo account.

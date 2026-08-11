@@ -51,6 +51,9 @@ jobs:
         env:
           DB_HOST: localhost
           SECRET_KEY: ci-test-secret-key-not-for-production
+          # Phase 73: DEBUG is unset (so False) and there is no TLS in CI, which
+          # the USE_HTTPS boot guard now rejects. Opt out explicitly.
+          ALLOW_INSECURE_NON_DEBUG: 'True'
         run: python manage.py collectstatic --noinput
 
       - name: Run tests
@@ -61,10 +64,12 @@ jobs:
         #
         # DEBUG is deliberately left unset so the suite runs under the
         # production default (False); SECRET_KEY satisfies the settings guard
-        # that pairs with it. USE_HTTPS stays unset, so no SSL redirects.
+        # that pairs with it. USE_HTTPS stays unset, so no SSL redirects —
+        # which since phase 73 must be declared rather than merely omitted.
         env:
           DB_HOST: localhost
           SECRET_KEY: ci-test-secret-key-not-for-production
+          ALLOW_INSECURE_NON_DEBUG: 'True'
           # TRUST_CF_HEADERS defaults to `not DEBUG`, and DEBUG is deliberately
           # unset above — which would silently flip it ON for the whole CI run,
           # the opposite of the dev/test default the setting documents. Pinned

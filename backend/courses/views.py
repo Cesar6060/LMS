@@ -25,6 +25,7 @@ from allauth.account.models import EmailAddress
 from accounts.models import User
 from accounts.serializers import UserSerializer
 from core.demo import is_demo_email, require_not_demo, require_not_demo_course
+from core.uploads import verify_upload
 from core.email import send_course_invite_link_email, send_emails_async
 from core.pagination import RosterPagination
 from core.throttling import (
@@ -45,7 +46,7 @@ from .serializers import (
     LessonSectionBulkCreateSerializer, CourseMapSerializer, CourseInviteSerializer,
     prefetch_active_enrollments,
 )
-from rest_framework.exceptions import PermissionDenied
+from rest_framework.exceptions import MethodNotAllowed, PermissionDenied
 from .permissions import (
     IsInstructor, IsInstructorOrReadOnly, IsCourseInstructor,
     IsEnrolledOrInstructor,
@@ -916,6 +917,25 @@ class AnnouncementViewSet(viewsets.ModelViewSet):
         elif self.action in ['create', 'update', 'partial_update']:
             return AnnouncementCreateSerializer
         return AnnouncementSerializer
+
+    def create(self, request, *args, **kwargs):
+        """Announcements are created course-scoped, never through this route.
+
+        Phase 73. check_object_permissions below only runs for detail routes,
+        so create reached serializer.save() with no ownership check at all —
+        any authenticated student could post here. It failed as an
+        IntegrityError (course and author are non-null and
+        AnnouncementCreateSerializer carries neither) rather than a 403, which
+        turned a missing authorization check into a 500 and hid it.
+
+        CourseAnnouncementsView is the real creation path and does check
+        require_course_instructor. Closing this one rather than duplicating
+        that logic keeps a single guarded entry point.
+        """
+        raise MethodNotAllowed(
+            request.method,
+            detail='Create announcements at /api/courses/<code>/announcements/.',
+        )
 
     def check_object_permissions(self, request, obj):
         super().check_object_permissions(request, obj)
@@ -1883,9 +1903,9 @@ def _queue_invite_email(invite, email_tasks):
 # @throttle_classes REPLACES DEFAULT_THROTTLE_CLASSES, and the scoped class
 # below exempts safe methods — so listing this way left GET with no throttle at
 # all. Re-list the global per-user ceiling to cover the read, exactly as
-# lesson_section_import_slide does. The other @throttle_classes views
-# (demo_login, accept_invite, the password-reset view) drop the globals too,
-# but their scoped rate is strictly tighter than anon/user, so nothing is lost.
+# lesson_section_import_slide does. (demo_login, accept_invite and the
+# password-reset views used to drop the globals as well; phase 73 re-listed
+# them, so this is now the pattern everywhere rather than the exception.)
 @throttle_classes([ClientIPUserRateThrottle, ClientIPScopedWriteRateThrottle])
 def course_invites(request, course_code):
     """List invites for a course, or bulk-invite students by email.
@@ -2245,9 +2265,17 @@ INVITE_DEAD_DETAILS = {
 }
 
 
+# Phase 73: this listed only the scoped class, which replaces
+# DEFAULT_THROTTLE_CLASSES outright — so an anonymous account-creation endpoint
+# had exactly one ceiling, and that ceiling defaulted to unlimited. Re-list the
+# globals, matching join_with_code above. The caller does hold a secret token
+# here, but "holds a token" is not a rate limit.
 @api_view(['POST'])
 @perm_classes([AllowAny])
-@throttle_classes([ClientIPScopedRateThrottle])
+@throttle_classes([
+    ClientIPAnonRateThrottle, ClientIPUserRateThrottle,
+    ClientIPScopedRateThrottle,
+])
 def accept_invite(request, token):
     """Accept an invite: create-account path or existing-account path.
 
@@ -2995,8 +3023,13 @@ def answer_lesson_quiz_session(request, lesson_id):
 # Lesson Attachments
 # ============================================
 
+# Phase 73: POST here was the one upload path with no scoped rate limit. Uses
+# the write-only variant so the student-facing GET (every lesson view lists its
+# attachments) is never throttled, and re-lists the globals because naming any
+# throttle replaces DEFAULT_THROTTLE_CLASSES.
 @api_view(['GET', 'POST'])
 @perm_classes([IsAuthenticated])
+@throttle_classes([ClientIPUserRateThrottle, ClientIPScopedWriteRateThrottle])
 def lesson_attachments(request, lesson_id):
     """
     GET: List attachments for a lesson (students and instructors)
@@ -3021,6 +3054,10 @@ def lesson_attachments(request, lesson_id):
             request.user, course,
             "Only instructors can upload attachments."
         )
+        # Phase 73: this endpoint was missing from the demo lockdown entirely,
+        # so a visitor on the shared account could add files to a demo course
+        # and every later visitor would see them.
+        require_not_demo(request.user)
 
         files = request.FILES.getlist('files')
         if not files:
@@ -3051,6 +3088,19 @@ def lesson_attachments(request, lesson_id):
             'py', 'js', 'css', 'json'  # code files
         }
 
+        # Phase 73: the per-file limit alone let one request carry ten
+        # near-limit files, so the ceiling on a single request was really 10x
+        # the number anyone had agreed to.
+        total_bytes = sum(f.size for f in files)
+        if total_bytes > settings.ATTACHMENT_MAX_REQUEST_BYTES:
+            request_limit_mb = (
+                settings.ATTACHMENT_MAX_REQUEST_BYTES // (1024 * 1024))
+            return Response(
+                {'error': f'Upload exceeds the {request_limit_mb}MB total '
+                          f'limit for one request. Send fewer files at a time.'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
         # Validate file sizes and file types
         max_size = settings.ATTACHMENT_MAX_UPLOAD_BYTES
         limit_mb = max_size // (1024 * 1024)
@@ -3066,6 +3116,19 @@ def lesson_attachments(request, lesson_id):
             if not file_ext or file_ext not in ALLOWED_EXTENSIONS:
                 return Response(
                     {'error': f'File type ".{file_ext}" is not allowed. Allowed types: {", ".join(sorted(ALLOWED_EXTENSIONS))}'},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+
+            # Phase 73: extension and size are both client-supplied strings, so
+            # confirm the bytes agree with the claimed type. The risk is not
+            # server-side execution — attachments live in a private bucket on
+            # another origin — it is that the filename is all a student sees
+            # before opening it, which makes a disguised payload a phishing
+            # primitive aimed at the class.
+            content_error = verify_upload(f, file_ext)
+            if content_error:
+                return Response(
+                    {'error': content_error},
                     status=status.HTTP_400_BAD_REQUEST
                 )
 
@@ -3087,6 +3150,11 @@ def lesson_attachments(request, lesson_id):
             created, many=True, context={'request': request}
         )
         return Response(serializer.data, status=status.HTTP_201_CREATED)
+
+
+# ScopedRateThrottle reads its scope off the generated view class. Without this
+# the throttle is installed but has no rate to enforce.
+lesson_attachments.cls.throttle_scope = 'attachment_upload'
 
 
 @api_view(['DELETE'])

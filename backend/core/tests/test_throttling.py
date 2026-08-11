@@ -284,3 +284,42 @@ def test_throttle_cache_is_not_locmem():
     from django.core.cache.backends.locmem import LocMemCache
 
     assert not isinstance(caches['throttle'], LocMemCache)
+
+
+# ---------------------------------------------------------------------------
+# Phase 73: the per-account login ceiling
+# ---------------------------------------------------------------------------
+#
+# This started as allauth's ACCOUNT_RATE_LIMITS['login_failed'] and was removed
+# once it turned out to be dead config on this stack: allauth consumes that
+# limit in DefaultAccountAdapter.pre_authenticate(), and dj-rest-auth's
+# LoginSerializer calls django.contrib.auth.authenticate() directly without
+# going through the adapter. Nine failed attempts on one account followed by a
+# successful login proved it never fired. The replacement runs in DRF's
+# pipeline, where it is actually reached.
+
+
+def test_allauth_rate_limits_are_not_relied_on():
+    """Pins the removal, so the dead setting does not come back.
+
+    If someone re-adds ACCOUNT_RATE_LIMITS believing it protects login, this
+    fails and points them at the throttle that does.
+    """
+    assert not getattr(settings, 'ACCOUNT_RATE_LIMITS', None), (
+        'ACCOUNT_RATE_LIMITS does not run on the dj-rest-auth login path; '
+        'the per-account ceiling lives in LoginEmailRateThrottle instead.'
+    )
+
+
+def test_login_email_scope_has_a_rate():
+    from rest_framework.settings import api_settings
+
+    assert api_settings.DEFAULT_THROTTLE_RATES['login_email']
+
+
+def test_login_email_throttle_uses_the_shared_cache():
+    """Counters must be shared across gunicorn workers, like every other
+    throttle — otherwise the configured ceiling is silently doubled."""
+    from core.throttling import LoginEmailRateThrottle
+
+    assert LoginEmailRateThrottle().cache is caches['throttle']
