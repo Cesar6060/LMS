@@ -82,17 +82,37 @@ editor are all content-generic and were proven so by phase 58.
 Folded in per the interview so they stay visible. None block writing or merging
 this phase's code; all of them block or endanger the student cohort.
 
-- [ ] **Fresh Neon backup branch, then set production `protected: true`.** LMS
-      project `shy-cloud-68280619`. Highest-value item outstanding — the newest
-      backup predates several schema changes, and once real student data lands a
-      mistake is unrecoverable. Do this **before** seeding ROB201 into prod.
-- [ ] **Branch protection on `main`**, requiring both CI jobs. Merging `main`
-      deploys the backend, so today a red build can reach production. GitHub
-      dashboard action, no code.
-- [ ] Set `THROTTLE_JOIN_CODE=10/hour` and `THROTTLE_INVITE_LINK=60/hour` in the
-      Render dashboard.
+- [x] **Fresh Neon backup branch (2026-08-06).** `backup-pre-rob201-seed-2026-08-06`
+      (`br-sweet-paper-avvy9whb`), forked from `production` in LMS project
+      `shy-cloud-68280619` immediately before the seed. Verified to hold 45
+      migrations / 3 courses / 16 units / 64 lessons / 5 users — an exact match
+      for pre-seed production.
+      Note: the worry that "the newest backup predates several schema changes"
+      was **stale**. `backup-pre-phase68-2026-08-03` forked at 2026-08-04T00:22Z,
+      after prod's newest migration (2026-08-03T19:56Z), and already held all 45.
+- [ ] **Set production `protected: true`.** Still open — the Neon MCP server
+      exposes no branch-update tool, so this is a console action:
+      Neon → LMS → Branches → `production` → enable branch protection.
+- [x] **Branch protection on `main` — already configured** (verified 2026-08-06
+      via `gh api repos/Cesar6060/LMS/branches/main/protection`). Requires both
+      `Backend (pytest)` and `Frontend (tsc, lint, build)`, `strict: true`,
+      force-pushes and deletions blocked. `enforce_admins` deliberately left
+      **off** (user decision, 2026-08-06) to preserve a break-glass path — so an
+      admin override can still put a red build into production.
+- [ ] Set `THROTTLE_JOIN_CODE=60/hour` and `THROTTLE_INVITE_LINK=60/hour` in the
+      Render dashboard. **Corrected at phase 74:** this action originally said
+      `10/hour` for the join code. Phase 73 deliberately chose 60/hour because
+      throttle idents are the client address, so an entire classroom behind one
+      school NAT shares a single bucket and 10/hour would lock out a normal
+      class joining together. 60/hour is the settled value — do not re-litigate
+      it. Both defaults are already 60/hour in `config/settings.py`, so this
+      action is now a confirmation rather than a change.
 - [ ] Apply `docs/runbooks/phase-67-email-deliverability-dns.txt` (`_dmarc` and
-      root SPF; both confirmed absent 2026-08-03).
+      root SPF). **Re-confirmed still absent 2026-08-06**: `dig +short TXT
+      _dmarc.stemquests.com` and `dig +short TXT stemquests.com` both return
+      nothing. `send.stemquests.com` correctly returns
+      `v=spf1 include:amazonses.com ~all`, so only the two root-level records
+      are missing.
 - [ ] Send one invite to the school address that previously vanished and check
       Gmail "Show original" for SPF/DKIM/DMARC PASS.
 - [ ] Carried security note, not this phase's work: `require_pending_invite`
@@ -384,13 +404,38 @@ and `student1@demo.com`, both `LocalDev123!`):
 
 Production (owner steps, after merge — merging `main` deploys the backend):
 
-- [ ] Take the fresh Neon backup branch and set production `protected: true`
-      **before** seeding (see Prerequisites). Seeding is the first write of new
-      content since the backup gap was identified.
-- [ ] Seed by hand from a dev machine:
-      `DATABASE_URL=<neon direct, non-pooler> python manage.py
-      populate_robotics_2_course` — **without `--prune` on the first run**. Read
-      the stale-content warnings, then decide.
+- [x] **Backup branch taken before seeding (2026-08-06)** — see Prerequisites.
+      `protected: true` is still outstanding and is tracked there.
+- [x] **ROB201 SEEDED INTO PRODUCTION (2026-08-06).** Run from the backend
+      container against the Neon **direct (non-pooler)** endpoint
+      `ep-falling-frog-avzgk4ed.c-11.us-east-1.aws.neon.tech`, **without
+      `--prune`**:
+      `docker compose exec -T -e DATABASE_URL=<neon direct> backend python
+      manage.py populate_robotics_2_course`
+      Full output — no stale-content warnings, because the course was created
+      fresh and there was nothing to prune:
+      ```
+      Populating ROB201 course...
+      Found instructor: cesarvillarreal11@gmail.com
+      Course: ROB201 - Robotics 2 (created)
+      Created 6 units with lessons and quizzes
+      ROB201 population complete (non-destructive).
+      ```
+      Post-seed counts straight from prod match the blueprint exactly:
+      **6 units / 24 lessons / 120 sections / 96 comprehension questions /
+      6 unit quizzes / 36 quiz questions.**
+      `_get_instructor` resolved deterministically — prod holds exactly one
+      `Cesar Villarreal` with `is_instructor=true` (user id 1), so the
+      duplicate-namesake finding carried from the adversarial pass could not
+      bite here.
+- [x] **`/courses/ROB201` verified as a real content read (2026-08-06),**
+      signed in as the instructor on stemquests.com. The six-unit outline
+      renders in order (Advanced Systems/Safety/Teams → Math & Physics →
+      Manipulators → Python → AI & Autonomous Systems → Design & Capstone), all
+      24 lessons listed, all six `<topic> Quiz` titles at 6 questions / 20 pts.
+      Lesson `/courses/ROB201/learn/89` opens in the player with its sections,
+      the comprehension-quiz gate and the 20-pt unit quiz. Course list shows
+      ROB201 **above** ROB101, as `Meta.ordering = ['-created_at']` predicted.
 - [x] **Deploy verified (2026-08-04, merge `863597c`).** The `/courses/ROB201`
       half of this check is deferred with the seed — the course does not exist
       in prod yet — but everything the deploy itself could break was checked:
@@ -399,8 +444,15 @@ Production (owner steps, after merge — merging `main` deploys the backend):
       `{"status": "ok", "database": "ok", "content": "ok"}` with the verbatim
       keyword intact; UptimeRobot monitor `803564235` **UP**, 13d 4h unbroken.
 - [x] **ROB101 and JAVA101 intact after the deploy** — DEMO101 5/20,
-      JAVA101 5/20, ROB101 6/24 units/lessons, unchanged. Re-confirm after the
-      seed as well.
+      JAVA101 5/20, ROB101 6/24 units/lessons, unchanged.
+- [x] **Re-confirmed intact after the seed (2026-08-06).** DEMO101 5 units /
+      20 lessons / 74 sections / 85 comprehension questions / 5 quizzes /
+      25 quiz questions; JAVA101 identical; ROB101 6 / 24 / 116 / 96 / 6 / 36 —
+      every figure unchanged from before the seed. `/courses/ROB101` also loads
+      its full outline in the browser, including the known inconsistent
+      `Unit 1 Quiz:` title prefix. `/api/health/?deep=1` →
+      `{"status": "ok", "database": "ok", "content": "ok"}`; UptimeRobot monitor
+      `803564235` **UP**, 16d 3h unbroken.
 - [x] **Migrations confirmed done before merging.** 45 local migration files
       against 45 rows in prod's `django_migrations` for our six apps
       (accounts 3, courses 26, discussions 1, gamification 6, notifications 5,

@@ -1,0 +1,164 @@
+{
+  "_README": [
+    "Project-level permission policy for STEM Quest. Committed on purpose: a fresh",
+    "clone should arrive with guardrails already on.",
+    "",
+    "Denies outrank allows across every settings layer, so the deny list below wins",
+    "over the pre-approvals in the (gitignored) settings.local.json. That file is",
+    "left alone deliberately — nothing here requires editing it.",
+    "",
+    "The active deny list is the prod-destructive set only. Merging a PR deploys the",
+    "backend on Render and the frontend on Cloudflare Pages, so `gh pr merge` is a",
+    "production action and belongs to the human; /finish-phase says the same thing.",
+    "",
+    "DELIBERATE DEVIATION: mcp__neon__run_sql and mcp__neon__run_sql_transaction are",
+    "NOT denied. They are one tool for both reads and DDL, and the established",
+    "post-deploy verification workflow uses them to read production. Denying them",
+    "would remove that read access, so they sit in `ask` instead. Honest note: any",
+    "MCP tool that is not explicitly allowed already prompts, so listing them under",
+    "`ask` changes nothing functionally today. Its value is that it survives someone",
+    "later adding a broad mcp__neon__* allow — the explicit `ask` would still hold.",
+    "",
+    "Bash deny rules are a SAFETY NET, NOT A SECURITY BOUNDARY. They are evaluated",
+    "per-subcommand across &&, ||, ;, | and newlines, but a wrapper such as",
+    "sh -c '...' is a documented gap in that matching. .claude/hooks/guard-bash.sh",
+    "is what closes that gap; the deny list alone does not.",
+    "",
+    "This file is tracked in a public repo. No secrets, no private hostnames."
+  ],
+  "permissions": {
+    "deny": [
+      "Bash(gh pr merge:*)",
+      "Bash(render ssh:*)",
+      "Bash(render jobs create:*)",
+      "Bash(render deploys create:*)",
+      "Bash(render services update:*)",
+      "Bash(gh secret set:*)",
+      "Bash(gh secret delete:*)",
+      "mcp__neon__delete_branch",
+      "mcp__neon__delete_project",
+      "mcp__neon__reset_from_parent",
+      "mcp__neon__complete_database_migration"
+    ],
+    "ask": [
+      "mcp__neon__run_sql",
+      "mcp__neon__run_sql_transaction"
+    ]
+  },
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/guard-bash.sh"
+          }
+        ]
+      }
+    ]
+  },
+  "_proposed": {
+    "_README": [
+      "INERT. `_proposed` is an unknown top-level key, so the settings parser ignores",
+      "it — nothing in here is enforced. It is staged policy, written down while the",
+      "reasoning was fresh, for a later phase to activate.",
+      "",
+      "Activation is a one-line move: the arrays below mirror the real shape, so a",
+      "rule is turned on by cutting it from `_proposed.<list>` into",
+      "`permissions.<list>`. Move rules one at a time and re-test — a deny that fires",
+      "on a command the phase loop actually needs is worse than no deny at all.",
+      "",
+      "`_rationale` maps each rule string to the specific thing it stops. If a rule",
+      "cannot be given a concrete threat there, it does not belong in the list."
+    ],
+    "deny": [
+      "Bash(git push --force:*)",
+      "Bash(git push -f:*)",
+      "Bash(git reset --hard:*)",
+      "Bash(rm -rf:*)",
+      "Bash(docker compose down -v:*)",
+      "Bash(gh workflow run:*)",
+      "Bash(env)",
+      "Bash(printenv:*)",
+      "Read(./.env)",
+      "Read(./backend/.env)",
+      "Read(./frontend/.env)",
+      "Read(~/.ssh/**)",
+      "Read(~/.aws/**)",
+      "mcp__claude_ai_Gmail__*",
+      "mcp__claude_ai_Canva__*",
+      "mcp__claude_ai_Figma__*",
+      "mcp__claude_ai_Gamma__*",
+      "mcp__claude_ai_Spotify__*",
+      "mcp__claude_ai_TravExp__*",
+      "mcp__claude_ai_Plaid_Developer_Tools__*"
+    ],
+    "ask": [
+      "Bash(git push:*)",
+      "Bash(pip install:*)",
+      "Bash(npm install:*)",
+      "Bash(python manage.py migrate:*)",
+      "Write(./backend/*/migrations/**)",
+      "Edit(./backend/*/migrations/**)",
+      "Edit(./render.yaml)",
+      "Edit(./.github/workflows/**)",
+      "Edit(./.gitignore)"
+    ],
+    "allow": [
+      "Bash(docker compose exec -T backend pytest:*)",
+      "Bash(docker compose ps:*)",
+      "Bash(docker compose logs:*)",
+      "Bash(npx tsc --noEmit)",
+      "Bash(npm run lint)",
+      "Bash(npm test:*)",
+      "Bash(git status:*)",
+      "Bash(git diff:*)",
+      "Bash(git log:*)",
+      "Bash(git branch:*)",
+      "Bash(git add:*)",
+      "Bash(git commit:*)",
+      "Bash(gh pr create:*)",
+      "Bash(gh pr view:*)",
+      "Bash(gh run list:*)",
+      "Bash(gh run view:*)",
+      "WebFetch(domain:code.claude.com)"
+    ],
+    "_rationale": {
+      "Bash(git push --force:*)": "Rewrites published history on a branch CI has already run against; on main it is blocked by branch protection, but a force-push to a feature branch still destroys review context mid-PR.",
+      "Bash(git push -f:*)": "Same as --force. Listed separately because deny matching is literal on the command prefix.",
+      "Bash(git reset --hard:*)": "Discards uncommitted work with no recovery path. Phase work is often hours of uncommitted rules/spec edits.",
+      "Bash(rm -rf:*)": "One bad path expansion removes the working tree. Nothing in the phase loop needs recursive force-delete.",
+      "Bash(docker compose down -v:*)": "The -v flag wipes the postgres volume — the entire local database, including whatever was being reproduced.",
+      "Bash(gh workflow run:*)": "The repo ships db-backup.yml and demo-reset.yml. Both act on PRODUCTION. A manual dispatch from a session is a production write with no confirmation.",
+      "Bash(env)": "Dumps every environment variable, secrets included, into a transcript that gets screen-shared during demos and interviews.",
+      "Bash(printenv:*)": "Same exposure as env.",
+      "Read(./.env)": "Real local credentials. Note: .env.example is tracked and useful, which is why this lists exact files rather than a Read(./.env.*) glob that would also swallow the example.",
+      "Read(./backend/.env)": "Django SECRET_KEY, database URL, Resend and Sentry keys.",
+      "Read(./frontend/.env)": "Build-time VITE_* values, including the Sentry DSN.",
+      "Read(~/.ssh/**)": "Private keys. Nothing in this project needs them read.",
+      "Read(~/.aws/**)": "Cloud credentials outside this project's blast radius.",
+      "mcp__claude_ai_Gmail__*": "Personal mail. Connected for other work, irrelevant here, and the highest-consequence surface in the tool list.",
+      "mcp__claude_ai_Canva__*": "Unrelated connector; denying keeps the tool surface matched to the project.",
+      "mcp__claude_ai_Figma__*": "Unrelated connector.",
+      "mcp__claude_ai_Gamma__*": "Unrelated connector.",
+      "mcp__claude_ai_Spotify__*": "Unrelated connector.",
+      "mcp__claude_ai_TravExp__*": "Unrelated connector.",
+      "mcp__claude_ai_Plaid_Developer_Tools__*": "Unrelated connector touching financial data.",
+      "Bash(git push:*)": "Pushing a feature branch is normal, but it is also the point where work becomes public in a public repo. Worth one prompt.",
+      "Bash(pip install:*)": "A dependency bump ships third-party migrations that must be checked against Neon, and re-runs both CI audits. Never a silent action.",
+      "Bash(npm install:*)": "Same: changes the lockfile, re-runs npm audit --omit=dev in CI, and can pull a new transitive advisory.",
+      "Bash(python manage.py migrate:*)": "Migrations are applied by render.yaml's preDeployCommand, never by hand. A local hand-apply desynchronises the two.",
+      "Write(./backend/*/migrations/**)": "A migration file is the highest-risk artifact this project produces — it runs while the OLD code is still serving.",
+      "Edit(./backend/*/migrations/**)": "Editing an applied migration silently diverges the recorded schema from the real one.",
+      "Edit(./render.yaml)": "Defines the production service, its env vars and the preDeployCommand. A wrong edit here is a production outage.",
+      "Edit(./.github/workflows/**)": "The CI jobs are the only gate on main. Weakening one is invisible in a green PR.",
+      "Edit(./.gitignore)": "This is a public repo with five private docs and settings.local.json held back by exactly this file."
+    },
+    "_keys": {
+      "permissions.defaultMode": "Candidate. Would set the baseline prompting behaviour for the session instead of relying on per-rule lists. Not set here because the phase loop mixes long unattended stretches with interactive ones and the right default differs between them.",
+      "permissions.disableBypassPermissionsMode": "Candidate value \"disable\", which would stop --dangerously-skip-permissions from turning every rule above off. UNVERIFIED: research returned contradictory answers on whether this key takes effect outside managed/enterprise settings. Do NOT activate it on the strength of this file — confirm against the current docs first, and if it only works in managed settings, say so here and drop it.",
+      "enableAllProjectMcpServers": "Candidate value false, so a newly added .mcp.json server is not auto-enabled for every session. Currently governed by enabledMcpjsonServers in settings.local.json."
+    }
+  }
+}
