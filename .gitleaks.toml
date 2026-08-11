@@ -1,0 +1,60 @@
+# gitleaks configuration for STEM Quest.
+#
+# Consumed by .github/workflows/secret-scan.yml (phase 73, task A7), which
+# scans the working tree AND the full git history on every push/PR to main.
+#
+# Everything below is an allowlist for a *reviewed* false positive. Every
+# entry is scoped with `targetRules` to gitleaks' entropy-based
+# `generic-api-key` heuristic (or bound to a literal placeholder string), so
+# the ~170 provider-specific rules — AWS, Stripe, Slack, GitHub, Sentry,
+# Postgres URLs — still fire everywhere, including inside the test suite.
+#
+# Adding an entry is a security decision. Before you do:
+#   1. Confirm the value is not a credential and never was.
+#   2. Keep `targetRules` set; never allowlist a path across all rules.
+#   3. Say why, and how you verified it, in the description.
+
+title = "STEM Quest secret-scanning config"
+
+[extend]
+# Inherit the full upstream ruleset. This file only subtracts known-good
+# matches from it; it never replaces it.
+useDefault = true
+
+[[allowlists]]
+description = """
+Fixture credentials in the backend test suite — literal passwords posted to \
+auth endpoints ('new_password1', login payloads, User.objects.create_user) \
+and other high-entropy test data. These are invented values that only ever \
+reach a throwaway test database. Restricted to `generic-api-key`, so a real \
+provider token pasted into a test still fails the build.\
+"""
+targetRules = ["generic-api-key"]
+paths = [
+  '''backend/[^/]+/tests?\.py$''',
+  '''backend/[^/]+/test_[^/]+\.py$''',
+  '''backend/[^/]+/tests/[^/]+\.py$''',
+  '''backend/conftest\.py$''',
+]
+
+[[allowlists]]
+description = """
+`content_key` is a Course/Unit/Lesson/Quiz slug (e.g. 'rob101-quiz-motors') \
+used by the idempotent content upsert helpers. It is a public, human-readable \
+identifier that appears in the seed management commands, and its hyphenated \
+values trip the entropy heuristic. Scoped to the line, so only assignments \
+and comparisons of that one field are exempt.\
+"""
+targetRules = ["generic-api-key"]
+regexTarget = "line"
+regexes = ['''\bcontent_key\b''']
+
+[[allowlists]]
+description = """
+Documented fill-me-in placeholders: the `Authorization: Token \
+YOUR_TOKEN_HERE` copy/paste snippets in TROUBLESHOOTING.md and the matching \
+values in .env.example. Bound to the literal placeholder text, so a real \
+token pasted into the same snippet is still reported.\
+"""
+regexTarget = "match"
+regexes = ['''(?i)your[_-]?(token|secret|api[_-]?key|password)[_-]?here''']
