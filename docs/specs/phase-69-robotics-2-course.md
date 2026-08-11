@@ -99,8 +99,14 @@ this phase's code; all of them block or endanger the student cohort.
       force-pushes and deletions blocked. `enforce_admins` deliberately left
       **off** (user decision, 2026-08-06) to preserve a break-glass path — so an
       admin override can still put a red build into production.
-- [ ] Set `THROTTLE_JOIN_CODE=10/hour` and `THROTTLE_INVITE_LINK=60/hour` in the
-      Render dashboard.
+- [ ] Set `THROTTLE_JOIN_CODE=60/hour` and `THROTTLE_INVITE_LINK=60/hour` in the
+      Render dashboard. **Corrected at phase 74:** this action originally said
+      `10/hour` for the join code. Phase 73 deliberately chose 60/hour because
+      throttle idents are the client address, so an entire classroom behind one
+      school NAT shares a single bucket and 10/hour would lock out a normal
+      class joining together. 60/hour is the settled value — do not re-litigate
+      it. Both defaults are already 60/hour in `config/settings.py`, so this
+      action is now a confirmation rather than a change.
 - [ ] Apply `docs/runbooks/phase-67-email-deliverability-dns.txt` (`_dmarc` and
       root SPF). **Re-confirmed still absent 2026-08-06**: `dig +short TXT
       _dmarc.stemquests.com` and `dig +short TXT stemquests.com` both return

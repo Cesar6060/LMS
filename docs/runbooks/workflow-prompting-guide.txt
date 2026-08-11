@@ -1,7 +1,7 @@
 ================================================================================
 STEM QUEST — HOW TO PROMPT WORKFLOWS FOR THE BEST RESULTS
 ================================================================================
-Last updated: 2026-08-02
+Last updated: 2026-08-11
 Audience: You (the human driving Claude Code on this project).
 Purpose: How to run the phase workflow — start-phase, implement, finish-phase —
          so each session produces correct, verified, review-clean work with the
@@ -48,13 +48,24 @@ SKILLS (you invoke these with a slash command):
 
   /finish-phase [N-or-name]
       Closes a phase: verify -> parallel review (code-reviewer +
-      adversarial-tester) -> migration check -> update docs -> commit/push ->
-      open PR -> handoff. Each step gates the next. Never merges the PR.
+      adversarial-tester + frontend-reviewer) -> migration check -> update docs
+      -> commit/push -> open PR -> handoff. Each step gates the next. Never
+      merges the PR.
 
   /verify-stack
-      Runs backend tests (pytest), type check (tsc --noEmit), and lint. Reports
-      PASS/FAIL with evidence. Run it yourself any time; the close stage runs it
-      for you. Nothing ships red.
+      Runs SEVEN checks, in this order, and reports PASS/FAIL with evidence:
+        1. docker compose exec -T backend pytest   (~280s; pytest.ini forces
+           --cov, so it is slow by design. There is no host Python on this
+           machine — a bare `pytest` cannot run.)
+        2. cd frontend && npx tsc --noEmit         (zero errors)
+        3. cd frontend && npm run lint             (zero errors)
+        4. cd frontend && npm test                 (vitest)
+        5. cd frontend && npm audit --omit=dev     (runtime deps only)
+        6. pip-audit in the backend container      (no severity filter)
+        7. production build with VITE_API_URL set  (vite.config.ts fails the
+           build without it; this is the bundle Cloudflare Pages ships)
+      Run it yourself any time; the close stage runs it for you. Nothing ships
+      red.
 
   /handoff
       Writes a dated handoff file to docs/handoffs/ capturing current state so
@@ -64,10 +75,16 @@ AGENTS (Claude dispatches these; you rarely call them directly):
 
   code-reviewer         Reviews the phase diff against the spec for correctness
                         gaps. Runs in a fresh context during finish-phase.
-  adversarial-tester    NEW. Actively tries to BREAK the feature — permission
+  adversarial-tester    Actively tries to BREAK the feature — permission
                         boundaries, IDOR, malformed input, business-rule abuse.
                         Reports BROKEN / SUSPICIOUS / HELD. Runs in parallel
                         with code-reviewer during finish-phase.
+  frontend-reviewer     Reviews the React/TypeScript side: every API call goes
+                        through the api.ts interceptor (not bare axios), zero
+                        `any`, new frontend behavior ships with a vitest file in
+                        the same commit, and demo/instructor UI gating is right.
+                        Runs in parallel with the other two during finish-phase;
+                        skipped if the diff touches no frontend files.
   db-migration-checker  Checks new/changed migrations for destructive ops, data
                         loss, missing reverse. Auto-runs in finish-phase IF the
                         phase touched backend/*/migrations/.
@@ -168,10 +185,11 @@ Can be the tail of the build session or a fresh one. Just run:
 It executes these gated steps (each must pass before the next):
     1. Branch check      — refuses to run on main.
     2. /verify-stack     — must end PASS; fixes root cause and re-runs if red.
-    3. Parallel review   — code-reviewer + adversarial-tester on git diff
-                           main...HEAD. Fixes correctness gaps and BROKEN
-                           findings, re-verifies. SUSPICIOUS items get deferred
-                           into the PR body, never dropped silently.
+    3. Parallel review   — code-reviewer + adversarial-tester +
+                           frontend-reviewer on git diff main...HEAD. Fixes
+                           correctness gaps and BROKEN findings, re-verifies.
+                           SUSPICIOUS items get deferred into the PR body,
+                           never dropped silently.
     4. Migration check   — db-migration-checker IF migrations changed.
     5. Spec completeness — every checklist item done, or explicitly punted.
     6. Update docs       — checks off spec items in docs/specs/.
@@ -184,19 +202,20 @@ It executes these gated steps (each must pass before the next):
 YOUR JOB DURING CLOSE:
     - Read the review summary. If adversarial-tester found BROKEN items, they
       should already be fixed — confirm they were, don't just trust the label.
-    - If there are new migrations, note the ORDER: apply them to Neon BEFORE
-      merging (additive-safe migrations mean old code runs against the new
-      schema; the reverse is not safe). The PR body spells this out.
+    - If there are new migrations, do NOT apply them yourself. Render runs them
+      as a preDeployCommand when you merge (see section 6). What to check in the
+      PR body: that the migrations are old-code-safe, because they run while the
+      previous version is still serving traffic.
     - MERGING IS YOURS ALONE. Claude never merges — merging auto-deploys the
       backend (Render) and frontend (Cloudflare Pages) to production. After you
-      merge, check https://stemquest-api.onrender.com/api/health/?deep=1.
+      merge, check https://api.stemquests.com/api/health/?deep=1.
 
 
 --------------------------------------------------------------------------------
-5. THE REVIEW MODEL — why two agents, and how to read them
+5. THE REVIEW MODEL — why three agents, and how to read them
 --------------------------------------------------------------------------------
-finish-phase runs two reviewers IN PARALLEL against the full phase diff, because
-they look for different things:
+finish-phase runs three reviewers IN PARALLEL against the full phase diff,
+because they look for different things:
 
     code-reviewer      "Does this match the spec and is it correct?"
                        -> gaps, missed requirements, wrong logic.
@@ -207,6 +226,14 @@ they look for different things:
                           payloads; abuses business rules (quiz attempt limits,
                           post-deadline submits, double enroll, negative
                           scores); probes uploads and state edges.
+    frontend-reviewer  "Does the React side follow our contracts?"
+                       -> every API call goes through the api.ts interceptor
+                          rather than bare axios (that interceptor owns the 401
+                          refresh, Sentry filtering and demo_blocked toast); no
+                          `any` anywhere; new frontend behavior ships with a
+                          vitest file in the same commit; demo accounts aren't
+                          shown write UI and instructor-only UI is gated.
+                          Skipped when the phase touched no frontend files.
 
 How to act on their output:
     BROKEN      -> must be fixed before the PR. Non-negotiable.
@@ -251,8 +278,9 @@ After a deploy, verify with a real content read, not just the health endpoint �
       not "tests pass." (This project's norm is verdict + evidence.)
     - Never touch main directly. Feature branch always. Merge is a human
       decision because it deploys to production.
-    - Migrations before merge. Additive-safe, applied to Neon manually, in
-      order, BEFORE the merge that ships the new code.
+    - Migrations are additive-safe, always. Since phase 65 they are applied by
+      Render's preDeployCommand on merge, never by hand — but they run while the
+      OLD code is still serving, so that safety is on you to confirm.
     - Trust but verify the reviewers. If adversarial-tester says BROKEN and then
       "fixed," confirm the fix — don't take the label on faith.
 
@@ -289,7 +317,7 @@ yourself.
 "Run the adversarial-tester agent on the changes so far."   (mid-phase spot check)
 
 --- After you merge -----------------------------------------------------------
-Check https://stemquest-api.onrender.com/api/health/?deep=1
+Check https://api.stemquests.com/api/health/?deep=1
 
 
 --------------------------------------------------------------------------------

@@ -1,5 +1,6 @@
 # Project docs (private)
-CLAUDE.md
+# CLAUDE.md is deliberately NOT ignored (phase 74): it is the always-loaded
+# project brief and part of the public workflow. Nothing secret goes in it.
 /PLAN.md
 TROUBLESHOOTING.md
 Troubleshooting.md
@@ -14,8 +15,11 @@ docs/DEMO_SCRIPT.md
 docs/SCREENSHOT_CHECKLIST.md
 docs/CLAUDE-CODE-WORKFLOW.md
 
-# Claude Code workspace
-.claude/
+# Claude Code workspace. Tracked on purpose since phase 74 — the agents,
+# skills, rules and permission policy are part of the project. Only the
+# machine-local pieces stay out.
+.claude/settings.local.json
+.claude/scheduled_tasks.lock
 
 # Python
 __pycache__/
