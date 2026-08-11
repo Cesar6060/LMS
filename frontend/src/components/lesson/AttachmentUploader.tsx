@@ -28,12 +28,17 @@ function formatFileSize(bytes: number): string {
 function uploadErrorMessage(err: unknown): string {
   if (isDemoBlocked(err)) return DEMO_BLOCKED_MESSAGE;
 
-  const response = (err as { response?: { status?: number; data?: { detail?: string } } })
-    .response;
+  const response = (
+    err as { response?: { status?: number; data?: { detail?: string; error?: string } } }
+  ).response;
   if (response?.status === 429) {
     return 'Too many uploads — please wait a while and try again.';
   }
-  return response?.data?.detail ?? 'Failed to upload files';
+  // This endpoint reports per-file rejections as `error`, not DRF's usual
+  // `detail` — reading only `detail` meant every wrong-type and oversize
+  // message fell through to the generic string. `detail` is still checked
+  // because the demo block and permission denials do use it.
+  return response?.data?.error ?? response?.data?.detail ?? 'Failed to upload files';
 }
 
 function getFileIcon(fileType: string) {

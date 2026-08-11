@@ -12,7 +12,9 @@ from rest_framework.response import Response
 from rest_framework_simplejwt.tokens import RefreshToken
 from core.demo import require_not_demo
 from core.permissions import NotDemoAccountForWrites
-from core.throttling import GLOBAL_THROTTLES, ClientIPScopedRateThrottle
+from core.throttling import (
+    GLOBAL_THROTTLES, ClientIPScopedRateThrottle, LoginEmailRateThrottle,
+)
 from core.uploads import verify_image
 from .models import User, UserPreferences
 from .serializers import UserSerializer, UserPreferencesSerializer
@@ -106,16 +108,20 @@ class ThrottledPasswordResetConfirmView(PasswordResetConfirmView):
 
 
 class ThrottledLoginView(LoginView):
-    """dj-rest-auth's login with a per-IP rate limit.
+    """dj-rest-auth's login, capped per source address AND per account.
 
     Phase 73. Nothing capped password guessing here before: there was no scoped
-    throttle, allauth's own limiter was unconfigured, and the global anon rate
-    it fell back to defaulted to unlimited. Paired with ACCOUNT_RATE_LIMITS
-    ('login_failed', keyed on the submitted email) so that neither a single
-    noisy IP nor a distributed run at one account gets an unbounded number of
-    attempts.
+    throttle, and the global anon rate it fell back to defaulted to unlimited.
+
+    Two ceilings, because each is blind to the other's attack. The 'login'
+    scope is keyed on the client address and bounds how fast one source can
+    guess. LoginEmailRateThrottle is keyed on the submitted account and bounds
+    how many guesses one victim receives no matter how many addresses they come
+    from — the distributed case, which no per-IP rate can see.
     """
-    throttle_classes = [ClientIPScopedRateThrottle, *GLOBAL_THROTTLES]
+    throttle_classes = [
+        ClientIPScopedRateThrottle, LoginEmailRateThrottle, *GLOBAL_THROTTLES,
+    ]
     throttle_scope = 'login'
 
 

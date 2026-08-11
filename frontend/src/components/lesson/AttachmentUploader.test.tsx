@@ -58,15 +58,30 @@ describe('AttachmentUploader — upload rejections', () => {
     ).toBeInTheDocument();
   });
 
+  // The attachment endpoint reports per-file rejections as `error`. An earlier
+  // version of this test mocked `detail`, which the API never sends here, so it
+  // passed while every real rejection showed the generic message.
   it('passes through a per-file rejection from the backend', async () => {
     mockUploadLessonAttachments.mockRejectedValue({
-      response: { status: 400, data: { detail: '"starter.py" does not match its file type.' } },
+      response: { status: 400, data: { error: '"starter.py" does not match its file type.' } },
     });
 
     await uploadOneFile();
 
     expect(
       await screen.findByText('"starter.py" does not match its file type.')
+    ).toBeInTheDocument();
+  });
+
+  it('still reads detail, which permission denials use', async () => {
+    mockUploadLessonAttachments.mockRejectedValue({
+      response: { status: 403, data: { detail: 'Only instructors can upload attachments.' } },
+    });
+
+    await uploadOneFile();
+
+    expect(
+      await screen.findByText('Only instructors can upload attachments.')
     ).toBeInTheDocument();
   });
 

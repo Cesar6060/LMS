@@ -19,11 +19,13 @@ per request by varying it. So the trust is gated on an explicit
 than left implied by this docstring.
 """
 
+import hashlib
+
 from django.conf import settings
 from django.core.cache import caches
 
 from rest_framework.throttling import (
-    AnonRateThrottle, ScopedRateThrottle, UserRateThrottle,
+    AnonRateThrottle, ScopedRateThrottle, SimpleRateThrottle, UserRateThrottle,
 )
 
 from core.demo import is_demo_user
@@ -88,6 +90,51 @@ class ClientIPUserRateThrottle(ClientIPIdentMixin, UserRateThrottle):
 
 class ClientIPScopedRateThrottle(ClientIPIdentMixin, ScopedRateThrottle):
     pass
+
+
+class LoginEmailRateThrottle(SimpleRateThrottle):
+    """Per-account login ceiling, keyed on the submitted email.
+
+    Phase 73, second attempt. This started as allauth's own
+    ``ACCOUNT_RATE_LIMITS['login_failed']``, which turned out to be dead
+    config: allauth consumes that limit in ``DefaultAccountAdapter
+    .pre_authenticate()``, and dj-rest-auth's ``LoginSerializer.authenticate``
+    calls ``django.contrib.auth.authenticate()`` directly without ever going
+    through the adapter. Nine failed attempts against one account followed by a
+    successful one proved it never fired.
+
+    What it buys over the per-IP ``login`` scope: an attacker spread across
+    many addresses gets a fresh IP bucket per source, so no per-IP rate can see
+    a distributed run at a single account. This one can, because the key is the
+    account. Neither replaces the other — the IP scope bounds total volume from
+    one source, this bounds attempts against one victim.
+
+    The email is hashed rather than used raw: throttle counters live in a
+    file-backed cache, and the cache key becomes a filename, so a raw address
+    would write user emails to disk.
+
+    Deliberately NOT using ClientIPIdentMixin: the whole point is a key that
+    does not vary with the client address. It does inherit the mixin's cache
+    routing indirectly via `cache` below.
+    """
+
+    scope = 'login_email'
+
+    @property
+    def cache(self):
+        return caches['throttle']
+
+    def get_cache_key(self, request, view):
+        email = request.data.get('email') if hasattr(request, 'data') else None
+        if not isinstance(email, str):
+            return None
+        email = email.strip().lower()
+        if not email:
+            # Nothing to key on. Returning None skips this throttle only; the
+            # per-IP ones on the same view still apply.
+            return None
+        digest = hashlib.sha256(email.encode('utf-8')).hexdigest()[:32]
+        return self.cache_format % {'scope': self.scope, 'ident': digest}
 
 
 # Phase 73: naming any throttle on a view *replaces* DEFAULT_THROTTLE_CLASSES

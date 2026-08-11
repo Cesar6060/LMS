@@ -95,9 +95,11 @@ services:
 #                  slide, must clear a 100-page deck plus retries)
 # Throttles (P67): THROTTLE_INVITE_LINK (suggested: 60/hour — instructor-only
 #                  copy-link fetches, one per student they chase down),
-#                  THROTTLE_JOIN_CODE (suggested: 10/hour, matching
-#                  THROTTLE_INVITE_ACCEPT — anonymous join-code redemption,
-#                  keyed on client IP)
+#                  THROTTLE_JOIN_CODE — anonymous join-code redemption keyed on
+#                  client IP. The old 10/hour suggestion here was never set, and
+#                  phase 73 found it would break the flow it governs: a class
+#                  behind one school NAT is one bucket, so the 11th student
+#                  could not join. Default is now 60/hour; leave this unset.
 # Throttles (P63): THROTTLE_CACHE_DIR — OPTIONAL, leave unset. Throttle counters
 #                  moved to their own file-backed cache so both gunicorn workers
 #                  share them (before P63 each worker held its own copy and every
@@ -117,10 +119,11 @@ services:
 #                  dashboard is now an override, not a requirement — and
 #                  THROTTLE_JOIN_CODE / THROTTLE_INVITE_LINK, which were never
 #                  actually set, stop being unlimited on this deploy.
-#                  New names: THROTTLE_LOGIN (default 10/min),
+#                  New names: THROTTLE_LOGIN (default 30/min, per address),
+#                  THROTTLE_LOGIN_EMAIL (20/hour, per account -- catches a run
+#                  distributed across many addresses),
 #                  THROTTLE_PASSWORD_RESET_CONFIRM (5/hour),
 #                  THROTTLE_ATTACHMENT_UPLOAD (60/hour),
-#                  ACCOUNT_RATE_LIMIT_LOGIN_FAILED (5/5m/key),
 #                  HIBP_ENABLED (default on — breached-password screening),
 #                  ALLOW_INSECURE_NON_DEBUG (must stay UNSET here; setting it
 #                  would let the service boot with DEBUG=False and no TLS),

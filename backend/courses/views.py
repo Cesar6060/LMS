@@ -1903,9 +1903,9 @@ def _queue_invite_email(invite, email_tasks):
 # @throttle_classes REPLACES DEFAULT_THROTTLE_CLASSES, and the scoped class
 # below exempts safe methods — so listing this way left GET with no throttle at
 # all. Re-list the global per-user ceiling to cover the read, exactly as
-# lesson_section_import_slide does. The other @throttle_classes views
-# (demo_login, accept_invite, the password-reset view) drop the globals too,
-# but their scoped rate is strictly tighter than anon/user, so nothing is lost.
+# lesson_section_import_slide does. (demo_login, accept_invite and the
+# password-reset views used to drop the globals as well; phase 73 re-listed
+# them, so this is now the pattern everywhere rather than the exception.)
 @throttle_classes([ClientIPUserRateThrottle, ClientIPScopedWriteRateThrottle])
 def course_invites(request, course_code):
     """List invites for a course, or bulk-invite students by email.

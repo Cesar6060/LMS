@@ -2803,6 +2803,35 @@ class TestSlideImport:
     def url(self, lesson):
         return f'/api/courses/lessons/{lesson.id}/sections/import-slide/'
 
+    # ---- Rate limit ----
+
+    @pytest.mark.throttled
+    def test_slide_import_is_throttled(
+            self, api_client, instructor, lesson, monkeypatch):
+        """Phase 73: slide_import was the one scope with a configured rate and
+        no test proving the view was wired to it — a scoped throttle with no
+        throttle_scope on the view is silently inert."""
+        from django.core.cache import caches
+        from rest_framework.throttling import ScopedRateThrottle
+
+        monkeypatch.setattr(
+            ScopedRateThrottle, 'THROTTLE_RATES', {'slide_import': '2/hour'})
+        caches['throttle'].clear()
+        api_client.force_authenticate(user=instructor)
+        try:
+            for _ in range(2):
+                ok = api_client.post(
+                    self.url(lesson), {'image': make_slide_image_file()},
+                    format='multipart')
+                assert ok.status_code == status.HTTP_201_CREATED
+
+            throttled = api_client.post(
+                self.url(lesson), {'image': make_slide_image_file()},
+                format='multipart')
+            assert throttled.status_code == status.HTTP_429_TOO_MANY_REQUESTS
+        finally:
+            caches['throttle'].clear()
+
     # ---- Happy path ----
 
     def test_import_into_empty_lesson_201_with_defaults(
@@ -8020,7 +8049,8 @@ class TestPhase73AttachmentHardening:
         api_client.force_authenticate(user=instructor)
 
         response = self.upload(api_client, lesson, SimpleUploadedFile(
-            'starter.py', b'import pygame\n\n\ndef main():\n    pass\n',
+            'starter.py',
+            b'#!/usr/bin/env python3\nimport pygame\n\n\ndef main():\n    pass\n',
             content_type='text/x-python'))
 
         assert response.status_code == status.HTTP_201_CREATED
@@ -8151,3 +8181,25 @@ class TestPhase73AttachmentHardening:
 
         assert response.status_code == status.HTTP_200_OK
         assert response.data[0]['url']
+
+    @pytest.mark.parametrize('payload', [
+        b'<iframe src="javascript:alert(document.cookie)"></iframe>',
+        b'<body onload="alert(1)">',
+        b'<meta http-equiv="refresh" content="0;url=http://evil.example">',
+        b'\xef\xbb\xbf<html><script>alert(1)</script></html>',
+    ])
+    def test_sniffable_html_attachment_is_rejected(
+            self, api_client, instructor, lesson, payload):
+        """Regression from the phase 73 adversarial pass.
+
+        The first implementation matched four tag names, so `<iframe>` uploaded
+        as a .txt was stored with a 201. The marker list an attacker has to
+        avoid is the browser's, not ours.
+        """
+        api_client.force_authenticate(user=instructor)
+
+        response = self.upload(api_client, lesson, SimpleUploadedFile(
+            'notes.txt', payload, content_type='text/plain'))
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert lesson.attachments.count() == 0

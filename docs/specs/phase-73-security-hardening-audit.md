@@ -281,6 +281,74 @@ Each of these was reviewed during the audit and consciously accepted.
 5. **Demo guard is opt-in.** `core/demo.py:85-92` documents that any new write
    endpoint forgetting `require_not_demo` is unguarded. Task D2 fixes one such
    omission; converting to default-deny middleware is out of scope.
+6. **Upload verification only reads the first 512 bytes** (`core/uploads.py`,
+   `_HEADER_BYTES`). A `.py` or `.txt` with a clean preamble and arbitrary
+   binary appended past that offset passes. Raised by the phase 73 adversarial
+   pass as SUSPICIOUS and accepted: header inspection is what the task
+   specified, attachments are never executed server-side, and they are served
+   with a download disposition. Reading whole files on upload would trade a
+   shallow check for a memory-pressure lever.
+7. **A zip whose trailing bytes contain HTML passes** the `.zip` signature
+   check, since both that check and the HTML sniff look only at the header.
+   Not exploitable through browser MIME sniffing, which requires the markup
+   near the start of the resource rather than after a binary header. Same
+   adversarial pass, also accepted.
+
+### Fixed during the review round (not deferred)
+
+- **A5 was inert config.** `ACCOUNT_RATE_LIMITS['login_failed']` never ran:
+  allauth consumes it in `DefaultAccountAdapter.pre_authenticate()`, and
+  dj-rest-auth's `LoginSerializer` calls `django.contrib.auth.authenticate()`
+  directly without touching the adapter — proven by nine failed attempts on one
+  account followed by a successful login. The setting is removed (with a test
+  pinning its absence so it does not come back) and replaced by
+  `core.throttling.LoginEmailRateThrottle` on a `login_email` scope, which runs
+  in DRF's pipeline and is exercised by a test that attacks one account from
+  four different addresses.
+- **A `.py` file with a shebang was rejected.** `#!` was in
+  `EXECUTABLE_SIGNATURES`, so `#!/usr/bin/env python3` — the ordinary first
+  line of a starter script, and exactly the material task D chose to keep
+  uploadable — got a 400. The endpoint test passed only because it uploaded a
+  shebang-less script. Removed from the signature list; both the unit and
+  endpoint tests now use a real shebang.
+- **The HTML marker list was too wide after the first fix.** Extending it to
+  the full WHATWG sniffing set meant `<div`, `<p`, `<br`, `<table` — how
+  ordinary markdown opens — were refused. Narrowed to tags that carry or load
+  something, with accepted-case tests so the next tightening does not
+  reintroduce the false positive.
+- **Per-IP rates would have broken a classroom.** Throttle idents are the
+  client address and a school NAT is one bucket, so `login` at 10/min 429'd the
+  eleventh student of a period and `join_code` at 10/hour capped a class at ten
+  joins an hour — on the endpoint whose only purpose is that flow. Raised to
+  30/min and 60/hour. Both were among the never-set scopes, so this default is
+  what production will actually run.
+- **Attachment errors never reached the instructor.** The endpoint reports
+  per-file rejections as `error`, but the frontend read only DRF's `detail`, so
+  every content-mismatch and oversize message fell back to a generic string —
+  and the test mocked a `detail` shape the API never sends. Both fixed.
+- **D5 was half-implemented.** `download_url` set the disposition but not a
+  content type, and its test asserted only that a URL was truthy (which passes
+  under the local storage fallback that never sets either). It now pins
+  `application/octet-stream` too, with a stub-storage test that records the
+  parameters.
+- **`slide_import` had no throttle test**, before or after this phase — a
+  scoped throttle with no `throttle_scope` on the view is silently inert, which
+  is the exact bug found in `attachment_upload` during implementation. Covered.
+
+### Fixed during the adversarial pass (not deferred)
+
+- **BROKEN — `HTML_MARKERS` missed most sniffable tags.** The first
+  implementation matched only `<!doctype html`, `<html`, `<script`, `<svg`, so
+  an `<iframe src="javascript:...">` uploaded as `.txt` was stored with a 201,
+  and a UTF-8 BOM walked past the ASCII-only `lstrip()`. Replaced with the
+  WHATWG sniffing tag set plus BOM handling and a tag-terminator rule, and
+  pinned by `core/tests/test_uploads.py` and an end-to-end case posting the
+  exact payload that used to succeed.
+- **`ACCOUNT_RATE_LIMITS` was enforced per gunicorn worker.** allauth reads the
+  `default` cache alias, which was `LocMemCache`, so the account-keyed
+  `login_failed` ceiling was really double its configured value — the phase 63
+  bug arriving through a different door. The default alias is now file-backed
+  and shared, guarded by three tests in `core/tests/test_throttling.py`.
 
 ## Verification
 

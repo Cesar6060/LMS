@@ -324,9 +324,22 @@ REST_FRAMEWORK = {
         # it gets the same tight ceiling as requesting a reset.
         'password_reset_confirm': config(
             'THROTTLE_PASSWORD_RESET_CONFIRM', default='5/hour'),
-        # Phase 73: password guessing against dj-rest-auth's LoginView. Backed
-        # by allauth's own ACCOUNT_RATE_LIMITS (see below) as defence in depth.
-        'login': config('THROTTLE_LOGIN', default='10/min'),
+        # Phase 73: password guessing against dj-rest-auth's LoginView, keyed
+        # on the client address.
+        #
+        # 30/min rather than the 10/min first written here: throttle idents are
+        # the client IP, and a school NAT puts a whole classroom behind one
+        # address. At 10/min the eleventh student to log in at the start of a
+        # period gets a 429 — an outage indistinguishable from the site being
+        # down. 30/min is still a hard ceiling on guessing from one source, and
+        # the per-account 'login_email' scope below is what actually bounds an
+        # attack on a specific victim.
+        'login': config('THROTTLE_LOGIN', default='30/min'),
+        # Phase 73: the per-account half, keyed on the submitted email rather
+        # than the address, so a run distributed across many IPs is still
+        # capped. Generous enough that a student re-entering a forgotten
+        # password never notices it.
+        'login_email': config('THROTTLE_LOGIN_EMAIL', default='20/hour'),
         # Course invites (Phase 51). Sending is instructor-triggered email;
         # accepting is an anonymous account-creation endpoint, so it is tighter.
         'invite_send': config('THROTTLE_INVITE_SEND', default='30/hour'),
@@ -337,7 +350,15 @@ REST_FRAMEWORK = {
         # as invite_accept, and the tight limit is what stops someone walking a
         # leaked code through an email list.
         'invite_link': config('THROTTLE_INVITE_LINK', default='60/hour'),
-        'join_code': config('THROTTLE_JOIN_CODE', default='10/hour'),
+        # 60/hour, not the 10/hour the old comments suggested. join_code is
+        # keyed on the client address and redeemed by a whole class at once
+        # from behind one school NAT — at 10/hour the eleventh student cannot
+        # join until the next hour. That value was only ever a suggestion in
+        # render.yaml and was never actually set in production, which is why
+        # nobody had discovered it breaks the flow it governs. Enumeration is
+        # bounded primarily by the single generic error string (no oracle) and
+        # the required code+email match, not by this number.
+        'join_code': config('THROTTLE_JOIN_CODE', default='60/hour'),
         # Slide-deck import (Phase 61): one multipart upload per slide, so a
         # 100-page deck is 100 writes in quick succession — the rate must
         # allow a burst that size.
@@ -483,15 +504,19 @@ ACCOUNT_USER_MODEL_USERNAME_FIELD = None
 ACCOUNT_UNIQUE_EMAIL = True
 ACCOUNT_LOGIN_ON_EMAIL_CONFIRMATION = True
 
-# Phase 73: allauth's own failure limiter, keyed on the submitted email rather
-# than the client IP. The DRF 'login' throttle above stops one address hammering
-# the endpoint; this stops a distributed attempt from grinding a single account
-# without tripping any per-IP ceiling. Both must be defeated to brute-force one
-# password, and neither alone is sufficient.
-ACCOUNT_RATE_LIMITS = {
-    'login_failed': config('ACCOUNT_RATE_LIMIT_LOGIN_FAILED',
-                           default='5/5m/key'),
-}
+# Phase 73: there is deliberately no ACCOUNT_RATE_LIMITS here.
+#
+# It was configured with 'login_failed' and removed once it was shown to be
+# dead config on this stack. allauth consumes that limit inside
+# DefaultAccountAdapter.pre_authenticate(), which is reached only through
+# adapter.authenticate() — and dj-rest-auth's LoginSerializer calls
+# django.contrib.auth.authenticate() directly, never touching the adapter. Nine
+# failed attempts against one account followed by a successful login proved it
+# never fired. None of allauth's own views are mounted either.
+#
+# The per-account ceiling it was supposed to provide is real and now lives in
+# core.throttling.LoginEmailRateThrottle, on the 'login_email' scope, where it
+# runs in DRF's throttle pipeline and is actually exercised by a test.
 
 # Email Backend
 EMAIL_BACKEND = config(

@@ -903,3 +903,88 @@ class TestPhase73AuthThrottles:
             classes = view.throttle_classes
             assert ClientIPAnonRateThrottle in classes, view.__name__
             assert ClientIPUserRateThrottle in classes, view.__name__
+
+    @pytest.mark.throttled
+    def test_one_account_is_capped_across_many_source_addresses(
+            self, api_client, user, monkeypatch, settings):
+        """The distributed case no per-IP rate can see.
+
+        This is what allauth's ACCOUNT_RATE_LIMITS was supposed to provide and
+        never did — dj-rest-auth authenticates without going through allauth's
+        adapter, so that limit never ran. Each request below arrives from a
+        different address, so the per-IP 'login' scope sees one attempt from
+        each and never fires; only the account-keyed scope can stop this.
+        """
+        from django.core.cache import caches
+        from rest_framework.throttling import SimpleRateThrottle
+
+        settings.TRUST_CF_HEADERS = True
+        monkeypatch.setattr(
+            SimpleRateThrottle, 'THROTTLE_RATES',
+            {'login_email': '3/hour', 'login': '1000/min',
+             'anon': None, 'user': None})
+        caches['throttle'].clear()
+        try:
+            for i in range(3):
+                denied = api_client.post(
+                    self.LOGIN_SLASH,
+                    {'email': user.email, 'password': 'wrong-password'},
+                    format='json', HTTP_CF_CONNECTING_IP=f'203.0.113.{i}')
+                assert denied.status_code == status.HTTP_400_BAD_REQUEST
+
+            blocked = api_client.post(
+                self.LOGIN_SLASH,
+                {'email': user.email, 'password': 'wrong-password'},
+                format='json', HTTP_CF_CONNECTING_IP='203.0.113.200')
+            assert blocked.status_code == status.HTTP_429_TOO_MANY_REQUESTS
+        finally:
+            caches['throttle'].clear()
+
+    @pytest.mark.throttled
+    def test_one_account_being_attacked_does_not_lock_out_everyone_else(
+            self, api_client, user, instructor, monkeypatch, settings):
+        """The key is the account, so a run at one victim must not deny others."""
+        from django.core.cache import caches
+        from rest_framework.throttling import SimpleRateThrottle
+
+        settings.TRUST_CF_HEADERS = True
+        monkeypatch.setattr(
+            SimpleRateThrottle, 'THROTTLE_RATES',
+            {'login_email': '2/hour', 'login': '1000/min',
+             'anon': None, 'user': None})
+        caches['throttle'].clear()
+        try:
+            for _ in range(3):
+                api_client.post(
+                    self.LOGIN_SLASH,
+                    {'email': user.email, 'password': 'wrong-password'},
+                    format='json', HTTP_CF_CONNECTING_IP='203.0.113.5')
+
+            other = api_client.post(
+                self.LOGIN_SLASH,
+                {'email': instructor.email, 'password': 'testpass123'},
+                format='json', HTTP_CF_CONNECTING_IP='203.0.113.5')
+            assert other.status_code == status.HTTP_200_OK
+        finally:
+            caches['throttle'].clear()
+
+    def test_login_email_bucket_does_not_store_raw_addresses(self):
+        """Counters are files on disk; the key must not be a student's email."""
+        from core.throttling import LoginEmailRateThrottle
+
+        class Req:
+            data = {'email': 'Student@Example.com'}
+
+        key = LoginEmailRateThrottle().get_cache_key(Req(), view=None)
+
+        assert key is not None
+        assert 'student@example.com' not in key.lower()
+
+    def test_login_email_throttle_is_skipped_when_no_email_is_sent(self):
+        """Returning None skips only this throttle; the per-IP ones remain."""
+        from core.throttling import LoginEmailRateThrottle
+
+        class Req:
+            data = {'username': 'nope'}
+
+        assert LoginEmailRateThrottle().get_cache_key(Req(), view=None) is None
