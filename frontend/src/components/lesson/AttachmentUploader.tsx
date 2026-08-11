@@ -2,6 +2,7 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import { Button } from '@/components/ui/Button';
 import { Card, CardContent } from '@/components/ui/Card';
 import { courseService } from '@/services/courses';
+import { DEMO_BLOCKED_MESSAGE, isDemoBlocked } from '@/services/api';
 import type { LessonAttachment } from '@/types';
 import { Upload, Trash2, Loader2, FileText, Image, File, Paperclip } from 'lucide-react';
 import { cn } from '@/lib/utils';
@@ -15,6 +16,24 @@ function formatFileSize(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`;
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+/**
+ * The upload endpoint rejects in three shapes the instructor needs to tell
+ * apart: the shared demo account's write block (detected and toasted centrally
+ * in `services/api.ts`), the per-instructor upload throttle, and a per-file
+ * rejection that arrives as a DRF `detail` (wrong type, disguised binary).
+ * Anything else stays generic.
+ */
+function uploadErrorMessage(err: unknown): string {
+  if (isDemoBlocked(err)) return DEMO_BLOCKED_MESSAGE;
+
+  const response = (err as { response?: { status?: number; data?: { detail?: string } } })
+    .response;
+  if (response?.status === 429) {
+    return 'Too many uploads — please wait a while and try again.';
+  }
+  return response?.data?.detail ?? 'Failed to upload files';
 }
 
 function getFileIcon(fileType: string) {
@@ -85,7 +104,7 @@ export function AttachmentUploader({ lessonId, lessonTitle }: AttachmentUploader
       }
     } catch (err) {
       console.error('Failed to upload:', err);
-      setError('Failed to upload files');
+      setError(uploadErrorMessage(err));
     } finally {
       setIsUploading(false);
     }

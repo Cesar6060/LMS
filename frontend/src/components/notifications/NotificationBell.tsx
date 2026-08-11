@@ -9,6 +9,7 @@ import {
   DropdownMenuItem,
 } from '@/components/ui/DropdownMenu';
 import { notificationService } from '@/services/notifications';
+import { isInAppPath } from '@/lib/inAppPath';
 import type { Notification } from '@/types';
 
 export function NotificationBell() {
@@ -81,10 +82,10 @@ export function NotificationBell() {
 
   const handleSelect = (event: Event, notification: Notification) => {
     handleMarkAsRead(notification);
-    if (notification.related_url) {
+    if (notification.related_url && isInAppPath(notification.related_url)) {
       navigate(notification.related_url);
     } else {
-      // Nothing to navigate to — keep the panel open, just mark as read
+      // Nothing in-app to navigate to — keep the panel open, just mark as read
       event.preventDefault();
     }
   };
