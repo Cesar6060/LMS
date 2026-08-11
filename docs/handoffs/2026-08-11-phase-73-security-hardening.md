@@ -14,9 +14,10 @@ What shipped:
   to `None` = unlimited, so a missing Render var silently disabled a rate limit
   — `THROTTLE_JOIN_CODE`/`THROTTLE_INVITE_LINK` were live in that state. All
   now carry real defaults. New `login` and `password_reset_confirm` scopes
-  mounted as `re_path` optional-slash shadows, plus allauth
-  `ACCOUNT_RATE_LIMITS`. New `backend/conftest.py` disables throttling under
-  pytest (opt back in with `@pytest.mark.throttled`).
+  mounted as `re_path` optional-slash shadows, plus `login_email` — a
+  per-account ceiling that catches a run distributed across many addresses.
+  New `backend/conftest.py` disables throttling under pytest (opt back in with
+  `@pytest.mark.throttled`).
 - **Authorization.** `CourseSerializer` strips nested units/lessons for callers
   who neither own the course nor are enrolled (any `is_instructor` account
   could read every course's content). `AnnouncementViewSet.create` closed — it
