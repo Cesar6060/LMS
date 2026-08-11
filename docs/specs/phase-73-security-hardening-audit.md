@@ -65,7 +65,7 @@ allauth's own `ACCOUNT_RATE_LIMITS` is unconfigured, so there is no
 brute-force ceiling on password guessing beyond the (possibly unset) global
 `anon` rate.
 
-- [ ] **A1.** Replace every `default=None` in `DEFAULT_THROTTLE_RATES` with a
+- [x] **A1.** Replace every `default=None` in `DEFAULT_THROTTLE_RATES` with a
       conservative hardcoded default, so an unset env var means *protected*,
       not unlimited. Use the values `.env.example` already documents as the
       production settings: `anon` 30/min, `user` 120/min, `demo_login` 10/min,
@@ -73,14 +73,14 @@ brute-force ceiling on password guessing beyond the (possibly unset) global
       `invite_link` 60/hour, `join_code` 10/hour, `slide_import` 300/hour. Env
       vars still override. Update the comments — they currently document
       "unset = unlimited" as intended behavior.
-- [ ] **A2.** ⚠️ **Do A2 in the same commit as A1 or the suite will break.**
+- [x] **A2.** ⚠️ **Do A2 in the same commit as A1 or the suite will break.**
       Hardcoded rates apply to the 1181-test suite, where many tests make far
       more than 120 requests/min as one user. Add an autouse fixture in
       `backend/conftest.py` that neutralizes throttle rates for all tests and
       clears the throttle cache between them, with an opt-in marker (e.g.
       `@pytest.mark.throttled`) for the tests that assert throttling. Without
       this, expect widespread spurious 429s.
-- [ ] **A3.** Add a `login` throttle scope and apply it to the login endpoint.
+- [x] **A3.** Add a `login` throttle scope and apply it to the login endpoint.
       **Mount it with `re_path(r'^login/?$', ...)`, not `path()`** — dj-rest-auth
       registers its views with an optional trailing slash, so a `path()` shadow
       captures only `login/` and `/api/auth/login` (no slash) falls through to
@@ -88,20 +88,20 @@ brute-force ceiling on password guessing beyond the (possibly unset) global
       `accounts/urls.py:29-35` and pinned by `core/tests/test_demo_lockdown.py`.
       Default 10/min. The shadow must sit **before** the
       `path('', include('dj_rest_auth.urls'))` line.
-- [ ] **A4.** Same treatment for `password/reset/confirm/` — today only
+- [x] **A4.** Same treatment for `password/reset/confirm/` — today only
       `password/reset/` is shadowed and throttled, leaving the endpoint that
       *accepts the reset token* open to token brute-forcing. Scope
       `password_reset_confirm`, default 5/hour, `re_path` with `/?$`.
-- [ ] **A5.** Configure allauth `ACCOUNT_RATE_LIMITS` for `login_failed` as
+- [x] **A5.** Configure allauth `ACCOUNT_RATE_LIMITS` for `login_failed` as
       defense in depth behind A3.
-- [ ] **A6.** Audit the scoped-throttle views that *replace* the default
+- [x] **A6.** Audit the scoped-throttle views that *replace* the default
       classes rather than adding to them (`accounts/views.py:35-37, 81-91`;
       `courses/views.py:2248-2250`). Listing only `ClientIPScopedRateThrottle`
       drops the global anon/user ceiling for that endpoint. Make each list the
       global classes alongside the scoped one, matching the pattern
       `join_with_code` already uses (see the comment at
       `courses/views.py:2155-2163`).
-- [ ] **A7.** [P] Add a secret-scanning step to CI (gitleaks or
+- [x] **A7.** [P] Add a secret-scanning step to CI (gitleaks or
       `detect-secrets`) covering the working tree and full history, so item 1
       stays clean. Independent of every other task.
 
@@ -116,12 +116,12 @@ course. Course codes are enumerable by design (`ROB101`, `JAVA101`). The same
 lesson requested via `GET /api/lessons/<id>/` correctly 403s — two different
 answers for the same data.
 
-- [ ] **B1.** Keep cross-instructor browsing of the catalog, but strip the
+- [x] **B1.** Keep cross-instructor browsing of the catalog, but strip the
       nested `units`/`lessons` payload from the course-detail response when the
       caller neither owns the course nor is actively enrolled. Follow the
       existing precedent at `courses/serializers.py:517-526`, where
       `enrollment_code` is already popped for non-owners.
-- [ ] **B2.** Add permission-boundary tests: foreign instructor gets course
+- [x] **B2.** Add permission-boundary tests: foreign instructor gets course
       metadata but no lesson content; owning instructor and enrolled student
       get the full payload; anonymous still 401s.
 
@@ -135,14 +135,14 @@ IntegrityError (non-null `course`/`author`) — a 500, not a 403. That is an
 error-shape bug masking a missing authorization check, and it is one serializer
 field away from being exploitable.
 
-- [ ] **C1.** The real creation path is the course-scoped
+- [x] **C1.** The real creation path is the course-scoped
       `CourseAnnouncementsView` (`courses/views.py:960-981`), which already
       checks `require_course_instructor`. Disable `create` on the router
       viewset so the unguarded route returns 405 rather than 500. If you
       instead choose to implement it properly, it must resolve the course from
       a validated `course` field and call `require_course_instructor` in
       `perform_create` — mirroring `UnitViewSet.perform_create:231-234`.
-- [ ] **C2.** Test: student POST to the viewset route gets 405 (or 403 if
+- [x] **C2.** Test: student POST to the viewset route gets 405 (or 403 if
       implemented), never 500; instructor creation via the course-scoped route
       still works.
 
@@ -160,21 +160,21 @@ Attachments are served from a private R2 bucket via presigned URLs on a
 different origin, so they cannot execute in the application's origin, and
 `.svg`/`.html` are already excluded.
 
-- [ ] **D1.** Add magic-byte verification for formats that carry a signature:
+- [x] **D1.** Add magic-byte verification for formats that carry a signature:
       images via Pillow `format` + `verify()` (reuse the avatar helper at
       `accounts/views.py:212-229` rather than duplicating it), PDF `%PDF`
       header, zip `PK` header. Treat code and plain-text types as inert — no
       signature to check — but confirm they are not a disguised binary.
-- [ ] **D2.** Add `require_not_demo(request.user)` — this endpoint is currently
+- [x] **D2.** Add `require_not_demo(request.user)` — this endpoint is currently
       missing from the demo lockdown entirely.
-- [ ] **D3.** Add an `attachment_upload` throttle scope with a hardcoded
+- [x] **D3.** Add an `attachment_upload` throttle scope with a hardcoded
       default (60/hour), consistent with A1.
-- [ ] **D4.** Add a total-request size cap so ten near-limit files in one
+- [x] **D4.** Add a total-request size cap so ten near-limit files in one
       multipart request cannot be used as a memory-pressure lever.
-- [ ] **D5.** Ensure attachments are served with a download disposition and a
+- [x] **D5.** Ensure attachments are served with a download disposition and a
       non-executable content type, so a `.js` or `.html`-ish payload cannot be
       rendered inline if bucket configuration ever changes.
-- [ ] **D6.** Tests for each: disguised binary rejected, demo account 403
+- [x] **D6.** Tests for each: disguised binary rejected, demo account 403
       `demo_blocked`, throttle returns 429, oversize request rejected.
 
 ### E. Breached-password check — Medium
@@ -183,25 +183,25 @@ different origin, so they cannot execute in the application's origin, and
 stock validators. There is no breached-password screening. Minimum length
 **stays at 8** by decision.
 
-- [ ] **E1.** [P] Add a `PwnedPasswordValidator` in `backend/core/` using the
+- [x] **E1.** [P] Add a `PwnedPasswordValidator` in `backend/core/` using the
       HIBP k-anonymity range API: SHA-1 the candidate, send only the first 5
       hex characters, match the remainder locally. The password itself never
       leaves the server. Independent of all other tasks.
-- [ ] **E2.** **Fail open**: on timeout or any network error, allow the
+- [x] **E2.** **Fail open**: on timeout or any network error, allow the
       password and log a warning. A HIBP outage must never block a student from
       resetting their password — reset is most needed when someone is already
       locked out. Use a short timeout (~2s) so password endpoints stay
       responsive.
-- [ ] **E3.** Register the validator so it applies on registration, password
+- [x] **E3.** Register the validator so it applies on registration, password
       change, reset-confirm, and the invite-signup path
       (`courses/views.py:2313-2318`, which already calls `validate_password`).
-- [ ] **E4.** Tests with the HIBP call mocked: known-breached password rejected,
+- [x] **E4.** Tests with the HIBP call mocked: known-breached password rejected,
       clean password accepted, network failure allows through and logs. **No
       test may make a real network call.**
 
 ### F. Config guards — Medium
 
-- [ ] **F1.** [P] Add a boot-time guard requiring `USE_HTTPS` when
+- [x] **F1.** [P] Add a boot-time guard requiring `USE_HTTPS` when
       `DEBUG=False`, mirroring the existing `SECRET_KEY`/`ALLOWED_HOSTS` guard
       at `config/settings.py:28-36`. Today nothing asserts that HSTS, secure
       cookies, SSL redirect and `SECURE_PROXY_SSL_HEADER` are actually on in
@@ -210,7 +210,7 @@ stock validators. There is no breached-password screening. Minimum length
       deliberately runs `DEBUG=False` without HTTPS
       (`.github/workflows/ci.yml:61-67`) — an env var such as
       `ALLOW_INSECURE_NON_DEBUG=1`, set only in CI.
-- [ ] **F2.** [P] Move `SENTRY_DEBUG_ENDPOINT` to an import-time read.
+- [x] **F2.** [P] Move `SENTRY_DEBUG_ENDPOINT` to an import-time read.
       `config/health.py:70-80` reads it per-request via `decouple.config`, so
       an unauthenticated route that raises `ZeroDivisionError` can be switched
       on without a redeploy. Add it to the `render.yaml` env inventory comment,
@@ -218,27 +218,27 @@ stock validators. There is no breached-password screening. Minimum length
 
 ### G. Dependencies — Medium
 
-- [ ] **G1.** [P] `npm audit fix` in `frontend/` for the react-router
+- [x] **G1.** [P] `npm audit fix` in `frontend/` for the react-router
       advisory (GHSA-qwww-vcr4-c8h2, RSC-mode CSRF, affects 7.12.0–7.18.1;
       installed 7.18.1). Two further dev-only highs resolve with it.
-- [ ] **G2.** After G1, run `python manage.py migrate --check` against Neon.
+- [x] **G2.** After G1, run `python manage.py migrate --check` against Neon.
       Dependency bumps ship third-party migrations; this is a standing rule for
       this project after **any** requirements or lockfile change.
-- [ ] **G3.** Record that backend `pip-audit` is clean — the only hits are
+- [x] **G3.** Record that backend `pip-audit` is clean — the only hits are
       against `pip` itself (6 advisories on 25.0.1), which is build tooling,
       not a runtime dependency of the service.
 
 ## Frontend tasks
 
-- [ ] **H1.** [P] Verify the react-router bump from G1: `npx tsc --noEmit`,
+- [x] **H1.** [P] Verify the react-router bump from G1: `npx tsc --noEmit`,
       `npm run lint`, vitest, and a routing smoke test through the app —
       breadcrumbs, the course player, and lazy-loaded instructor routes, since
       the bump touches the data router.
-- [ ] **H2.** [P] Surface the new backend rejections in the attachment upload
+- [x] **H2.** [P] Surface the new backend rejections in the attachment upload
       UI: 429 (throttled) and 403 `demo_blocked` need real messages, not a
       generic failure. The `demo_blocked` toast plumbing already exists at
       `services/api.ts:70-90, 118-122`.
-- [ ] **H3.** [P] Add a shape check to `navigate(notification.related_url)`
+- [x] **H3.** [P] Add a shape check to `navigate(notification.related_url)`
       (`components/notifications/NotificationBell.tsx:84-85`), which today
       follows an API-supplied string with no validation. `related_url` is
       server-set and read-only so this is defense in depth, not an open hole —

@@ -77,4 +77,8 @@ jobs:
           # key stays in Render.
           SECRET_KEY: ephemeral-demo-reset-key
           DEBUG: 'false'
+          # Phase 73: DEBUG=false now requires USE_HTTPS unless opted out. This
+          # is a management command talking to Neon over its own TLS, not a
+          # server serving requests, so there is no transport to harden here.
+          ALLOW_INSECURE_NON_DEBUG: 'True'
         run: python manage.py seed_demo_account --reset

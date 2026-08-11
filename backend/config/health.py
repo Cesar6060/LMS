@@ -15,6 +15,14 @@ from django.views.decorators.cache import never_cache
 
 logger = logging.getLogger(__name__)
 
+# Phase 73: read once at import, not per request. This gates an unauthenticated
+# route whose entire job is to raise an exception, and a per-request read meant
+# it could be switched on from the Render dashboard with no deploy and no diff —
+# the change would leave no trace in the repository. Requiring a restart makes
+# enabling it a visible event.
+SENTRY_DEBUG_ENDPOINT_ENABLED = config(
+    'SENTRY_DEBUG_ENDPOINT', default=False, cast=bool)
+
 
 @never_cache
 def health(request):
@@ -72,9 +80,9 @@ def sentry_debug(request):
     """Deliberately crash so a production Sentry event can be forced on demand.
 
     Render's free tier has no shell, so this is the only way to smoke-test the
-    Sentry pipeline in prod. Inert (404) unless SENTRY_DEBUG_ENDPOINT is set;
-    the flag is read per-request so it can be flipped without a redeploy wait.
+    Sentry pipeline in prod. Inert (404) unless SENTRY_DEBUG_ENDPOINT is set at
+    boot — changing it now requires a restart, by design (see the constant).
     """
-    if not config('SENTRY_DEBUG_ENDPOINT', default=False, cast=bool):
+    if not SENTRY_DEBUG_ENDPOINT_ENABLED:
         raise Http404
     1 / 0  # noqa: B018 - the ZeroDivisionError IS the smoke test

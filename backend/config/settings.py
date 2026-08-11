@@ -189,6 +189,13 @@ AUTH_PASSWORD_VALIDATORS = [
     {'NAME': 'django.contrib.auth.password_validation.MinimumLengthValidator'},
     {'NAME': 'django.contrib.auth.password_validation.CommonPasswordValidator'},
     {'NAME': 'django.contrib.auth.password_validation.NumericPasswordValidator'},
+    # Phase 73 (E3): the four stock validators above catch structural weakness
+    # but not reuse of a password already in a public breach dump, which is what
+    # credential stuffing runs on. The minimum length stays at 8 by decision —
+    # breach screening is the stronger signal and raising the floor would only
+    # lock out existing accounts. Fails open on any HIBP error; see
+    # core/password_validation.py for why.
+    {'NAME': 'core.password_validation.PwnedPasswordValidator'},
 ]
 
 # Internationalization
@@ -355,6 +362,22 @@ CORS_ALLOW_CREDENTIALS = True
 # so the test suite (and CI) can run under DEBUG=False without HTTPS redirects.
 USE_HTTPS = config('USE_HTTPS', default=False, cast=bool)
 
+# Phase 73: that opt-in had no guard, so eight settings — SSL redirect, HSTS,
+# secure session and CSRF cookies, the proxy header — all hung off one variable
+# that nothing verified was set. SECRET_KEY and ALLOWED_HOSTS already fail fast
+# when DEBUG is off; this closes the same gap for transport security, where the
+# failure is silent rather than loud: the site keeps serving, just over plain
+# HTTP with cookies that are not marked Secure.
+#
+# CI genuinely runs DEBUG=False without HTTPS, so it needs a way through that is
+# explicit rather than implied by a missing variable.
+ALLOW_INSECURE_NON_DEBUG = config(
+    'ALLOW_INSECURE_NON_DEBUG', default=False, cast=bool)
+if not DEBUG and not USE_HTTPS and not ALLOW_INSECURE_NON_DEBUG:
+    raise ImproperlyConfigured(
+        'USE_HTTPS must be set when DEBUG is False. Set '
+        'ALLOW_INSECURE_NON_DEBUG=True only for CI or a non-public host.')
+
 # Read unconditionally: /admin/ needs trusted origins even before redirects are
 # on, and CORS_ALLOW_CREDENTIALS above makes CSRF origin checks matter.
 CSRF_TRUSTED_ORIGINS = config('CSRF_TRUSTED_ORIGINS', default='', cast=Csv())
@@ -432,6 +455,12 @@ AVATAR_MAX_UPLOAD_BYTES = 5 * 1024 * 1024
 # Largest lesson attachment an instructor may upload, per file (enforced in
 # courses.views.lesson_attachments — same view-level pattern as avatars).
 ATTACHMENT_MAX_UPLOAD_BYTES = 25 * 1024 * 1024
+
+# Phase 73: ceiling on one multipart request. The per-file limit above bounded
+# a single file but not a request carrying ten of them, so the real ceiling was
+# 250MB. Set above a full lesson's worth of ordinary material and below
+# anything worth using as a memory-pressure lever.
+ATTACHMENT_MAX_REQUEST_BYTES = 60 * 1024 * 1024
 
 # Largest slide image the client-side PDF rasterizer may upload, per slide
 # (enforced in courses.views.lesson_section_import_slide — same view-level

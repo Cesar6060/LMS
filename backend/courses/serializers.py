@@ -9,6 +9,7 @@ from .models import (
     LessonAttachment, LessonSection, InstructorReminder, CourseInvite
 )
 from accounts.serializers import UserSerializer
+from core.uploads import download_url
 from .permissions import (
     require_course_instructor, is_course_instructor, require_pending_invite,
     INVITE_REQUIRED_DETAIL,
@@ -74,10 +75,14 @@ class LessonAttachmentSerializer(serializers.ModelSerializer):
         fields = ['id', 'filename', 'file_type', 'file_size', 'url', 'uploaded_at']
 
     def get_url(self, obj):
+        if not obj.file:
+            return None
+        # Phase 73: served with an attachment disposition so an uploaded file
+        # is downloaded rather than rendered. On R2 this rides on the presigned
+        # URL itself, so it cannot be dropped by re-requesting the object.
+        url = download_url(obj.file, obj.filename)
         request = self.context.get('request')
-        if obj.file and request:
-            return request.build_absolute_uri(obj.file.url)
-        return obj.file.url if obj.file else None
+        return request.build_absolute_uri(url) if request else url
 
 
 class LessonSectionSerializer(VideoFieldsValidationMixin, serializers.ModelSerializer):

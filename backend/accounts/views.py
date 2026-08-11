@@ -2,7 +2,6 @@ from django.conf import settings
 from dj_rest_auth.views import (
     LoginView, PasswordResetConfirmView, PasswordResetView, UserDetailsView,
 )
-from PIL import Image
 from rest_framework import status
 from rest_framework.decorators import (
     api_view, permission_classes, parser_classes, throttle_classes,
@@ -14,6 +13,7 @@ from rest_framework_simplejwt.tokens import RefreshToken
 from core.demo import require_not_demo
 from core.permissions import NotDemoAccountForWrites
 from core.throttling import GLOBAL_THROTTLES, ClientIPScopedRateThrottle
+from core.uploads import verify_image
 from .models import User, UserPreferences
 from .serializers import UserSerializer, UserPreferencesSerializer
 
@@ -225,44 +225,17 @@ def upload_avatar(request):
         )
 
     # Extension and content type are both client-supplied, so confirm the bytes
-    # really are an image. Pillow's verify() raises a broad, undocumented set of
-    # exceptions on malformed input (OSError, SyntaxError, DecompressionBomb,
-    # struct errors from plugins), so catch Exception rather than guess.
-    #
-    # verify() alone is NOT enough: it accepts anything Pillow can decode, so
-    # TIFF/BMP/PPM bytes named ".png" with content_type "image/png" sail
-    # through and the allowlist above buys nothing. That matters because the
-    # allowlist's real job is bounding which Pillow *decoders* untrusted bytes
-    # can reach — the less-common codecs are where most of the ~20 CVEs behind
-    # this phase's Pillow bump live. So pin the detected format too.
-    #
-    # `.format` must be read BEFORE verify(), which leaves the Image unusable.
-    EXTENSION_FORMATS = {
-        'png': {'PNG'},
-        'jpg': {'JPEG'},
-        'jpeg': {'JPEG'},
-        'gif': {'GIF'},
-        'webp': {'WEBP'},
-    }
-    try:
-        image = Image.open(avatar_file)
-        detected_format = image.format
-        image.verify()
-    except Exception:
+    # really are an image, and that they are the format the extension claims —
+    # "is decodable by Pillow" alone would let TIFF/BMP/PPM bytes named ".png"
+    # through, and the allowlist's real job is bounding which Pillow *decoders*
+    # untrusted bytes can reach. Phase 73 moved the check into core.uploads so
+    # avatars, slide imports and lesson attachments share one implementation.
+    content_error = verify_image(avatar_file, file_ext)
+    if content_error:
         return Response(
-            {'error': 'Avatar is not a valid image file.'},
+            {'error': content_error},
             status=status.HTTP_400_BAD_REQUEST
         )
-
-    if detected_format not in EXTENSION_FORMATS[file_ext]:
-        return Response(
-            {'error': f'Avatar contents are {detected_format or "an unknown format"}, '
-                      f'which does not match its ".{file_ext}" extension.'},
-            status=status.HTTP_400_BAD_REQUEST
-        )
-
-    # verify() consumes the file and leaves it unusable — rewind before saving.
-    avatar_file.seek(0)
 
     # Delete old avatar if exists
     if preferences.avatar:

@@ -7990,3 +7990,164 @@ class TestPhase73AnnouncementCreateIsClosed:
         response = api_client.post(f'{self.URL}{announcement.id}/pin/')
 
         assert response.status_code == status.HTTP_200_OK
+
+
+# ---------------------------------------------------------------------------
+# Phase 73: attachment uploads verify content, block demo, and cap the request
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.django_db
+class TestPhase73AttachmentHardening:
+    """Attachments were the one upload path checking only the extension.
+
+    Avatars and slide imports already confirmed the bytes matched the claimed
+    type; this endpoint took the client's word for it, had no demo guard, and
+    had no scoped rate limit. Code and archive types stay allowed on purpose —
+    .py and .zip are ordinary material on a platform that teaches Python.
+    """
+
+    def url(self, lesson):
+        return f'/api/courses/lessons/{lesson.id}/attachments/'
+
+    def upload(self, api_client, lesson, *files):
+        return api_client.post(
+            self.url(lesson), {'files': list(files)}, format='multipart')
+
+    def test_real_python_file_is_accepted(
+            self, api_client, instructor, lesson):
+        """Guard against over-correcting: this is course material."""
+        api_client.force_authenticate(user=instructor)
+
+        response = self.upload(api_client, lesson, SimpleUploadedFile(
+            'starter.py', b'import pygame\n\n\ndef main():\n    pass\n',
+            content_type='text/x-python'))
+
+        assert response.status_code == status.HTTP_201_CREATED
+        assert lesson.attachments.count() == 1
+
+    def test_real_zip_file_is_accepted(self, api_client, instructor, lesson):
+        import io
+        import zipfile
+
+        buf = io.BytesIO()
+        with zipfile.ZipFile(buf, 'w') as archive:
+            archive.writestr('project/main.py', 'print("hi")')
+        api_client.force_authenticate(user=instructor)
+
+        response = self.upload(api_client, lesson, SimpleUploadedFile(
+            'project.zip', buf.getvalue(), content_type='application/zip'))
+
+        assert response.status_code == status.HTTP_201_CREATED
+
+    def test_executable_renamed_as_pdf_is_rejected(
+            self, api_client, instructor, lesson):
+        """The filename is all a student sees before opening it."""
+        api_client.force_authenticate(user=instructor)
+
+        response = self.upload(api_client, lesson, SimpleUploadedFile(
+            'homework.pdf', b'MZ\x90\x00' + b'\x00' * 200,
+            content_type='application/pdf'))
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert lesson.attachments.count() == 0
+
+    def test_elf_binary_renamed_as_py_is_rejected(
+            self, api_client, instructor, lesson):
+        api_client.force_authenticate(user=instructor)
+
+        response = self.upload(api_client, lesson, SimpleUploadedFile(
+            'solution.py', b'\x7fELF\x02\x01\x01' + b'\x00' * 200,
+            content_type='text/x-python'))
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+
+    def test_html_renamed_as_txt_is_rejected(
+            self, api_client, instructor, lesson):
+        """An HTML page is a stored-XSS vector wherever media is same-origin."""
+        api_client.force_authenticate(user=instructor)
+
+        response = self.upload(api_client, lesson, SimpleUploadedFile(
+            'notes.txt', b'<html><script>alert(1)</script></html>',
+            content_type='text/plain'))
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+
+    def test_non_image_renamed_as_png_is_rejected(
+            self, api_client, instructor, lesson):
+        api_client.force_authenticate(user=instructor)
+
+        response = self.upload(api_client, lesson, SimpleUploadedFile(
+            'diagram.png', b'not an image at all', content_type='image/png'))
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+
+    def test_total_request_size_is_capped(
+            self, api_client, instructor, lesson, settings):
+        """The per-file limit alone allowed 10x that much in one request."""
+        settings.ATTACHMENT_MAX_REQUEST_BYTES = 2048
+        api_client.force_authenticate(user=instructor)
+
+        response = self.upload(
+            api_client, lesson,
+            make_attachment_file('a.txt', b'a' * 1500),
+            make_attachment_file('b.txt', b'b' * 1500))
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert 'total' in response.data['error'].lower()
+        assert lesson.attachments.count() == 0
+
+    def test_demo_account_cannot_upload(
+            self, api_client, lesson, course, settings):
+        settings.DEMO_ACCOUNT_EMAIL = 'demo-instructor@demo.com'
+        demo = User.objects.create_user(
+            email='demo-instructor@demo.com', password='testpass123',
+            first_name='Demo', last_name='Instructor', is_instructor=True)
+        course.instructor = demo
+        course.save(update_fields=['instructor'])
+        api_client.force_authenticate(user=demo)
+
+        response = self.upload(
+            api_client, lesson, make_attachment_file('notes.txt'))
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+        assert response.data['code'] == 'demo_blocked'
+        assert lesson.attachments.count() == 0
+
+    @pytest.mark.throttled
+    def test_upload_is_throttled_but_listing_is_not(
+            self, api_client, instructor, lesson, monkeypatch):
+        from django.core.cache import caches
+        from rest_framework.throttling import ScopedRateThrottle
+
+        monkeypatch.setattr(
+            ScopedRateThrottle, 'THROTTLE_RATES',
+            {'attachment_upload': '2/hour'})
+        caches['throttle'].clear()
+        api_client.force_authenticate(user=instructor)
+        try:
+            for i in range(2):
+                ok = self.upload(
+                    api_client, lesson, make_attachment_file(f'n{i}.txt'))
+                assert ok.status_code == status.HTTP_201_CREATED
+
+            throttled = self.upload(
+                api_client, lesson, make_attachment_file('n3.txt'))
+            assert throttled.status_code == status.HTTP_429_TOO_MANY_REQUESTS
+
+            # Students read this endpoint on every lesson view; it must not
+            # share the upload bucket.
+            listed = api_client.get(self.url(lesson))
+            assert listed.status_code == status.HTTP_200_OK
+        finally:
+            caches['throttle'].clear()
+
+    def test_attachment_url_carries_a_download_disposition(
+            self, api_client, instructor, lesson):
+        api_client.force_authenticate(user=instructor)
+        self.upload(api_client, lesson, make_attachment_file('notes.txt'))
+
+        response = api_client.get(self.url(lesson))
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.data[0]['url']

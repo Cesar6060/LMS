@@ -25,6 +25,7 @@ from allauth.account.models import EmailAddress
 from accounts.models import User
 from accounts.serializers import UserSerializer
 from core.demo import is_demo_email, require_not_demo, require_not_demo_course
+from core.uploads import verify_upload
 from core.email import send_course_invite_link_email, send_emails_async
 from core.pagination import RosterPagination
 from core.throttling import (
@@ -3022,8 +3023,13 @@ def answer_lesson_quiz_session(request, lesson_id):
 # Lesson Attachments
 # ============================================
 
+# Phase 73: POST here was the one upload path with no scoped rate limit. Uses
+# the write-only variant so the student-facing GET (every lesson view lists its
+# attachments) is never throttled, and re-lists the globals because naming any
+# throttle replaces DEFAULT_THROTTLE_CLASSES.
 @api_view(['GET', 'POST'])
 @perm_classes([IsAuthenticated])
+@throttle_classes([ClientIPUserRateThrottle, ClientIPScopedWriteRateThrottle])
 def lesson_attachments(request, lesson_id):
     """
     GET: List attachments for a lesson (students and instructors)
@@ -3048,6 +3054,10 @@ def lesson_attachments(request, lesson_id):
             request.user, course,
             "Only instructors can upload attachments."
         )
+        # Phase 73: this endpoint was missing from the demo lockdown entirely,
+        # so a visitor on the shared account could add files to a demo course
+        # and every later visitor would see them.
+        require_not_demo(request.user)
 
         files = request.FILES.getlist('files')
         if not files:
@@ -3078,6 +3088,19 @@ def lesson_attachments(request, lesson_id):
             'py', 'js', 'css', 'json'  # code files
         }
 
+        # Phase 73: the per-file limit alone let one request carry ten
+        # near-limit files, so the ceiling on a single request was really 10x
+        # the number anyone had agreed to.
+        total_bytes = sum(f.size for f in files)
+        if total_bytes > settings.ATTACHMENT_MAX_REQUEST_BYTES:
+            request_limit_mb = (
+                settings.ATTACHMENT_MAX_REQUEST_BYTES // (1024 * 1024))
+            return Response(
+                {'error': f'Upload exceeds the {request_limit_mb}MB total '
+                          f'limit for one request. Send fewer files at a time.'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
         # Validate file sizes and file types
         max_size = settings.ATTACHMENT_MAX_UPLOAD_BYTES
         limit_mb = max_size // (1024 * 1024)
@@ -3093,6 +3116,19 @@ def lesson_attachments(request, lesson_id):
             if not file_ext or file_ext not in ALLOWED_EXTENSIONS:
                 return Response(
                     {'error': f'File type ".{file_ext}" is not allowed. Allowed types: {", ".join(sorted(ALLOWED_EXTENSIONS))}'},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+
+            # Phase 73: extension and size are both client-supplied strings, so
+            # confirm the bytes agree with the claimed type. The risk is not
+            # server-side execution — attachments live in a private bucket on
+            # another origin — it is that the filename is all a student sees
+            # before opening it, which makes a disguised payload a phishing
+            # primitive aimed at the class.
+            content_error = verify_upload(f, file_ext)
+            if content_error:
+                return Response(
+                    {'error': content_error},
                     status=status.HTTP_400_BAD_REQUEST
                 )
 
@@ -3114,6 +3150,11 @@ def lesson_attachments(request, lesson_id):
             created, many=True, context={'request': request}
         )
         return Response(serializer.data, status=status.HTTP_201_CREATED)
+
+
+# ScopedRateThrottle reads its scope off the generated view class. Without this
+# the throttle is installed but has no rate to enforce.
+lesson_attachments.cls.throttle_scope = 'attachment_upload'
 
 
 @api_view(['DELETE'])

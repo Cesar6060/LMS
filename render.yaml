@@ -111,4 +111,20 @@ services:
 #                  ACCOUNT_EMAIL_VERIFICATION
 # Media (R2):      USE_R2, R2_ACCESS_KEY_ID, R2_SECRET_ACCESS_KEY,
 #                  R2_ACCOUNT_ID, R2_BUCKET_NAME, R2_SIGNED_URL_TTL
+# Phase 73:        Every THROTTLE_* name above now has a real default in
+#                  settings.py, so an unset var means "use the default", not
+#                  "unlimited" as it did through Phase 72. Setting them in the
+#                  dashboard is now an override, not a requirement — and
+#                  THROTTLE_JOIN_CODE / THROTTLE_INVITE_LINK, which were never
+#                  actually set, stop being unlimited on this deploy.
+#                  New names: THROTTLE_LOGIN (default 10/min),
+#                  THROTTLE_PASSWORD_RESET_CONFIRM (5/hour),
+#                  THROTTLE_ATTACHMENT_UPLOAD (60/hour),
+#                  ACCOUNT_RATE_LIMIT_LOGIN_FAILED (5/5m/key),
+#                  HIBP_ENABLED (default on — breached-password screening),
+#                  ALLOW_INSECURE_NON_DEBUG (must stay UNSET here; setting it
+#                  would let the service boot with DEBUG=False and no TLS),
+#                  SENTRY_DEBUG_ENDPOINT (was already live but undocumented;
+#                  read at import since Phase 73, so toggling it needs a
+#                  restart rather than taking effect on the next request).
 # ----------------------------------------------------------------------------
