@@ -451,8 +451,9 @@ Run in this order. Show real output for each.
 - [x] `git ls-files .claude/settings.local.json` returns nothing.
 - [x] `git ls-files .claude/scheduled_tasks.lock` returns nothing.
 - [x] `gh repo set-default --view` → `Cesar6060/LMS`; `git remote -v` shows `origin` → LMS.
-- [ ] The `secret-scan` CI job is green on the PR — `.claude/` is newly in scope
-      for both the history and working-tree gitleaks scans.
+- [x] The `secret-scan` CI job is green on the PR — `.claude/` is newly in scope
+      for both the history and working-tree gitleaks scans. *(PR #107: gitleaks
+      pass in 14s; Frontend job pass in 1m14s.)*
 - [x] Skill frontmatter survived: `grep -c "disable-model-invocation" .claude/skills/*/SKILL.md`
       is 1 for `handoff`, `start-phase` and `finish-phase`, and **0** for
       `verify-stack`.
