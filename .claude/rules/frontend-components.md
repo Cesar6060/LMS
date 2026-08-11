@@ -24,7 +24,7 @@ paths:
 - Variants use `cva`: base string, then `variants` + `defaultVariants`, props
   extending `VariantProps<typeof xVariants>` (`ui/Button.tsx:6-36`). Add to the
   `cva` map — do not fork the component or pile on conditional classNames.
-  `asChild` renders through Radix `Slot` (`ui/Button.tsx:43`): use it to put
+  `asChild` renders through Radix `Slot` (`ui/Button.tsx:41`): use it to put
   button styling on a `<Link>` instead of restyling an anchor.
 - Use semantic tokens, not raw colors: `background`/`foreground`, `card`,
   `primary`, `secondary`, `muted`, `accent`, `destructive` (each with a

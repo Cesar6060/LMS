@@ -29,7 +29,7 @@ The view queryset is NOT the last gate: `CourseViewSet.get_queryset` hands every
   not a permission helper. `can_access_course()` calls `is_enrolled()`, a fresh
   `Enrollment.objects.filter(...).exists()` per object (`courses/permissions.py:15-23`)
   that bypasses the prefetch — the phase-63 query-count guards
-  (`TestPhase63CourseDetailQueryCounts`, `courses/tests.py:3093`) catch it.
+  (`TestPhase63CourseDetailQueryCounts`, `courses/tests.py:5201`) catch it.
 - `ActiveEnrollmentCountMixin` (`:476`) reads the `active_enrollments` prefetch
   alias; `.filter()` on a related manager hits the DB even when prefetched, and
   `len(obj.units.all())` beats `.count()` likewise (`:571`).

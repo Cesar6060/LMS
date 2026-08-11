@@ -34,8 +34,12 @@ What happened:
 ## In progress / not done
 Nothing half-built. Four owner-dashboard actions remain, none of them code:
 1. Neon `production` branch is still `protected: false`.
-2. `THROTTLE_JOIN_CODE=10/hour` and `THROTTLE_INVITE_LINK=60/hour` unset in
-   Render — `settings.py:321-322` default to `None`, i.e. unthrottled.
+2. `THROTTLE_JOIN_CODE` and `THROTTLE_INVITE_LINK` unset in Render.
+   **Superseded by phase 73 (noted at phase 74):** both scopes now default to
+   `60/hour` in `config/settings.py`, so neither is unthrottled any more, and
+   the `10/hour` figure this handoff originally gave for the join code was
+   rejected — per-IP throttles bucket a whole classroom behind one school NAT.
+   Setting them in Render is now confirmation, not a fix.
 3. `_dmarc.stemquests.com` and root SPF on `stemquests.com` still absent
    (re-confirmed by `dig` 2026-08-06).
 4. Invite-deliverability test to the school address that vanished.
@@ -48,8 +52,8 @@ smoke test; phase-56/64 click-throughs; Sentry LoginPage; Dependabot
 ## Next steps
 1. **Neon console → LMS → Branches → `production` → enable protection.** The
    MCP server exposes no branch-update tool, so this cannot be automated.
-2. **Render dashboard**: set `THROTTLE_JOIN_CODE=10/hour`,
-   `THROTTLE_INVITE_LINK=60/hour`.
+2. **Render dashboard**: set `THROTTLE_JOIN_CODE=60/hour`,
+   `THROTTLE_INVITE_LINK=60/hour` (both corrected to 60/hour — see above).
 3. **Cloudflare**: apply `docs/runbooks/phase-67-email-deliverability-dns.txt`
    — TXT `_dmarc` = `v=DMARC1; p=none; fo=1`, TXT `@` =
    `v=spf1 include:amazonses.com ~all`, both DNS-only (grey cloud). Only ONE

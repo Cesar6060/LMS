@@ -8,7 +8,7 @@ paths:
 
 ## Run & place
 
-- `cd frontend && npm test` — `vitest run`, one pass (`package.json:11`).
+- `cd frontend && npm test` — `vitest run`, one pass (`package.json:10`).
   `npm run test:watch` is bare `vitest`. Suite today: 26 files, 269 tests, ~3s.
 - Co-locate `Foo.test.tsx` next to `Foo.tsx`; no `__tests__/` dir exists anywhere
   under `frontend/src` — do not create one. Glob: `src/**/*.{test,spec}.{ts,tsx}`.

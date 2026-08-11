@@ -12,7 +12,7 @@ paths:
   `docker compose exec -T backend pytest` (service `backend`, `docker-compose.yml:18`;
   WORKDIR `/app` = repo `backend/`, so paths are relative: `courses/tests.py`).
 - NEVER start a run while a review subagent is running tests. Both runs create the same
-  `test_gamedev_db` (`docker-compose.yml:2`) and collide, producing hundreds of bogus
+  `test_gamedev_db` (`docker-compose.yml:5`) and collide, producing hundreds of bogus
   errors. If another agent is testing, wait.
 - `backend/pytest.ini:8` forces coverage —
   `addopts = -v --tb=short --cov=. --cov-report=term-missing` — so a full run is ~280s.
@@ -43,7 +43,7 @@ paths:
   - measure-at-N-then-2N (preferred for lists): capture as `small` at 12 rows, create 12
     more, capture as `big` at 24, assert
     `len(big.captured_queries) == len(small.captured_queries)`
-    (`courses/tests.py:5458-5484`, `discussions/tests.py:363-384`, `quizzes/tests.py:667`).
+    (`courses/tests.py:5458-5484`, `discussions/tests.py:363-384`, `quizzes/tests.py:664`).
 
 ## Demo lockdown
 

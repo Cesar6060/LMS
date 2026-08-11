@@ -111,10 +111,10 @@ UI/UX, instructor-vs-student permissions, data-model tradeoffs).
 HOW TO PROMPT IT WELL:
     - Give it a one-paragraph intent BEFORE or right after the slash command.
       Don't make it guess the goal. Example:
-        "/start-phase 53-assignment-rubrics
-         Goal: let instructors attach a scoring rubric to an assignment and
-         grade against it. Students see the rubric before submitting. Out of
-         scope: peer review, rubric templates library."
+        "/start-phase 75-lesson-bookmarks
+         Goal: let students bookmark a lesson and see their bookmarks on the
+         dashboard. Instructors see nothing new. Out of scope: notes on a
+         bookmark, sharing them, any change to progress tracking."
     - Answer the interview questions decisively. Every 'it depends' you leave
       becomes an assumption the builder makes for you.
     - State the OUT-OF-SCOPE list loudly. Scope creep is the #1 cause of a phase
@@ -166,7 +166,7 @@ UNATTENDED (overnight — only for airtight specs with zero open questions):
 
 PROMPTING TIPS FOR THE BUILD STAGE:
     - Point it at the spec by PATH, not by memory. "Read docs/specs/phase-53..."
-      is better than "implement the rubrics feature."
+      is better than "implement the bookmarks feature."
     - Don't feed it new requirements mid-build. If scope changes, that's a sign
       the spec was wrong — either amend the spec explicitly or note it for the
       next phase. Silent scope changes wreck the review stage.
@@ -224,8 +224,9 @@ because they look for different things:
                           instructor of a DIFFERENT course / anonymously;
                           swaps IDs and course codes for IDOR; sends malformed
                           payloads; abuses business rules (quiz attempt limits,
-                          post-deadline submits, double enroll, negative
-                          scores); probes uploads and state edges.
+                          double enroll, negative scores); probes unit-lock
+                          bypass, invite gating, demo write-blocking, upload
+                          content checks and inert throttles.
     frontend-reviewer  "Does the React side follow our contracts?"
                        -> every API call goes through the api.ts interceptor
                           rather than bare axios (that interceptor owns the 401
@@ -266,7 +267,7 @@ After a deploy, verify with a real content read, not just the health endpoint �
 7. PROMPTING PRINCIPLES THAT APPLY EVERYWHERE
 --------------------------------------------------------------------------------
     - Reference by path, not by memory. "docs/specs/phase-53-x.md", not "the
-      rubric thing." Paths are unambiguous and clickable.
+      bookmark thing." Paths are unambiguous and clickable.
     - One session, one job. Plan, build, and close are three sessions. /clear
       between them keeps context sharp.
     - Decide, don't defer. Every unanswered question becomes an assumption

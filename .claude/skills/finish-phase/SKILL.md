@@ -75,3 +75,8 @@ first — and say so in the PR.
 content read (`POST /api/auth/demo-login/` for a token, then
 `GET /api/courses/courses/DEMO101/units/`). Deep health only runs `SELECT 1`, so it cannot
 see a missing column.
+
+Note: `.claude/hooks/guard-bash.sh` blocks write-method requests at the production
+hosts, so that `POST` will be refused from a session. The GET half runs fine. Ask the
+user to run the POST, or drive the check through the browser — do not work around the
+hook.

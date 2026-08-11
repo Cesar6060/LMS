@@ -22,8 +22,10 @@ set -u
 HOOK_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 GUARD_PY="$HOOK_DIR/guard-bash.py"
 
-# Missing program: fail open rather than blocking every Bash call.
-[ -f "$GUARD_PY" ] || exit 0
+# Missing or UNREADABLE program: fail open rather than blocking every Bash call.
+# -r, not -f: python3 exits 2 on a file it cannot open, and 2 is the block code,
+# so a chmod 000 here would have turned the guard into a total Bash outage.
+[ -r "$GUARD_PY" ] || exit 0
 
 PY=""
 for candidate in "$(command -v python3 2>/dev/null)" /opt/homebrew/bin/python3 /usr/bin/python3; do
@@ -34,5 +36,12 @@ for candidate in "$(command -v python3 2>/dev/null)" /opt/homebrew/bin/python3 /
 done
 
 # No interpreter: fail open.
-[ -z "$PY" ] || exec "$PY" "$GUARD_PY"
+[ -z "$PY" ] && exit 0
+
+# Not exec'd: the exit code has to be normalised. Only 2 blocks. A crash in the
+# interpreter (rc 1), a file it cannot open (rc 2 from python itself, already
+# guarded above), or any other code must not take the Bash tool down with it.
+"$PY" "$GUARD_PY"
+rc=$?
+[ "$rc" -eq 2 ] && exit 2
 exit 0
