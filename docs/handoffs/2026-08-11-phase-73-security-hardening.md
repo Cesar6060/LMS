@@ -1,9 +1,21 @@
 # Handoff: Phase 73 — security hardening audit
 
 ## Current state
-**Phase 73 is code-complete, reviewed, verified. PR #106 is open and NOT
-merged.** https://github.com/Cesar6060/LMS/pull/106 — branch
-`phase-73-security-hardening`, 6 commits off `lms/main` at `65c33cb`.
+**Phase 73 is MERGED and verified in production.** PR #106 squash-merged to
+main as `5133c7e` on 2026-08-11T15:26Z; branch deleted. CI was green on all
+three checks (backend pytest, frontend, and the new gitleaks workflow).
+
+Deploy verified with more than health: deep health `{"status": "ok",
+"database": "ok", "content": "ok"}`; a real content read as the demo user
+returned DEMO101 with 5 units and their lessons, and course detail returned
+`is_enrolled: true` with units present — proving the new
+`CourseSerializer.to_representation` did not break the legitimate path. The new
+code was confirmed live by a probe only it can answer: 22 failed logins against
+a nonexistent address returned 20x400 then 429, matching the new `login_email`
+20/hour scope (the old code had no login throttle and would have returned all
+400). Demo-login still returned 200 immediately after, confirming the ceiling
+is account-keyed rather than a global lockout. HSTS, nosniff, X-Frame-Options
+and referrer-policy all intact; `/api/sentry-debug/` still 404.
 
 Audited all 20 checklist items: 14 came back clean, 3 were accepted risks, 6
 produced fixes. Spec `docs/specs/phase-73-security-hardening-audit.md` carries
@@ -41,22 +53,23 @@ throttle fires at 20, still refuses the correct password once tripped, and
 leaves other accounts working.
 
 ## In progress / not done
-1. **PR #106 is not merged.** Both review agents ran; every BROKEN and HIGH
-   finding is fixed and re-verified. Deferred items are listed in the PR body
-   and the spec's accepted-risks section, not dropped.
+1. Nothing blocking. Both review agents ran; every BROKEN and HIGH finding was
+   fixed and re-verified before merge. Deferred items are in the PR body and
+   the spec's accepted-risks section, not dropped.
 2. Two review LOWs left open on purpose: media signature coverage (MPEG-2 mp3
    frame syncs, `.mov` files whose first atom is `moov` rather than `ftyp`)
    and RFC 5987 filenames, so a `Práctica.pdf` downloads as `Pr_ctica.pdf`.
 
 ## Next steps
-1. Review and merge PR #106.
-2. **Before merging, know that A1 changes production behaviour**: scopes whose
-   env var was never set (join_code, invite_link) stop being unlimited on this
-   deploy. That is the fix, but verify both flows after deploy.
-3. `USE_HTTPS` is confirmed already set in Render (prod returns the HSTS value
-   from inside that block), so the new boot guard will not abort the deploy.
-   Do **not** set `ALLOW_INSECURE_NON_DEBUG` in Render.
-4. Phase 72 (content-upsert hardening) is still unstarted.
+1. **Exercise the join-code and invite-link flows against production once.**
+   Those two scopes ran unlimited until this deploy and now enforce 60/hour
+   each; they are the only rates whose live behaviour changed and neither has
+   been used since. Nothing suggests a problem — this is confirmation, not
+   suspicion.
+2. Do **not** set `ALLOW_INSECURE_NON_DEBUG` in Render. It exists so CI can run
+   `DEBUG=False` without TLS; in production it would let the service boot with
+   transport hardening silently off. `USE_HTTPS` is already set there.
+3. Phase 72 (content-upsert hardening) is still unstarted.
 5. Carried owner actions, untouched: Neon `production` `protected: false`;
    `_dmarc` + root SPF absent; invite-deliverability test; JAVA101 answer
    rotation.
