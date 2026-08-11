@@ -7834,3 +7834,159 @@ class TestPhase68AdversarialPass:
 
         assert consume_invite_for(student, course) is True
         assert consume_invite_for(student, course) is False
+
+
+# ---------------------------------------------------------------------------
+# Phase 73: course content is not readable by unrelated instructors
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture
+def other_instructor():
+    """An instructor with no relationship to the `course` fixture."""
+    return User.objects.create_user(
+        email='outsider@test.com',
+        password='testpass123',
+        first_name='Other',
+        last_name='Instructor',
+        is_instructor=True,
+    )
+
+
+@pytest.mark.django_db
+class TestPhase73CourseContentScoping:
+    """CourseViewSet hands every is_instructor user the whole Course queryset.
+
+    That is deliberate — instructors browse the catalogue — but CourseSerializer
+    nests units -> lessons -> content, so it also handed them the full text of
+    every course on the platform. Course codes are chosen by hand and
+    enumerable, so nothing had to be guessed.
+    """
+
+    def detail_url(self, course):
+        return f'/api/courses/courses/{course.code}/'
+
+    def test_unrelated_instructor_sees_no_lesson_content(
+            self, api_client, course, lesson, other_instructor):
+        api_client.force_authenticate(user=other_instructor)
+
+        response = api_client.get(self.detail_url(course))
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.data['units'] == []
+        assert lesson.content not in str(response.data)
+
+    def test_unrelated_instructor_still_sees_the_catalogue_entry(
+            self, api_client, course, lesson, other_instructor):
+        """Browsing is the reason the queryset is unfiltered; keep it working."""
+        api_client.force_authenticate(user=other_instructor)
+
+        response = api_client.get(self.detail_url(course))
+
+        assert response.data['code'] == course.code
+        assert response.data['title'] == course.title
+        assert 'enrollment_code' not in response.data
+
+    def test_owning_instructor_sees_full_content(
+            self, api_client, course, lesson, instructor):
+        api_client.force_authenticate(user=instructor)
+
+        response = api_client.get(self.detail_url(course))
+
+        assert response.status_code == status.HTTP_200_OK
+        assert len(response.data['units']) == 1
+        assert response.data['units'][0]['lessons'][0]['id'] == lesson.id
+
+    def test_enrolled_student_sees_full_content(
+            self, api_client, course, lesson, student, enrollment):
+        api_client.force_authenticate(user=student)
+
+        response = api_client.get(self.detail_url(course))
+
+        assert response.status_code == status.HTTP_200_OK
+        assert len(response.data['units']) == 1
+
+    def test_unenrolled_student_cannot_reach_the_course_at_all(
+            self, api_client, course, lesson, student):
+        """Students are queryset-filtered, so this is a 404 rather than a
+        stripped 200 — asserted so the two paths cannot silently converge."""
+        api_client.force_authenticate(user=student)
+
+        response = api_client.get(self.detail_url(course))
+
+        assert response.status_code == status.HTTP_404_NOT_FOUND
+
+    def test_anonymous_is_rejected(self, api_client, course):
+        response = api_client.get(self.detail_url(course))
+
+        assert response.status_code in (
+            status.HTTP_401_UNAUTHORIZED, status.HTTP_403_FORBIDDEN)
+
+    def test_lesson_endpoint_agrees_with_the_course_endpoint(
+            self, api_client, course, lesson, other_instructor):
+        """The two routes to the same lesson must give the same answer.
+
+        /api/lessons/<id>/ already 403'd for this caller; the course detail
+        route did not. That disagreement was the bug.
+        """
+        api_client.force_authenticate(user=other_instructor)
+
+        response = api_client.get(f'/api/courses/lessons/{lesson.id}/')
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+
+
+@pytest.mark.django_db
+class TestPhase73AnnouncementCreateIsClosed:
+    """The router's create route never resolved a course, so it never checked
+    ownership — and died on a database constraint instead of a permission
+    error, which read as a crash rather than as a missing check."""
+
+    URL = '/api/courses/announcements/'
+
+    def test_student_cannot_create_through_the_viewset(
+            self, api_client, student, enrollment):
+        api_client.force_authenticate(user=student)
+
+        response = api_client.post(
+            self.URL, {'title': 'x', 'content': 'y'}, format='json')
+
+        assert response.status_code == status.HTTP_405_METHOD_NOT_ALLOWED
+        assert response.status_code != status.HTTP_500_INTERNAL_SERVER_ERROR
+
+    def test_instructor_cannot_create_through_the_viewset_either(
+            self, api_client, instructor, course):
+        api_client.force_authenticate(user=instructor)
+
+        response = api_client.post(
+            self.URL, {'title': 'x', 'content': 'y'}, format='json')
+
+        assert response.status_code == status.HTTP_405_METHOD_NOT_ALLOWED
+
+    def test_no_announcement_is_persisted(self, api_client, student, enrollment):
+        api_client.force_authenticate(user=student)
+
+        api_client.post(self.URL, {'title': 'x', 'content': 'y'}, format='json')
+
+        assert Announcement.objects.count() == 0
+
+    def test_course_scoped_route_still_works_for_the_instructor(
+            self, api_client, instructor, course):
+        api_client.force_authenticate(user=instructor)
+
+        response = api_client.post(
+            f'/api/courses/courses/{course.code}/announcements/',
+            {'title': 'Real announcement', 'content': 'Body'}, format='json')
+
+        assert response.status_code == status.HTTP_201_CREATED
+        assert Announcement.objects.count() == 1
+
+    def test_pin_action_still_accepts_post(
+            self, api_client, instructor, course):
+        announcement = Announcement.objects.create(
+            course=course, author=instructor, title='t', content='c')
+        api_client.force_authenticate(user=instructor)
+
+        response = api_client.post(f'{self.URL}{announcement.id}/pin/')
+
+        assert response.status_code == status.HTTP_200_OK

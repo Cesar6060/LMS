@@ -515,13 +515,31 @@ class CourseSerializer(ActiveEnrollmentCountMixin, serializers.ModelSerializer):
         read_only_fields = ['id', 'enrollment_code', 'created_at', 'updated_at']
 
     def to_representation(self, instance):
-        """Hide enrollment_code from non-instructors."""
+        """Hide enrollment_code, and lesson content, from outsiders."""
         data = super().to_representation(instance)
         request = self.context.get('request')
 
         # Only show enrollment_code to the course instructor
         if request and request.user != instance.instructor:
             data.pop('enrollment_code', None)
+
+        # Phase 73: CourseViewSet.get_queryset hands every is_instructor user
+        # the unfiltered Course queryset so they can browse the catalogue, and
+        # this serializer nests units -> lessons -> content. That combination
+        # let any instructor account read the full body of every course on the
+        # platform by walking enumerable codes like ROB101. The catalogue entry
+        # stays visible; the material does not. Fetching the same lesson at
+        # /api/lessons/<id>/ has always 403'd for these callers — this closes
+        # the second route to it.
+        #
+        # Reuses the already-computed is_enrolled rather than calling
+        # can_access_course: that helper runs its own Enrollment query and would
+        # bypass the prefetch this serializer is built around, which the phase
+        # 63 query-count guard catches.
+        if request and not (
+            request.user == instance.instructor or data.get('is_enrolled')
+        ):
+            data['units'] = []
 
         return data
 

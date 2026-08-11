@@ -45,7 +45,7 @@ from .serializers import (
     LessonSectionBulkCreateSerializer, CourseMapSerializer, CourseInviteSerializer,
     prefetch_active_enrollments,
 )
-from rest_framework.exceptions import PermissionDenied
+from rest_framework.exceptions import MethodNotAllowed, PermissionDenied
 from .permissions import (
     IsInstructor, IsInstructorOrReadOnly, IsCourseInstructor,
     IsEnrolledOrInstructor,
@@ -916,6 +916,25 @@ class AnnouncementViewSet(viewsets.ModelViewSet):
         elif self.action in ['create', 'update', 'partial_update']:
             return AnnouncementCreateSerializer
         return AnnouncementSerializer
+
+    def create(self, request, *args, **kwargs):
+        """Announcements are created course-scoped, never through this route.
+
+        Phase 73. check_object_permissions below only runs for detail routes,
+        so create reached serializer.save() with no ownership check at all —
+        any authenticated student could post here. It failed as an
+        IntegrityError (course and author are non-null and
+        AnnouncementCreateSerializer carries neither) rather than a 403, which
+        turned a missing authorization check into a 500 and hid it.
+
+        CourseAnnouncementsView is the real creation path and does check
+        require_course_instructor. Closing this one rather than duplicating
+        that logic keeps a single guarded entry point.
+        """
+        raise MethodNotAllowed(
+            request.method,
+            detail='Create announcements at /api/courses/<code>/announcements/.',
+        )
 
     def check_object_permissions(self, request, obj):
         super().check_object_permissions(request, obj)
