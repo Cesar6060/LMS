@@ -1,18 +1,18 @@
 # Core Django
-Django==5.2.16
-djangorestframework==3.17.1
+Django==5.2.17
+djangorestframework==3.18.0
 django-cors-headers==4.9.0
 
 # Database
-psycopg[binary,pool]==3.3.4
+psycopg[binary,pool]==3.3.5
 dj-database-url==3.1.2
 
 # Production serving
-gunicorn==26.0.0
+gunicorn==26.2.0
 whitenoise[brotli]==6.12.0
 
 # Authentication
-django-allauth==65.18.0
+django-allauth==65.19.1
 dj-rest-auth==7.2.0
 djangorestframework-simplejwt==5.5.1
 # Transitive via simplejwt, pinned explicitly so it can't drift back below the
@@ -31,8 +31,8 @@ django-storages[s3]==1.14.6
 python-decouple==3.8
 
 # Error Tracking
-sentry-sdk[django]==2.66.1
+sentry-sdk[django]==2.68.1
 
 # Testing
-pytest-django==4.12.0
+pytest-django==4.14.0
 pytest-cov==7.1.0
